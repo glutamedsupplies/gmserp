@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "901927576776",
+    "project_id": "gmserp-ffc76",
+    "storage_bucket": "gmserp-ffc76.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:901927576776:android:1350d8b3b8400b4df931fd",
+        "android_client_info": {
+          "package_name": "gmserp.android"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMtetkIw2a2O1blzdzAhesuMjj1jsJgfs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

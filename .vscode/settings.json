@@ -1,0 +1,13 @@
+{
+  "dart.flutterSdkPath": "C:\\flutter",
+  "dart.env": {
+    "ANDROID_HOME": "C:\\Users\\User\\AppData\\Local\\Android\\sdk",
+    "ANDROID_SDK_ROOT": "C:\\Users\\User\\AppData\\Local\\Android\\sdk",
+    "PATH": "C:\\Users\\User\\AppData\\Local\\Android\\sdk\\platform-tools;C:\\flutter\\bin;${env:PATH}"
+  },
+  "terminal.integrated.env.windows": {
+    "ANDROID_HOME": "C:\\Users\\User\\AppData\\Local\\Android\\sdk",
+    "ANDROID_SDK_ROOT": "C:\\Users\\User\\AppData\\Local\\Android\\sdk",
+    "PATH": "C:\\Users\\User\\AppData\\Local\\Android\\sdk\\platform-tools;C:\\flutter\\bin;C:\\Users\\User\\.local\\bin;${env:PATH}"
+  }
+}
