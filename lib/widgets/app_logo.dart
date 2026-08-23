@@ -12,7 +12,7 @@ class AppLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Image.asset(
-        'assets/branding/gmserp_logo.jpg',
+        'assets/branding/gmserp_logo.png',
         width: size,
         height: size,
         fit: BoxFit.contain,

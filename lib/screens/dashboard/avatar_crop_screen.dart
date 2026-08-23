@@ -31,9 +31,9 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.textPrimary,
+      backgroundColor: AppColors.cropBackdrop,
       appBar: AppBar(
-        backgroundColor: AppColors.textPrimary,
+        backgroundColor: AppColors.cropBackdrop,
         foregroundColor: Colors.white,
         title: const Text('Crop photo'),
         actions: [
@@ -58,7 +58,7 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
               withCircleUi: true,
               aspectRatio: 1,
               interactive: true,
-              baseColor: AppColors.textPrimary,
+              baseColor: AppColors.cropBackdrop,
               maskColor: Colors.black.withValues(alpha: 0.55),
               progressIndicator: const Center(
                 child: CircularProgressIndicator(color: AppColors.primary),

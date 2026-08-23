@@ -17,6 +17,7 @@ class CustomTextField extends StatelessWidget {
     this.inputFormatters,
     this.autofillHints,
     this.onChanged,
+    this.autovalidateMode = AutovalidateMode.onUserInteraction,
   });
 
   final TextEditingController controller;
@@ -32,6 +33,7 @@ class CustomTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final Iterable<String>? autofillHints;
   final ValueChanged<String>? onChanged;
+  final AutovalidateMode autovalidateMode;
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +59,11 @@ class CustomTextField extends StatelessWidget {
           inputFormatters: inputFormatters,
           autofillHints: autofillHints,
           onChanged: onChanged,
-          style: const TextStyle(fontSize: 15),
+          autovalidateMode: autovalidateMode,
+          style: TextStyle(
+            fontSize: 15,
+            color: Theme.of(context).textTheme.bodyLarge?.color,
+          ),
           decoration: InputDecoration(
             hintText: hint ?? label,
             prefixIcon: prefixIcon != null

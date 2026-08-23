@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/responsive.dart';
 import '../../core/utils/snackbar_helper.dart';
@@ -14,10 +13,9 @@ class HomeScreen extends StatelessWidget {
     await context.read<AuthProvider>().logout();
     if (!context.mounted) return;
     SnackBarHelper.showInfo(context, 'You have been signed out.');
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      AppRoutes.login,
-      (route) => false,
-    );
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
   @override
@@ -27,10 +25,9 @@ class HomeScreen extends StatelessWidget {
     if (!auth.isAuthenticated) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.login,
-          (route) => false,
-        );
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       });
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -59,11 +56,11 @@ class HomeScreen extends StatelessWidget {
               padding: EdgeInsets.all(padding),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: AppColors.card,
+                  color: AppColors.of(context).card,
                   borderRadius: BorderRadius.circular(20),
-                  boxShadow: const [
+                  boxShadow: [
                     BoxShadow(
-                      color: AppColors.shadow,
+                      color: AppColors.of(context).shadow,
                       blurRadius: 20,
                       offset: Offset(0, 8),
                     ),
@@ -146,7 +143,7 @@ class _InfoRow extends StatelessWidget {
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: AppColors.of(context).textPrimary,
                 ),
           ),
         ),

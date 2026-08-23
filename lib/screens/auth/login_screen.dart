@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
-import '../../core/navigation/post_login.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../core/validators/auth_validators.dart';
 import '../../providers/auth_provider.dart';
@@ -25,7 +23,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _rememberMe = false;
 
   @override
   void dispose() {
@@ -42,7 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final success = await auth.login(
       email: _emailController.text.trim(),
       password: _passwordController.text,
-      rememberMe: _rememberMe,
+      rememberMe: true,
     );
 
     if (!mounted) return;
@@ -50,9 +47,6 @@ class _LoginScreenState extends State<LoginScreen> {
     if (success) {
       context.read<CompanyProvider>().clearSelection();
       SnackBarHelper.showSuccess(context, 'Login successful.');
-      Navigator.of(context).pushReplacementNamed(
-        PostLoginNavigation.routeFor(auth.user!),
-      );
     } else {
       SnackBarHelper.showError(
         context,
@@ -107,47 +101,17 @@ class _LoginScreenState extends State<LoginScreen> {
               autofillHints: const [AutofillHints.password],
               validator: AuthValidators.loginPassword,
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: Checkbox(
-                    value: _rememberMe,
-                    onChanged: isLoading
-                        ? null
-                        : (value) {
-                            setState(() => _rememberMe = value ?? false);
-                          },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: isLoading
-                        ? null
-                        : () {
-                            setState(() => _rememberMe = !_rememberMe);
-                          },
-                    child: Text(
-                      'Remember Me',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textPrimary,
-                          ),
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: isLoading
-                      ? null
-                      : () {
-                          Navigator.of(context)
-                              .pushNamed(AppRoutes.forgotPassword);
-                        },
-                  child: const Text('Forgot password?'),
-                ),
-              ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                        Navigator.of(context)
+                            .pushNamed(AppRoutes.forgotPassword);
+                      },
+                child: const Text('Forgot password?'),
+              ),
             ),
             const SizedBox(height: 20),
             PrimaryButton(
@@ -169,8 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: isLoading
                       ? null
                       : () {
-                          Navigator.of(context)
-                              .pushReplacementNamed(AppRoutes.register);
+                          Navigator.of(context).pushNamed(AppRoutes.register);
                         },
                   child: const Text('Sign up'),
                 ),

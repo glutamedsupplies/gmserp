@@ -31,7 +31,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
       case UserRole.employee:
         final company = companies.selectedCompany;
         if (company == null) {
-          Navigator.of(context).pushReplacementNamed(AppRoutes.selectCompany);
           return;
         }
         await companies.loadMyAssignment(
@@ -42,7 +41,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
       case UserRole.admin:
         final company = companies.selectedCompany;
         if (company == null) {
-          Navigator.of(context).pushReplacementNamed(AppRoutes.selectCompany);
           return;
         }
         await companies.loadUsers();
@@ -94,9 +92,9 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
             const SizedBox(height: 12),
             _StatCard(
               icon: Icons.task_alt_rounded,
-              label: 'Assigned task',
-              value: companies.myAssignment?.task.isNotEmpty == true
-                  ? companies.myAssignment!.task
+              label: 'Assigned tasks',
+              value: companies.myAssignment?.tasks.isNotEmpty == true
+                  ? companies.myAssignment!.tasks.join(', ')
                   : 'Not assigned yet',
             ),
           ] else if (role == UserRole.admin) ...[
@@ -171,7 +169,7 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.inputFill,
+        color: AppColors.of(context).inputFill,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -183,7 +181,7 @@ class _StatCard extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.28),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: AppColors.textPrimary),
+            child: Icon(icon, color: AppColors.of(context).textPrimary),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -192,18 +190,18 @@ class _StatCard extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
+                  style: TextStyle(
+                    color: AppColors.of(context).textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   value,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    color: AppColors.of(context).textPrimary,
                   ),
                 ),
               ],

@@ -6,37 +6,67 @@ import 'app_colors.dart';
 class AppTheme {
   AppTheme._();
 
-  static ThemeData get light {
+  static ThemeData get light => _theme(AppColors.light, Brightness.light);
+
+  static ThemeData get dark => _theme(AppColors.dark, Brightness.dark);
+
+  static ThemeData _theme(AppColors colors, Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppColors.primary,
       primary: AppColors.primary,
       secondary: AppColors.secondary,
       error: AppColors.error,
-      surface: AppColors.surface,
-      brightness: Brightness.light,
+      surface: colors.surface,
+      brightness: brightness,
     );
 
     return ThemeData(
       useMaterial3: true,
+      brightness: brightness,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: AppColors.background,
-      appBarTheme: const AppBarTheme(
+      scaffoldBackgroundColor: colors.background,
+      dividerColor: colors.border,
+      extensions: [colors],
+      iconTheme: IconThemeData(color: colors.textPrimary),
+      appBarTheme: AppBarTheme(
         elevation: 0,
         centerTitle: true,
         backgroundColor: Colors.transparent,
-        foregroundColor: AppColors.textPrimary,
-        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        foregroundColor: colors.textPrimary,
+        systemOverlayStyle:
+            isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       ),
       cardTheme: CardThemeData(
-        color: AppColors.card,
+        color: colors.card,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
         ),
       ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: colors.background,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dividerTheme: DividerThemeData(color: colors.border),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.primary;
+          }
+          return colors.textSecondary;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.primary.withValues(alpha: 0.45);
+          }
+          return colors.border;
+        }),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.inputFill,
+        fillColor: colors.inputFill,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 16,
@@ -64,13 +94,13 @@ class AppTheme {
           borderRadius: BorderRadius.circular(28),
           borderSide: const BorderSide(color: AppColors.error, width: 1.5),
         ),
-        hintStyle: const TextStyle(
-          color: AppColors.textHint,
+        hintStyle: TextStyle(
+          color: colors.textHint,
           fontSize: 15,
           fontWeight: FontWeight.w400,
         ),
-        labelStyle: const TextStyle(
-          color: AppColors.textSecondary,
+        labelStyle: TextStyle(
+          color: colors.textSecondary,
           fontSize: 14,
         ),
         errorStyle: const TextStyle(
@@ -78,13 +108,15 @@ class AppTheme {
           fontSize: 12,
           fontWeight: FontWeight.w400,
         ),
+        prefixIconColor: colors.textSecondary,
+        suffixIconColor: colors.textSecondary,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: AppColors.onPrimary,
           elevation: 0,
-          shadowColor: AppColors.shadow,
+          shadowColor: colors.shadow,
           minimumSize: const Size(double.infinity, 54),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(28),
@@ -98,7 +130,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.primary,
+          foregroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
           textStyle: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -112,53 +144,56 @@ class AppTheme {
           }
           return Colors.transparent;
         }),
-        side: const BorderSide(color: AppColors.border, width: 1.5),
+        checkColor: WidgetStateProperty.all(AppColors.onPrimary),
+        side: BorderSide(color: colors.border, width: 1.5),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(4),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
+        backgroundColor: colors.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
-        contentTextStyle: const TextStyle(
+        contentTextStyle: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
+          color: colors.textPrimary,
         ),
       ),
-      textTheme: const TextTheme(
+      textTheme: TextTheme(
         headlineLarge: TextStyle(
           fontSize: 28,
           fontWeight: FontWeight.w700,
-          color: AppColors.textPrimary,
+          color: colors.textPrimary,
           letterSpacing: -0.5,
         ),
         headlineMedium: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.w700,
-          color: AppColors.textPrimary,
+          color: colors.textPrimary,
           letterSpacing: -0.3,
         ),
         titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary,
+          color: colors.textPrimary,
         ),
         bodyLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w400,
-          color: AppColors.textPrimary,
+          color: colors.textPrimary,
         ),
         bodyMedium: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w400,
-          color: AppColors.textSecondary,
+          color: colors.textSecondary,
         ),
         bodySmall: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w400,
-          color: AppColors.textSecondary,
+          color: colors.textSecondary,
         ),
       ),
     );

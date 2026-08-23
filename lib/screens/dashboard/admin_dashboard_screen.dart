@@ -25,7 +25,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final companies = context.read<CompanyProvider>();
       final company = companies.selectedCompany;
       if (company == null) {
-        Navigator.of(context).pushReplacementNamed(AppRoutes.selectCompany);
         return;
       }
       companies.loadUsers();
@@ -46,7 +45,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         .toList();
     if (existing.isNotEmpty) {
       roleController.text = existing.first.jobRole;
-      taskController.text = existing.first.task;
+      taskController.text = existing.first.tasks.join(', ');
     }
 
     final saved = await showDialog<bool>(
@@ -96,8 +95,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             userId: employee.id,
             username: employee.username,
             email: employee.email,
+            roleId: existing.isNotEmpty ? existing.first.roleId : '',
             jobRole: roleController.text.trim(),
-            task: taskController.text.trim(),
+            tasks: taskController.text
+                .split(',')
+                .map((item) => item.trim())
+                .where((item) => item.isNotEmpty)
+                .toList(),
           ),
         );
     roleController.dispose();
@@ -148,7 +152,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 subtitle: Text(
                   current == null
                       ? employee.email
-                      : '${current.jobRole} • ${current.task}',
+                      : '${current.jobRole} • ${current.tasks.join(', ')}',
                 ),
                 trailing: const Icon(Icons.edit_outlined),
                 onTap: () => _assign(employee),

@@ -26,11 +26,11 @@ class AuthCard extends StatelessWidget {
           padding: EdgeInsets.symmetric(horizontal: horizontal),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: AppColors.card,
+              color: AppColors.of(context).card,
               borderRadius: BorderRadius.circular(isMobile ? 16 : 24),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.shadow,
+                  color: AppColors.of(context).shadow,
                   blurRadius: isMobile ? 16 : 28,
                   offset: const Offset(0, 10),
                 ),

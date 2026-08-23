@@ -7,12 +7,22 @@ class SidebarDestination {
   const SidebarDestination({
     required this.label,
     required this.icon,
-    required this.route,
+    this.route,
+    this.children = const [],
   });
 
   final String label;
   final IconData icon;
-  final String route;
+  final String? route;
+  final List<SidebarDestination> children;
+
+  bool get hasChildren => children.isNotEmpty;
+
+  bool containsRoute(String currentRoute) {
+    if (route == currentRoute) return true;
+    if (route != null && currentRoute.startsWith('$route/')) return true;
+    return children.any((child) => child.containsRoute(currentRoute));
+  }
 }
 
 const _dashboard = SidebarDestination(
@@ -21,18 +31,25 @@ const _dashboard = SidebarDestination(
   route: AppRoutes.dashboard,
 );
 
+const _settings = SidebarDestination(
+  label: 'Settings',
+  icon: Icons.settings_rounded,
+  route: AppRoutes.settings,
+);
+
 List<SidebarDestination> destinationsForRole(UserRole? role) {
   switch (role) {
     case UserRole.user:
-      return const [_dashboard];
+      return const [_dashboard, _settings];
     case UserRole.employee:
       return const [
         _dashboard,
         SidebarDestination(
-          label: 'Companies',
-          icon: Icons.apartment_rounded,
+          label: 'Switch company',
+          icon: Icons.swap_horiz_rounded,
           route: AppRoutes.selectCompany,
         ),
+        _settings,
       ];
     case UserRole.admin:
       return const [
@@ -43,10 +60,11 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
           route: AppRoutes.adminDashboard,
         ),
         SidebarDestination(
-          label: 'Companies',
-          icon: Icons.apartment_rounded,
+          label: 'Switch company',
+          icon: Icons.swap_horiz_rounded,
           route: AppRoutes.selectCompany,
         ),
+        _settings,
       ];
     case UserRole.superAdmin:
       return const [
@@ -54,13 +72,40 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
         SidebarDestination(
           label: 'Companies',
           icon: Icons.business_rounded,
-          route: AppRoutes.superAdmin,
+          children: [
+            SidebarDestination(
+              label: 'Create company',
+              icon: Icons.add_business_rounded,
+              route: AppRoutes.superAdminCreate,
+            ),
+            SidebarDestination(
+              label: 'Company lists',
+              icon: Icons.list_alt_rounded,
+              route: AppRoutes.superAdminList,
+            ),
+            SidebarDestination(
+              label: 'Employee lists',
+              icon: Icons.badge_outlined,
+              route: AppRoutes.superAdminEmployees,
+            ),
+            SidebarDestination(
+              label: 'Role lists',
+              icon: Icons.workspace_premium_outlined,
+              route: AppRoutes.superAdminRoles,
+            ),
+            SidebarDestination(
+              label: 'Task lists',
+              icon: Icons.task_alt_rounded,
+              route: AppRoutes.superAdminTasks,
+            ),
+          ],
         ),
         SidebarDestination(
           label: 'User levels',
           icon: Icons.manage_accounts_rounded,
           route: AppRoutes.superAdminUsers,
         ),
+        _settings,
       ];
     case null:
       return const [];

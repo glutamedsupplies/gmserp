@@ -45,12 +45,12 @@ class SnackBarHelper {
           backgroundColor: backgroundColor,
           content: Row(
             children: [
-              Icon(icon, color: Colors.white, size: 20),
+              Icon(icon, color: AppColors.onPrimary, size: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   message,
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: AppColors.onPrimary),
                 ),
               ),
             ],

@@ -6,6 +6,7 @@ import 'app.dart';
 import 'firebase_options.dart';
 import 'providers/auth_provider.dart';
 import 'providers/company_provider.dart';
+import 'providers/settings_provider.dart';
 import 'services/auth_service.dart';
 import 'services/firebase_auth_service.dart';
 
@@ -18,6 +19,8 @@ Future<void> main() async {
 
   // Firebase Auth + Firestore profiles. Swap implementations if needed.
   final AuthService authService = FirebaseAuthService();
+  final settings = SettingsProvider();
+  await settings.load();
 
   runApp(
     MultiProvider(
@@ -28,6 +31,7 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (_) => CompanyProvider(),
         ),
+        ChangeNotifierProvider.value(value: settings),
       ],
       child: const App(),
     ),

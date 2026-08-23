@@ -14,6 +14,7 @@ class PasswordField extends StatefulWidget {
     this.autofocus = false,
     this.enabled = true,
     this.autofillHints,
+    this.autovalidateMode = AutovalidateMode.onUserInteraction,
   });
 
   final TextEditingController controller;
@@ -25,6 +26,7 @@ class PasswordField extends StatefulWidget {
   final bool autofocus;
   final bool enabled;
   final Iterable<String>? autofillHints;
+  final AutovalidateMode autovalidateMode;
 
   @override
   State<PasswordField> createState() => _PasswordFieldState();
@@ -59,7 +61,11 @@ class _PasswordFieldState extends State<PasswordField> {
           autofocus: widget.autofocus,
           enabled: widget.enabled,
           autofillHints: widget.autofillHints,
-          style: const TextStyle(fontSize: 15),
+          autovalidateMode: widget.autovalidateMode,
+          style: TextStyle(
+            fontSize: 15,
+            color: Theme.of(context).textTheme.bodyLarge?.color,
+          ),
           decoration: InputDecoration(
             hintText: widget.hint ?? widget.label,
             suffixIcon: IconButton(
@@ -70,7 +76,7 @@ class _PasswordFieldState extends State<PasswordField> {
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
                 size: 20,
-                color: AppColors.textSecondary,
+                color: AppColors.of(context).textSecondary,
               ),
             ),
           ),

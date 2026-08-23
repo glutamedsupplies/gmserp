@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_routes.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../core/validators/auth_validators.dart';
 import '../../providers/auth_provider.dart';
@@ -112,8 +111,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               onPressed: isLoading
                   ? null
                   : () {
-                      Navigator.of(context)
-                          .pushReplacementNamed(AppRoutes.login);
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
                     },
               child: const Text('Back to Login'),
             ),

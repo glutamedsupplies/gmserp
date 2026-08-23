@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_routes.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../core/validators/auth_validators.dart';
 import '../../providers/auth_provider.dart';
@@ -53,7 +52,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (success) {
       SnackBarHelper.showSuccess(context, 'Account successfully created.');
-      Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
     } else {
       SnackBarHelper.showError(
         context,
@@ -168,8 +169,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: isLoading
                       ? null
                       : () {
-                          Navigator.of(context)
-                              .pushReplacementNamed(AppRoutes.login);
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).pop();
+                          }
                         },
                   child: const Text('Login'),
                 ),

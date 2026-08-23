@@ -20,7 +20,7 @@ class AuthScaffold extends StatelessWidget {
     final topPadding = Responsive.isMobile(context) ? 36.0 : 56.0;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.of(context).background,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {

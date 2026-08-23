@@ -3,12 +3,29 @@ import 'package:provider/provider.dart';
 
 import '../core/constants/app_constants.dart';
 import '../core/constants/app_routes.dart';
+import '../core/navigation/app_navigator.dart';
 import '../core/navigation/sidebar_destinations.dart';
 import '../core/theme/app_colors.dart';
 import '../core/utils/snackbar_helper.dart';
+import '../models/user_role.dart';
 import '../providers/auth_provider.dart';
 import '../providers/company_provider.dart';
 import 'user_avatar.dart';
+
+WidgetStateProperty<Color?> _sidebarOverlayColor(AppColors colors) {
+  return WidgetStateProperty.resolveWith((states) {
+    if (states.contains(WidgetState.pressed)) {
+      return colors.textPrimary.withValues(alpha: 0.10);
+    }
+    if (states.contains(WidgetState.focused)) {
+      return colors.sidebarSelected.withValues(alpha: 0.85);
+    }
+    if (states.contains(WidgetState.hovered)) {
+      return AppColors.primary.withValues(alpha: 0.12);
+    }
+    return Colors.transparent;
+  });
+}
 
 class DashboardScaffold extends StatefulWidget {
   const DashboardScaffold({
@@ -29,38 +46,85 @@ class DashboardScaffold extends StatefulWidget {
 }
 
 class _DashboardScaffoldState extends State<DashboardScaffold> {
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _sidebarExpanded = true;
+  bool _redirectScheduled = false;
 
   Future<void> _logout() async {
     context.read<CompanyProvider>().clearSelection();
     await context.read<AuthProvider>().logout();
     if (!mounted) return;
     SnackBarHelper.showInfo(context, 'You have been signed out.');
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      AppRoutes.login,
-      (route) => false,
-    );
   }
 
   void _goTo(String route) {
-    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
-      Navigator.of(context).pop();
+    if (AppNavigator.isSessionRoute(route)) {
+      final companies = context.read<CompanyProvider>();
+      if (route == AppRoutes.selectCompany) {
+        companies.beginCompanyPick();
+        return;
+      }
+      companies.endCompanyPick();
+      AppNavigator.popToRoot(context);
+      return;
     }
     if (route == widget.currentRoute) return;
-    Navigator.of(context).pushReplacementNamed(route);
+    final user = context.read<AuthProvider>().user;
+    if (!_canOpenRoute(user?.role, route)) return;
+    if (widget.currentRoute.startsWith('$route/')) {
+      Navigator.of(context).pop();
+      return;
+    }
+    if (ModalRoute.of(context)?.isFirst ?? true) {
+      Navigator.of(context).pushNamed(route);
+    } else {
+      Navigator.of(context).pushReplacementNamed(route);
+    }
   }
 
-  void _toggleNav() {
-    final wide = MediaQuery.sizeOf(context).width >= AppConstants.tabletBreakpoint;
+  void _redirectIfCompanyRequired() {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+    if (user.role != UserRole.employee && user.role != UserRole.admin) {
+      return;
+    }
+    if (widget.currentRoute == AppRoutes.selectCompany) return;
+    if (context.read<CompanyProvider>().selectedCompany != null) return;
+    AppNavigator.popToRoot(context);
+  }
+
+  bool _canOpenRoute(UserRole? role, String route) {
+    const superAdminOnly = {
+      AppRoutes.superAdmin,
+      AppRoutes.superAdminCreate,
+      AppRoutes.superAdminList,
+      AppRoutes.superAdminCompanyUsers,
+      AppRoutes.superAdminEmployees,
+      AppRoutes.superAdminRoles,
+      AppRoutes.superAdminRoleDetails,
+      AppRoutes.superAdminTasks,
+      AppRoutes.superAdminTaskDetails,
+      AppRoutes.superAdminUsers,
+    };
+    if (superAdminOnly.contains(route)) {
+      return role == UserRole.superAdmin;
+    }
+    if (route == AppRoutes.adminDashboard) {
+      return role == UserRole.admin || role == UserRole.superAdmin;
+    }
+    return true;
+  }
+
+  void _toggleNav(BuildContext scaffoldContext) {
+    final wide = MediaQuery.sizeOf(scaffoldContext).width >=
+        AppConstants.tabletBreakpoint;
     if (wide) {
       setState(() => _sidebarExpanded = !_sidebarExpanded);
     } else {
-      final scaffold = _scaffoldKey.currentState;
-      if (scaffold?.isDrawerOpen == true) {
-        Navigator.of(context).pop();
+      final scaffold = Scaffold.of(scaffoldContext);
+      if (scaffold.isDrawerOpen) {
+        Navigator.of(scaffoldContext).pop();
       } else {
-        scaffold?.openDrawer();
+        scaffold.openDrawer();
       }
     }
   }
@@ -69,49 +133,101 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= AppConstants.tabletBreakpoint;
     final user = context.watch<AuthProvider>().user;
+    final selectedCompany = context.watch<CompanyProvider>().selectedCompany;
     final destinations = destinationsForRole(user?.role);
+    final colors = AppColors.of(context);
+    final needsCompany = (user?.role == UserRole.employee ||
+            user?.role == UserRole.admin) &&
+        selectedCompany == null &&
+        widget.currentRoute != AppRoutes.selectCompany;
+    if (needsCompany && !_redirectScheduled) {
+      _redirectScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _redirectIfCompanyRequired();
+      });
+    } else if (!needsCompany) {
+      _redirectScheduled = false;
+    }
 
-    final sidebar = _AppSidebar(
-      expanded: !wide || _sidebarExpanded,
-      currentRoute: widget.currentRoute,
-      destinations: destinations,
-      onSelect: _goTo,
-      onLogout: _logout,
-      onProfile: () => _goTo(AppRoutes.profile),
+    final sidebar = Theme(
+      data: Theme.of(context).copyWith(
+        splashColor: colors.textPrimary.withValues(alpha: 0.08),
+        highlightColor: Colors.transparent,
+        focusColor: colors.sidebarSelected,
+        hoverColor: AppColors.primary.withValues(alpha: 0.10),
+      ),
+      child: _AppSidebar(
+        expanded: !wide || _sidebarExpanded,
+        currentRoute: widget.currentRoute,
+        destinations: destinations,
+        onSelect: _goTo,
+        onLogout: _logout,
+        onProfile: () => _goTo(AppRoutes.profile),
+      ),
     );
 
     return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.background,
+      backgroundColor: colors.background,
       drawer: wide
           ? null
           : Drawer(
-              backgroundColor: AppColors.sidebar,
-              child: SafeArea(child: sidebar),
+              backgroundColor: colors.sidebar,
+              child: Builder(
+                builder: (drawerContext) {
+                  return SafeArea(
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        splashColor: colors.textPrimary.withValues(alpha: 0.08),
+                        highlightColor: Colors.transparent,
+                        focusColor: colors.sidebarSelected,
+                        hoverColor: AppColors.primary.withValues(alpha: 0.10),
+                      ),
+                      child: _AppSidebar(
+                        expanded: true,
+                        currentRoute: widget.currentRoute,
+                        destinations: destinations,
+                        onSelect: (route) {
+                          Navigator.of(drawerContext).pop();
+                          _goTo(route);
+                        },
+                        onLogout: _logout,
+                        onProfile: () {
+                          Navigator.of(drawerContext).pop();
+                          _goTo(AppRoutes.profile);
+                        },
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-      body: Column(
-        children: [
-          _DashboardHeader(
-            title: widget.title,
-            onMenuPressed: _toggleNav,
-            actions: widget.actions,
-          ),
-          Expanded(
-            child: Row(
-              children: [
-                if (wide)
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    width: _sidebarExpanded ? 268 : 84,
-                    color: AppColors.sidebar,
-                    child: sidebar,
-                  ),
-                Expanded(child: widget.child),
-              ],
-            ),
-          ),
-        ],
+      body: Builder(
+        builder: (scaffoldContext) {
+          return Column(
+            children: [
+              _DashboardHeader(
+                title: widget.title,
+                onMenuPressed: () => _toggleNav(scaffoldContext),
+                actions: widget.actions,
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    if (wide)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        width: _sidebarExpanded ? 268 : 84,
+                        color: colors.sidebar,
+                        child: sidebar,
+                      ),
+                    Expanded(child: widget.child),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -132,29 +248,33 @@ class _DashboardHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
     final company = context.watch<CompanyProvider>().selectedCompany;
+    final colors = AppColors.of(context);
 
     return Material(
-      color: AppColors.background,
-      child: Column(
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
-              child: Row(
+      color: colors.header,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+          child: Row(
                 children: [
                   IconButton(
                     tooltip: 'Menu',
                     onPressed: onMenuPressed,
                     icon: const Icon(Icons.menu_rounded),
-                    color: AppColors.textPrimary,
+                    color: colors.textPrimary,
+                    style: IconButton.styleFrom(
+                      highlightColor: colors.textPrimary.withValues(
+                        alpha: 0.08,
+                      ),
+                    ),
                   ),
                   SizedBox(
                     width: 36,
                     height: 36,
                     child: FittedBox(
                       fit: BoxFit.contain,
-                      child: Image.asset('assets/branding/gmserp_logo.jpg'),
+                      child: Image.asset('assets/branding/gmserp_logo.png'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -166,10 +286,10 @@ class _DashboardHeader extends StatelessWidget {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
+                            color: colors.textPrimary,
                           ),
                         ),
                         if (company != null)
@@ -177,9 +297,10 @@ class _DashboardHeader extends StatelessWidget {
                             company.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                              color: colors.sidebarMuted,
                             ),
                           ),
                       ],
@@ -193,15 +314,15 @@ class _DashboardHeader extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.22),
+                        color: colors.chip,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         user.role.label,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
+                          color: colors.textPrimary,
                         ),
                       ),
                     ),
@@ -209,9 +330,6 @@ class _DashboardHeader extends StatelessWidget {
               ),
             ),
           ),
-          Container(height: 4, color: AppColors.headerAccent),
-        ],
-      ),
     );
   }
 }
@@ -238,9 +356,10 @@ class _AppSidebar extends StatelessWidget {
     final auth = context.watch<AuthProvider>();
     final user = auth.user;
     final selected = currentRoute == AppRoutes.profile;
+    final colors = AppColors.of(context);
 
     return ColoredBox(
-      color: AppColors.sidebar,
+      color: colors.sidebar,
       child: Column(
         children: [
           Padding(
@@ -251,11 +370,12 @@ class _AppSidebar extends StatelessWidget {
               8,
             ),
             child: Material(
-              color: selected ? AppColors.sidebarSelected : Colors.transparent,
+              color: selected ? colors.sidebarSelected : Colors.transparent,
               borderRadius: BorderRadius.circular(14),
               child: InkWell(
                 onTap: onProfile,
                 borderRadius: BorderRadius.circular(14),
+                overlayColor: _sidebarOverlayColor(colors),
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(
                     expanded ? 8 : 4,
@@ -277,12 +397,12 @@ class _AppSidebar extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'GMSERP',
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w800,
-                                      color: AppColors.textPrimary,
+                                      color: colors.textPrimary,
                                     ),
                                   ),
                                   Text(
@@ -291,10 +411,10 @@ class _AppSidebar extends StatelessWidget {
                                         : 'Account',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
-                                      color: AppColors.textPrimary,
+                                      color: colors.textPrimary,
                                     ),
                                   ),
                                   if (user?.email.isNotEmpty == true)
@@ -302,9 +422,10 @@ class _AppSidebar extends StatelessWidget {
                                       user!.email,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 11,
-                                        color: AppColors.textSecondary,
+                                        fontWeight: FontWeight.w600,
+                                        color: colors.sidebarMuted,
                                       ),
                                     ),
                                 ],
@@ -327,28 +448,36 @@ class _AppSidebar extends StatelessWidget {
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(color: AppColors.border, height: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Divider(color: colors.border, height: 24),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               children: [
                 for (final item in destinations)
-                  _NavTile(
-                    expanded: expanded,
-                    selected: item.route == currentRoute,
-                    icon: item.icon,
-                    label: item.label,
-                    onTap: () => onSelect(item.route),
-                  ),
+                  if (item.children.isNotEmpty)
+                    _NavDropdown(
+                      destination: item,
+                      expanded: expanded,
+                      currentRoute: currentRoute,
+                      onSelect: onSelect,
+                    )
+                  else if (item.route != null)
+                    _NavTile(
+                      expanded: expanded,
+                      selected: item.route == currentRoute,
+                      icon: item.icon,
+                      label: item.label,
+                      onTap: () => onSelect(item.route!),
+                    ),
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(color: AppColors.border, height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Divider(color: colors.border, height: 16),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
@@ -386,15 +515,17 @@ class _NavTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = foreground ?? AppColors.textPrimary;
+    final colors = AppColors.of(context);
+    final color = foreground ?? colors.textPrimary;
     final tile = Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
-        color: selected ? AppColors.sidebarSelected : Colors.transparent,
+        color: selected ? colors.sidebarSelected : Colors.transparent,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(14),
+          overlayColor: _sidebarOverlayColor(colors),
           child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal: expanded ? 14 : 0,
@@ -426,5 +557,154 @@ class _NavTile extends StatelessWidget {
 
     if (expanded) return tile;
     return Tooltip(message: label, child: tile);
+  }
+}
+
+class _NavDropdown extends StatefulWidget {
+  const _NavDropdown({
+    required this.destination,
+    required this.expanded,
+    required this.currentRoute,
+    required this.onSelect,
+  });
+
+  final SidebarDestination destination;
+  final bool expanded;
+  final String currentRoute;
+  final ValueChanged<String> onSelect;
+
+  @override
+  State<_NavDropdown> createState() => _NavDropdownState();
+}
+
+class _NavDropdownState extends State<_NavDropdown> {
+  late bool _open;
+
+  @override
+  void initState() {
+    super.initState();
+    _open = widget.destination.containsRoute(widget.currentRoute);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NavDropdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.destination.containsRoute(widget.currentRoute)) {
+      _open = true;
+    }
+  }
+
+  Future<void> _showCollapsedMenu() async {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final origin = box.localToGlobal(Offset.zero);
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        origin.dx + box.size.width,
+        origin.dy,
+        origin.dx + box.size.width + 200,
+        origin.dy + box.size.height,
+      ),
+      items: [
+        for (final child in widget.destination.children)
+          if (child.route != null)
+          PopupMenuItem<String>(
+            value: child.route,
+            child: Row(
+              children: [
+                Icon(child.icon, size: 20),
+                const SizedBox(width: 10),
+                Text(child.label),
+              ],
+            ),
+          ),
+      ],
+    );
+    if (selected != null) widget.onSelect(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final active = widget.destination.containsRoute(widget.currentRoute);
+
+    if (!widget.expanded) {
+      return Tooltip(
+        message: widget.destination.label,
+        child: _NavTile(
+          expanded: false,
+          selected: active,
+          icon: widget.destination.icon,
+          label: widget.destination.label,
+          onTap: _showCollapsedMenu,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        children: [
+          Material(
+            color: active && !_open
+                ? colors.sidebarSelected
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              onTap: () => setState(() => _open = !_open),
+              borderRadius: BorderRadius.circular(14),
+              overlayColor: _sidebarOverlayColor(colors),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.destination.icon,
+                      color: colors.textPrimary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.destination.label,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontWeight:
+                              active ? FontWeight.w800 : FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      _open
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      color: colors.textSecondary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_open)
+            Padding(
+              padding: const EdgeInsets.only(left: 18, top: 4),
+              child: Column(
+                children: [
+                  for (final child in widget.destination.children)
+                    if (child.route != null)
+                      _NavTile(
+                        expanded: true,
+                        selected: child.route == widget.currentRoute,
+                        icon: child.icon,
+                        label: child.label,
+                        onTap: () => widget.onSelect(child.route!),
+                      ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

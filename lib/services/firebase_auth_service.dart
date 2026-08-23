@@ -30,7 +30,7 @@ class FirebaseAuthService implements AuthService {
     bool rememberMe = false,
   }) async {
     try {
-      await _setPersistence(rememberMe);
+      await _setPersistence();
 
       User? firebaseUser;
       try {
@@ -62,7 +62,7 @@ class FirebaseAuthService implements AuthService {
         fallbackEmail: email.trim().toLowerCase(),
         source: 'login',
       );
-      await _saveRememberMe(rememberMe);
+      await _saveRememberMe(true);
 
       return AuthResult.success(
         user: user,
@@ -78,7 +78,7 @@ class FirebaseAuthService implements AuthService {
           fallbackEmail: email.trim().toLowerCase(),
           source: 'login',
         );
-        await _saveRememberMe(rememberMe);
+        await _saveRememberMe(true);
         return AuthResult.success(user: user, message: 'Login successful.');
       }
       return AuthResult.failure(_mapFirestoreError(e));
@@ -91,7 +91,7 @@ class FirebaseAuthService implements AuthService {
           fallbackEmail: email.trim().toLowerCase(),
           source: 'login',
         );
-        await _saveRememberMe(rememberMe);
+        await _saveRememberMe(true);
         return AuthResult.success(user: user, message: 'Login successful.');
       }
       return AuthResult.failure(
@@ -204,16 +204,10 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<UserModel?> checkAuthentication() async {
-    final prefs = await SharedPreferences.getInstance();
-    final rememberMe = prefs.getBool(_rememberKey) ?? false;
     final firebaseUser = _auth.currentUser;
-
     if (firebaseUser == null) return null;
 
-    if (!rememberMe) {
-      await _auth.signOut();
-      return null;
-    }
+    await _saveRememberMe(true);
 
     final profile = await _users.getUserById(firebaseUser.uid);
     if (profile != null) return profile;
@@ -233,11 +227,9 @@ class FirebaseAuthService implements AuthService {
     await firebaseUser.getIdToken(true);
   }
 
-  Future<void> _setPersistence(bool rememberMe) async {
+  Future<void> _setPersistence() async {
     if (!kIsWeb) return;
-    await _auth.setPersistence(
-      rememberMe ? Persistence.LOCAL : Persistence.SESSION,
-    );
+    await _auth.setPersistence(Persistence.LOCAL);
   }
 
   Future<void> _saveRememberMe(bool rememberMe) async {

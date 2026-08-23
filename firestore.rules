@@ -13,8 +13,11 @@ service cloud.firestore {
     function isSuperAdmin() {
       return isSignedIn()
         && (
-          userDoc().role == 'superAdmin'
-          || request.auth.token.email == 'kianmaximo17@gmail.com'
+          request.auth.token.email == 'kianmaximo17@gmail.com'
+          || (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && userDoc().role == 'superAdmin'
+          )
         );
     }
 
@@ -55,8 +58,12 @@ service cloud.firestore {
 
       match /staff/{staffId} {
         allow read: if isSignedIn();
-        allow create, update: if isAdmin();
-        allow delete: if isAdmin();
+        allow create, update, delete: if isAdmin();
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isSuperAdmin();
       }
     }
   }

@@ -24,7 +24,6 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
       final company = companies.selectedCompany;
       final user = auth.user;
       if (company == null || user == null) {
-        Navigator.of(context).pushReplacementNamed(AppRoutes.selectCompany);
         return;
       }
       companies.loadMyAssignment(companyId: company.id, userId: user.id);
@@ -61,7 +60,11 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
           const SizedBox(height: 12),
           Text('Role: ${assignment?.jobRole.isNotEmpty == true ? assignment!.jobRole : 'Not assigned yet'}'),
           const SizedBox(height: 8),
-          Text('Task: ${assignment?.task.isNotEmpty == true ? assignment!.task : 'Not assigned yet'}'),
+          Text(
+            assignment?.tasks.isNotEmpty == true
+                ? 'Tasks: ${assignment!.tasks.join(', ')}'
+                : 'Tasks: Not assigned yet',
+          ),
         ],
       ),
     );

@@ -110,7 +110,7 @@ class MockAuthService implements AuthService {
       return AuthResult.failure('Invalid email or password.');
     }
 
-    await _saveSession(stored.user, rememberMe: rememberMe);
+    await _saveSession(stored.user, rememberMe: true);
     return AuthResult.success(
       user: stored.user,
       message: 'Login successful.',
@@ -178,9 +178,6 @@ class MockAuthService implements AuthService {
   Future<UserModel?> checkAuthentication() async {
     await _ensureLoaded();
     final prefs = await SharedPreferences.getInstance();
-    final remember = prefs.getBool(_rememberKey) ?? false;
-    if (!remember) return null;
-
     final raw = prefs.getString(_sessionKey);
     if (raw == null || raw.isEmpty) return null;
 
