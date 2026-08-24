@@ -25,6 +25,28 @@ service cloud.firestore {
       return isSignedIn() && (userDoc().role == 'admin' || isSuperAdmin());
     }
 
+    function isStaffOfCompanyDoc(companyDocId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyDocId)/staff/$(request.auth.uid));
+    }
+
+    function validTimeEntryCreate() {
+      return request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.timeOut == null
+        && isStaffOfCompanyDoc(request.resource.data.companyDocumentId);
+    }
+
+    function validTimeEntryClockOut() {
+      return resource.data.userId == request.auth.uid
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'closed'
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.companyDocumentId == resource.data.companyDocumentId
+        && request.resource.data.timeIn == resource.data.timeIn;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn();
 
@@ -65,6 +87,56 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create, update, delete: if isSuperAdmin();
       }
+    }
+
+    match /timeEntries/{entryId} {
+      // Admins/super admins need collection queries by companyId (employee table).
+      allow read: if isSignedIn() && (
+        isSuperAdmin()
+        || isAdmin()
+        || resource.data.userId == request.auth.uid
+      );
+
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || validTimeEntryCreate()
+      );
+
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || validTimeEntryClockOut()
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /timeCardSettings/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /leaveRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        isSuperAdmin()
+        || resource.data.userId == request.auth.uid
+        || isAdmin()
+      );
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /timeCardChangeRequests/{requestId} {
+      allow read: if isAdmin();
+
+      allow create: if isAdmin()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requesterId == request.auth.uid;
+
+      allow update, delete: if isSuperAdmin();
     }
   }
 }

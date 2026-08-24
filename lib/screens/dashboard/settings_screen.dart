@@ -5,8 +5,11 @@ import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
+import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/pending_requests_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -59,11 +62,29 @@ class SettingsScreen extends StatelessWidget {
                   icon: Icons.notifications_rounded,
                   title: 'Notifications',
                   subtitle: settings.notificationsEnabled
-                      ? 'Alerts for account and company updates'
-                      : 'All in-app alerts are paused',
+                      ? (user?.role == UserRole.superAdmin
+                          ? 'Request alerts, sound, and app icon badge'
+                          : 'Alerts for account and company updates')
+                      : 'Push alerts and app icon badge are off',
                   value: settings.notificationsEnabled,
-                  onChanged: (value) {
-                    settings.setNotificationsEnabled(value);
+                  onChanged: (value) async {
+                    if (value) {
+                      final allowed =
+                          await NotificationService.instance.requestPermission();
+                      if (!context.mounted) return;
+                      if (!allowed) {
+                        SnackBarHelper.showInfo(
+                          context,
+                          'Notification permission is required on this device.',
+                        );
+                      }
+                    }
+                    await settings.setNotificationsEnabled(value);
+                    if (!context.mounted) return;
+                    await context
+                        .read<PendingRequestsProvider>()
+                        .refreshNotificationPrefs();
+                    if (!context.mounted) return;
                     SnackBarHelper.showInfo(
                       context,
                       value

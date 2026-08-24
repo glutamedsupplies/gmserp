@@ -5,6 +5,7 @@ import '../core/utils/password_hasher.dart';
 import '../models/company_job_role.dart';
 import '../models/company_model.dart';
 import '../models/company_task.dart';
+import '../models/employee_time_card_profile.dart';
 import '../models/staff_assignment.dart';
 import '../models/user_model.dart';
 
@@ -155,20 +156,24 @@ class CompanyRepository {
     );
   }
 
+  bool matchesStaffCode({
+    required CompanyModel company,
+    required String code,
+  }) {
+    final plain = code.trim();
+    if (plain.isEmpty || company.staffPasswordHash.isEmpty) return false;
+    return PasswordHasher.matches(
+      plainText: plain,
+      hash: company.staffPasswordHash,
+    );
+  }
+
+  /// Opens a company for employees/admins using the shared company code only.
   bool unlockCompany({
     required CompanyModel company,
     required String password,
   }) {
-    final code = password.trim();
-    if (code.isEmpty) return false;
-    if (company.staffPasswordHash.isNotEmpty &&
-        PasswordHasher.matches(
-          plainText: code,
-          hash: company.staffPasswordHash,
-        )) {
-      return true;
-    }
-    return matchesFounderPassword(company: company, password: code);
+    return matchesStaffCode(company: company, code: password);
   }
 
   Future<void> deleteCompany({
@@ -192,12 +197,38 @@ class CompanyRepository {
       _companies.doc(companyId).collection('staff');
 
   Future<List<StaffAssignment>> listStaff(String companyId) async {
-    final snapshot = await _staff(companyId).get();
+    final docId = await _resolveCompanyDocId(companyId);
+    return listStaffByDocumentId(docId);
+  }
+
+  Future<List<StaffAssignment>> listStaffByDocumentId(String documentId) async {
+    final snapshot = await _staff(documentId).get();
     return snapshot.docs
         .map(
           (doc) => StaffAssignment.fromFirestore(id: doc.id, data: doc.data()),
         )
         .toList();
+  }
+
+  Future<List<StaffMembershipListing>> listAllStaffMemberships() async {
+    final snapshot = await _companies.get();
+    final listings = <StaffMembershipListing>[];
+    for (final doc in snapshot.docs) {
+      try {
+        final company = CompanyModel.fromFirestore(id: doc.id, data: doc.data());
+        final members = await listStaffByDocumentId(doc.id);
+        for (final assignment in members) {
+          listings.add(
+            StaffMembershipListing(
+              companyDocumentId: doc.id,
+              company: company,
+              assignment: assignment,
+            ),
+          );
+        }
+      } catch (_) {}
+    }
+    return listings;
   }
 
   Future<StaffAssignment?> getAssignment({
@@ -235,9 +266,23 @@ class CompanyRepository {
     required String companyId,
     required StaffAssignment assignment,
   }) async {
-    await _staff(companyId).doc(assignment.userId).set({
+    final docId = await _resolveCompanyDocId(companyId);
+    await _staff(docId).doc(assignment.userId).set({
       ...assignment.toFirestore(),
       'userId': assignment.userId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Saves daily rate + weekly time in/out schedule for one staff member.
+  Future<void> saveStaffTimeCardProfile({
+    required String companyId,
+    required String userId,
+    required EmployeeTimeCardProfile profile,
+  }) async {
+    final docId = await _resolveCompanyDocId(companyId);
+    await _staff(docId).doc(userId).set({
+      ...profile.toStaffFields(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -267,7 +312,22 @@ class CompanyRepository {
     required String companyId,
     required String userId,
   }) async {
-    await _staff(companyId).doc(userId).delete();
+    final docId = await _resolveCompanyDocId(companyId);
+    await _staff(docId).doc(userId).delete();
+  }
+
+  /// Removes a user from every company's staff subcollection (tasks + assignments).
+  Future<void> removeUserFromAllCompanies({required String userId}) async {
+    final snapshot = await _companies.get();
+    for (final doc in snapshot.docs) {
+      try {
+        final staffRef = _staff(doc.id).doc(userId);
+        final existing = await staffRef.get();
+        if (existing.exists) {
+          await staffRef.delete();
+        }
+      } catch (_) {}
+    }
   }
 
   Future<List<CompanyTaskListing>> listAllTasks() async {
@@ -549,6 +609,23 @@ class CompanyRepository {
       if (key.isEmpty) continue;
       final snapshot = await _companies.doc(key).get();
       if (snapshot.exists) return snapshot.id;
+    }
+    if (id.isNotEmpty) {
+      final matches = await _companies
+          .where('companyId', isEqualTo: id)
+          .limit(1)
+          .get();
+      if (matches.docs.isNotEmpty) return matches.docs.first.id;
+    }
+    final snapshot = await _companies.get();
+    final needle = raw.toLowerCase();
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final name = data['name']?.toString().trim().toLowerCase() ?? '';
+      final stored = CompanyId.normalize(data['companyId']?.toString() ?? '');
+      if (name == needle || (id.isNotEmpty && stored == id)) {
+        return doc.id;
+      }
     }
     return id.isNotEmpty ? id : raw;
   }

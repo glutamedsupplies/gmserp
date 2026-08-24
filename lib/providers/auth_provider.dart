@@ -191,6 +191,17 @@ class AuthProvider extends ChangeNotifier {
     _avatarRevision++;
   }
 
+  Future<void> reloadUser() async {
+    if (_user == null) return;
+    try {
+      final sessionUser = await _authService.checkAuthentication();
+      if (sessionUser != null) {
+        _user = sessionUser;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
   Future<void> logout() async {
     _isLoading = true;
     notifyListeners();

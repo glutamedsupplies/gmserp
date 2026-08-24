@@ -45,6 +45,27 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
       return const [
         _dashboard,
         SidebarDestination(
+          label: 'Time Card',
+          icon: Icons.schedule_rounded,
+          children: [
+            SidebarDestination(
+              label: 'Time in / Time out',
+              icon: Icons.login_rounded,
+              route: AppRoutes.employeeTimeInOut,
+            ),
+            SidebarDestination(
+              label: 'Time card details',
+              icon: Icons.description_outlined,
+              route: AppRoutes.employeeTimeCardDetails,
+            ),
+            SidebarDestination(
+              label: 'Request leave',
+              icon: Icons.event_busy_outlined,
+              route: AppRoutes.employeeRequestLeave,
+            ),
+          ],
+        ),
+        SidebarDestination(
           label: 'Switch company',
           icon: Icons.swap_horiz_rounded,
           route: AppRoutes.selectCompany,
@@ -58,6 +79,32 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
           label: 'Staff',
           icon: Icons.groups_rounded,
           route: AppRoutes.adminDashboard,
+        ),
+        SidebarDestination(
+          label: 'Time Card',
+          icon: Icons.schedule_rounded,
+          children: [
+            SidebarDestination(
+              label: 'Time card details',
+              icon: Icons.description_outlined,
+              route: AppRoutes.superAdminTimeCardDetails,
+            ),
+            SidebarDestination(
+              label: 'Time card settings',
+              icon: Icons.tune_rounded,
+              route: AppRoutes.superAdminTimeCardSettings,
+            ),
+            SidebarDestination(
+              label: 'Edit time card',
+              icon: Icons.edit_calendar_outlined,
+              route: AppRoutes.superAdminEditTimeCard,
+            ),
+          ],
+        ),
+        SidebarDestination(
+          label: 'Submitted requests',
+          icon: Icons.outbox_outlined,
+          route: AppRoutes.adminSubmittedRequests,
         ),
         SidebarDestination(
           label: 'Switch company',
@@ -101,9 +148,35 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
           ],
         ),
         SidebarDestination(
+          label: 'Time Card',
+          icon: Icons.schedule_rounded,
+          children: [
+            SidebarDestination(
+              label: 'Time card details',
+              icon: Icons.description_outlined,
+              route: AppRoutes.superAdminTimeCardDetails,
+            ),
+            SidebarDestination(
+              label: 'Time card settings',
+              icon: Icons.tune_rounded,
+              route: AppRoutes.superAdminTimeCardSettings,
+            ),
+            SidebarDestination(
+              label: 'Edit time card',
+              icon: Icons.edit_calendar_outlined,
+              route: AppRoutes.superAdminEditTimeCard,
+            ),
+          ],
+        ),
+        SidebarDestination(
           label: 'User levels',
           icon: Icons.manage_accounts_rounded,
           route: AppRoutes.superAdminUsers,
+        ),
+        SidebarDestination(
+          label: 'Requests',
+          icon: Icons.inbox_outlined,
+          route: AppRoutes.superAdminRequests,
         ),
         _settings,
       ];

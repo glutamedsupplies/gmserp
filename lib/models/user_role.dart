@@ -7,16 +7,10 @@ enum UserRole {
   String get storageValue => name;
 
   String get label {
-    switch (this) {
-      case UserRole.user:
-        return 'User';
-      case UserRole.employee:
-        return 'Employee';
-      case UserRole.admin:
-        return 'Admin';
-      case UserRole.superAdmin:
-        return 'Super Admin';
-    }
+    if (this == UserRole.employee) return 'Employee';
+    if (this == UserRole.admin) return 'Admin';
+    if (this == UserRole.superAdmin) return 'Super Admin';
+    return 'User';
   }
 
   static UserRole fromStorage(String? value) {
@@ -50,4 +44,16 @@ class RolePolicy {
 
   static bool isSuperAdminEmail(String email) =>
       email.trim().toLowerCase() == superAdminEmail;
+
+  /// Employee and admin accounts use company staff, tasks, and elevated navigation.
+  static bool hasCompanyAccess(UserRole role) =>
+      role == UserRole.employee || role == UserRole.admin;
+
+  /// Demoting to user removes company tasks and staff membership.
+  static bool clearsCompanyMembership({
+    required UserRole previous,
+    required UserRole next,
+  }) {
+    return hasCompanyAccess(previous) && next == UserRole.user;
+  }
 }

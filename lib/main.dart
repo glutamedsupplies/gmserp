@@ -9,6 +9,7 @@ import 'providers/company_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/auth_service.dart';
 import 'services/firebase_auth_service.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,7 @@ Future<void> main() async {
   final AuthService authService = FirebaseAuthService();
   final settings = SettingsProvider();
   await settings.load();
+  await NotificationService.instance.initialize();
 
   runApp(
     MultiProvider(

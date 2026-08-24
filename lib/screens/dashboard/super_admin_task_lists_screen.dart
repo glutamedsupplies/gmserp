@@ -25,6 +25,7 @@ class SuperAdminTaskListsScreen extends StatefulWidget {
 
 class _SuperAdminTaskListsScreenState extends State<SuperAdminTaskListsScreen> {
   final _search = TextEditingController();
+  String? _companyFilter;
   String? _roleFilter;
 
   @override
@@ -54,8 +55,14 @@ class _SuperAdminTaskListsScreenState extends State<SuperAdminTaskListsScreen> {
   List<CompanyTaskListing> _filtered(CompanyProvider companies) {
     final query = _search.text.trim().toLowerCase();
     final role = _roleFilter?.trim();
+    final companyId = _companyFilter;
 
     return companies.allTasks.where((item) {
+      if (companyId != null &&
+          companyId.isNotEmpty &&
+          item.company.id != companyId) {
+        return false;
+      }
       if (role != null &&
           role.isNotEmpty &&
           item.task.roleName.trim().toLowerCase() != role.toLowerCase()) {
@@ -68,6 +75,23 @@ class _SuperAdminTaskListsScreenState extends State<SuperAdminTaskListsScreen> {
           item.company.name.toLowerCase().contains(query) ||
           item.company.companyId.toLowerCase().contains(query);
     }).toList();
+  }
+
+  String? _selectedCompanyName(CompanyProvider companies) {
+    final id = _companyFilter;
+    if (id == null) return null;
+    for (final company in companies.companies) {
+      if (company.id == id) return company.name;
+    }
+    return null;
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _companyFilter = null;
+      _roleFilter = null;
+      _search.clear();
+    });
   }
 
   Future<void> _addTask() async {
@@ -161,136 +185,174 @@ class _SuperAdminTaskListsScreenState extends State<SuperAdminTaskListsScreen> {
   @override
   Widget build(BuildContext context) {
     final companies = context.watch<CompanyProvider>();
-    final colors = AppColors.of(context);
     final roleNames = _roleNames(companies);
     final tasks = _filtered(companies);
     final total = companies.allTasks.length;
+    final hasSearch = _search.text.trim().isNotEmpty;
+    final hasFilters =
+        _companyFilter != null || _roleFilter != null || hasSearch;
+    final companyFilterName = _selectedCompanyName(companies);
 
     return DashboardScaffold(
       title: 'Task lists',
       currentRoute: AppRoutes.superAdminTasks,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-        children: [
-          Text(
-            'Task lists',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Browse company tasks, filter by role, or add a new one.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          _SummaryCard(
-            total: total,
-            showing: tasks.length,
-            roleFilter: _roleFilter,
-            hasSearch: _search.text.trim().isNotEmpty,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  onChanged: (_) => setState(() {}),
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Search task, company, or ID',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    suffixIcon: _search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear',
-                            onPressed: () {
-                              _search.clear();
-                              setState(() {});
-                            },
-                            icon: const Icon(Icons.close_rounded, size: 20),
-                          ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              FilledButton.icon(
-                onPressed: companies.isLoading ? null : _addTask,
-                icon: const Icon(Icons.add_task_rounded, size: 18),
-                label: const Text('Add'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Role',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: colors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 8),
-          if (roleNames.isEmpty)
-            Text(
-              'Roles appear here once tasks are linked to a role.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            )
-          else
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _RoleFilterChip(
-                    label: 'All',
-                    selected: _roleFilter == null,
-                    onSelected: () => setState(() => _roleFilter = null),
+                  Text(
+                    'Task lists',
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                  for (final name in roleNames) ...[
-                    const SizedBox(width: 8),
-                    _RoleFilterChip(
-                      label: name,
-                      selected:
-                          _roleFilter?.toLowerCase() == name.toLowerCase(),
-                      onSelected: () => setState(() => _roleFilter = name),
-                    ),
-                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'Browse company tasks. Filter by company or role, then tap to edit.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  _SummaryCard(
+                    total: total,
+                    showing: tasks.length,
+                    companyFilter: companyFilterName,
+                    roleFilter: _roleFilter,
+                    hasFilters: hasFilters,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: companies.companies.isEmpty
+                            ? _FilterDropdownShell(
+                                label: 'Company',
+                                icon: Icons.business_rounded,
+                                value: 'No companies yet',
+                                enabled: false,
+                                muted: true,
+                                onTap: () {},
+                              )
+                            : _CompanyFilterDropdown(
+                                companies: companies.companies,
+                                selectedId: _companyFilter,
+                                logoFor: companies.logoFor,
+                                onSelected: (id) =>
+                                    setState(() => _companyFilter = id),
+                              ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: roleNames.isEmpty
+                            ? _FilterDropdownShell(
+                                label: 'Role',
+                                icon: Icons.badge_outlined,
+                                value: 'No roles yet',
+                                enabled: false,
+                                muted: true,
+                                onTap: () {},
+                              )
+                            : _RoleNameFilterDropdown(
+                                roleNames: roleNames,
+                                selected: _roleFilter,
+                                onSelected: (name) =>
+                                    setState(() => _roleFilter = name),
+                              ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _search,
+                          onChanged: (_) => setState(() {}),
+                          textInputAction: TextInputAction.search,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'Search task, company, or ID',
+                            prefixIcon:
+                                const Icon(Icons.search_rounded, size: 20),
+                            suffixIcon: _search.text.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: 'Clear',
+                                    onPressed: () {
+                                      _search.clear();
+                                      setState(() {});
+                                    },
+                                    icon: const Icon(Icons.close_rounded,
+                                        size: 20),
+                                  ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton.icon(
+                        onPressed: companies.isLoading ? null : _addTask,
+                        icon: const Icon(Icons.add_task_rounded, size: 18),
+                        label: const Text('Add'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
-          const SizedBox(height: 14),
+          ),
           if (companies.isLoading)
-            const Padding(
+            const SliverPadding(
               padding: EdgeInsets.only(top: 28),
-              child: Center(child: CircularProgressIndicator()),
+              sliver: SliverToBoxAdapter(
+                child: Center(child: CircularProgressIndicator()),
+              ),
             )
           else if (total == 0)
-            _EmptyState(
-              icon: Icons.task_alt_rounded,
-              title: 'No tasks yet',
-              message: 'Add a task for a company to get started.',
-              actionLabel: 'Add task',
-              onAction: companies.isLoading ? null : _addTask,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              sliver: SliverToBoxAdapter(
+                child: _EmptyState(
+                  icon: Icons.task_alt_rounded,
+                  title: 'No tasks yet',
+                  message: 'Add a task for a company to get started.',
+                  actionLabel: 'Add task',
+                  onAction: companies.isLoading ? null : _addTask,
+                ),
+              ),
             )
           else if (tasks.isEmpty)
-            _EmptyState(
-              icon: Icons.filter_alt_off_rounded,
-              title: 'No matching tasks',
-              message: 'Try another role filter or clear your search.',
-              actionLabel: 'Clear filters',
-              onAction: () {
-                setState(() {
-                  _roleFilter = null;
-                  _search.clear();
-                });
-              },
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              sliver: SliverToBoxAdapter(
+                child: _EmptyState(
+                  icon: Icons.filter_alt_off_rounded,
+                  title: 'No matching tasks',
+                  message:
+                      'Try another company, role filter, or clear your search.',
+                  actionLabel: 'Clear filters',
+                  onAction: _clearFilters,
+                ),
+              ),
             )
           else
-            ...tasks.map((item) => _TaskCard(
-                  item: item,
-                  logoBytes: companies.logoFor(item.company.id),
-                  onTap: () => _openTask(item),
-                  onDelete: () => _deleteTask(item),
-                )),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              sliver: SliverList.builder(
+                itemCount: tasks.length,
+                itemBuilder: (context, index) {
+                  final item = tasks[index];
+                  return _TaskCard(
+                    item: item,
+                    logoBytes: companies.logoFor(item.company.id),
+                    onTap: () => _openTask(item),
+                    onDelete: () => _deleteTask(item),
+                  );
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -301,21 +363,26 @@ class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.total,
     required this.showing,
+    required this.companyFilter,
     required this.roleFilter,
-    required this.hasSearch,
+    required this.hasFilters,
   });
 
   final int total;
   final int showing;
+  final String? companyFilter;
   final String? roleFilter;
-  final bool hasSearch;
+  final bool hasFilters;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final filtered = roleFilter != null || hasSearch;
     final countLabel =
-        filtered ? 'Showing $showing of $total' : '$total tasks';
+        hasFilters ? 'Showing $showing of $total' : '$total tasks';
+    final filterParts = [
+      ?companyFilter,
+      ?roleFilter,
+    ];
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -348,14 +415,14 @@ class _SummaryCard extends StatelessWidget {
                   countLabel,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                if (roleFilter != null) ...[
+                if (filterParts.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
-                    roleFilter!,
+                    filterParts.join(' • '),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: colors.textSecondary,
                         ),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
@@ -368,36 +435,575 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _RoleFilterChip extends StatelessWidget {
-  const _RoleFilterChip({
+class _FilterDropdownShell extends StatelessWidget {
+  const _FilterDropdownShell({
     required this.label,
-    required this.selected,
-    required this.onSelected,
+    required this.icon,
+    required this.value,
+    required this.onTap,
+    this.enabled = true,
+    this.muted = false,
+    this.leading,
   });
 
   final String label;
-  final bool selected;
-  final VoidCallback onSelected;
+  final IconData icon;
+  final String value;
+  final VoidCallback onTap;
+  final bool enabled;
+  final bool muted;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      showCheckmark: false,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      onSelected: (_) => onSelected(),
-      selectedColor: AppColors.primary.withValues(alpha: 0.28),
-      backgroundColor: colors.inputFill,
-      side: BorderSide(
-        color: selected ? AppColors.primary : colors.border,
+
+    return Material(
+      color: colors.inputFill,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: enabled ? onTap : null,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            isDense: true,
+            filled: true,
+            fillColor: colors.inputFill,
+            contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: colors.border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: colors.border),
+            ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: colors.border),
+            ),
+            suffixIcon: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 22,
+              color: enabled ? colors.textSecondary : colors.textHint,
+            ),
+          ),
+          child: Row(
+            children: [
+              if (leading != null)
+                leading!
+              else
+                Icon(
+                  icon,
+                  size: 20,
+                  color: colors.textSecondary,
+                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: muted || !enabled
+                            ? colors.textHint
+                            : colors.textPrimary,
+                        fontSize: 14,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      labelStyle: TextStyle(
-        fontSize: 13,
-        color: selected ? colors.textPrimary : colors.textSecondary,
-        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+    );
+  }
+}
+
+class _CompanyFilterDropdown extends StatelessWidget {
+  const _CompanyFilterDropdown({
+    required this.companies,
+    required this.selectedId,
+    required this.logoFor,
+    required this.onSelected,
+  });
+
+  final List<CompanyModel> companies;
+  final String? selectedId;
+  final Uint8List? Function(String companyId) logoFor;
+  final ValueChanged<String?> onSelected;
+
+  Future<void> _openPicker(BuildContext context) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.of(context).background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _CompanyFilterPickerSheet(
+        companies: companies,
+        selectedId: selectedId,
+        logoFor: logoFor,
+      ),
+    );
+    if (picked == null) return;
+    onSelected(picked.isEmpty ? null : picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    CompanyModel? selected;
+    for (final company in companies) {
+      if (company.id == selectedId) {
+        selected = company;
+        break;
+      }
+    }
+
+    return _FilterDropdownShell(
+      label: 'Company',
+      icon: Icons.business_rounded,
+      muted: selected == null,
+      leading: selected == null
+          ? null
+          : UserAvatar(
+              bytes: logoFor(selected.id),
+              name: selected.name,
+              size: 24,
+            ),
+      value: selected == null
+          ? 'All companies'
+          : '${selected.name}  •  ${selected.companyId}',
+      onTap: () => _openPicker(context),
+    );
+  }
+}
+
+class _CompanyFilterPickerSheet extends StatefulWidget {
+  const _CompanyFilterPickerSheet({
+    required this.companies,
+    required this.selectedId,
+    required this.logoFor,
+  });
+
+  final List<CompanyModel> companies;
+  final String? selectedId;
+  final Uint8List? Function(String companyId) logoFor;
+
+  @override
+  State<_CompanyFilterPickerSheet> createState() =>
+      _CompanyFilterPickerSheetState();
+}
+
+class _CompanyFilterPickerSheetState extends State<_CompanyFilterPickerSheet> {
+  final _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  List<CompanyModel> get _filtered {
+    final needle = _query.text.trim().toLowerCase();
+    if (needle.isEmpty) return widget.companies;
+    return widget.companies.where((company) {
+      return company.name.toLowerCase().contains(needle) ||
+          company.companyId.toLowerCase().contains(needle) ||
+          company.id.toLowerCase().contains(needle);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final items = _filtered;
+    final allSelected = widget.selectedId == null;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.border,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Filter by company',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Search by company name or ID.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _query,
+              autofocus: true,
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Search companies...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _query.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear',
+                        onPressed: () {
+                          _query.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+              ),
+              child: items.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'No companies match that search.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: items.length + 1,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 6),
+                      itemBuilder: (context, index) {
+                        if (index == 0) {
+                          return Material(
+                            color: allSelected
+                                ? AppColors.primary.withValues(alpha: 0.16)
+                                : colors.inputFill,
+                            borderRadius: BorderRadius.circular(12),
+                            child: ListTile(
+                              dense: true,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: allSelected
+                                      ? AppColors.primary
+                                      : colors.border,
+                                ),
+                              ),
+                              leading: Icon(
+                                Icons.business_rounded,
+                                color: colors.textSecondary,
+                                size: 28,
+                              ),
+                              title: const Text('All companies'),
+                              trailing: allSelected
+                                  ? const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: AppColors.primaryDark,
+                                      size: 20,
+                                    )
+                                  : null,
+                              onTap: () => Navigator.pop(context, ''),
+                            ),
+                          );
+                        }
+                        final company = items[index - 1];
+                        final selected = company.id == widget.selectedId;
+                        return Material(
+                          color: selected
+                              ? AppColors.primary.withValues(alpha: 0.16)
+                              : colors.inputFill,
+                          borderRadius: BorderRadius.circular(12),
+                          child: ListTile(
+                            dense: true,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: selected
+                                    ? AppColors.primary
+                                    : colors.border,
+                              ),
+                            ),
+                            leading: UserAvatar(
+                              bytes: widget.logoFor(company.id),
+                              name: company.name,
+                              size: 36,
+                            ),
+                            title: Text(
+                              company.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text('ID: ${company.companyId}'),
+                            trailing: selected
+                                ? const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: AppColors.primaryDark,
+                                    size: 20,
+                                  )
+                                : null,
+                            onTap: () =>
+                                Navigator.pop(context, company.id),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RoleNameFilterDropdown extends StatelessWidget {
+  const _RoleNameFilterDropdown({
+    required this.roleNames,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<String> roleNames;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  Future<void> _openPicker(BuildContext context) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.of(context).background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _RoleNameFilterPickerSheet(
+        roleNames: roleNames,
+        selected: selected,
+      ),
+    );
+    if (picked == null) return;
+    onSelected(picked.isEmpty ? null : picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _FilterDropdownShell(
+      label: 'Role',
+      icon: Icons.badge_outlined,
+      muted: selected == null,
+      value: selected ?? 'All roles',
+      onTap: () => _openPicker(context),
+    );
+  }
+}
+
+class _RoleNameFilterPickerSheet extends StatefulWidget {
+  const _RoleNameFilterPickerSheet({
+    required this.roleNames,
+    required this.selected,
+  });
+
+  final List<String> roleNames;
+  final String? selected;
+
+  @override
+  State<_RoleNameFilterPickerSheet> createState() =>
+      _RoleNameFilterPickerSheetState();
+}
+
+class _RoleNameFilterPickerSheetState extends State<_RoleNameFilterPickerSheet> {
+  final _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  List<String> get _filtered {
+    final needle = _query.text.trim().toLowerCase();
+    if (needle.isEmpty) return widget.roleNames;
+    return widget.roleNames
+        .where((name) => name.toLowerCase().contains(needle))
+        .toList();
+  }
+
+  bool _isSelected(String name) {
+    return widget.selected?.toLowerCase() == name.toLowerCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final items = _filtered;
+    final allSelected = widget.selected == null;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.border,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Filter by role',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Search role names linked to tasks.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _query,
+              autofocus: true,
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Search roles...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _query.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear',
+                        onPressed: () {
+                          _query.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+              ),
+              child: items.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'No roles match that search.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: items.length + 1,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 6),
+                      itemBuilder: (context, index) {
+                        if (index == 0) {
+                          return Material(
+                            color: allSelected
+                                ? AppColors.primary.withValues(alpha: 0.16)
+                                : colors.inputFill,
+                            borderRadius: BorderRadius.circular(12),
+                            child: ListTile(
+                              dense: true,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: allSelected
+                                      ? AppColors.primary
+                                      : colors.border,
+                                ),
+                              ),
+                              leading: Icon(
+                                Icons.badge_outlined,
+                                color: colors.textSecondary,
+                                size: 22,
+                              ),
+                              title: const Text('All roles'),
+                              trailing: allSelected
+                                  ? const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: AppColors.primaryDark,
+                                      size: 20,
+                                    )
+                                  : null,
+                              onTap: () => Navigator.pop(context, ''),
+                            ),
+                          );
+                        }
+                        final name = items[index - 1];
+                        final selected = _isSelected(name);
+                        return Material(
+                          color: selected
+                              ? AppColors.primary.withValues(alpha: 0.16)
+                              : colors.inputFill,
+                          borderRadius: BorderRadius.circular(12),
+                          child: ListTile(
+                            dense: true,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: selected
+                                    ? AppColors.primary
+                                    : colors.border,
+                              ),
+                            ),
+                            leading: Icon(
+                              Icons.badge_outlined,
+                              color: colors.textSecondary,
+                              size: 22,
+                            ),
+                            title: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: selected
+                                ? const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: AppColors.primaryDark,
+                                    size: 20,
+                                  )
+                                : null,
+                            onTap: () => Navigator.pop(context, name),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

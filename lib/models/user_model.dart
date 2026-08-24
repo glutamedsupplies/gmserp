@@ -4,7 +4,7 @@ class UserModel {
   final String id;
   final String username;
   final String email;
-  final String phoneNumber;
+  final String? _phoneNumber;
   final UserRole role;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -13,11 +13,19 @@ class UserModel {
     required this.id,
     required this.username,
     required this.email,
-    required this.phoneNumber,
+    required String phoneNumber,
     this.role = UserRole.user,
     this.createdAt,
     this.updatedAt,
-  });
+  }) : _phoneNumber = phoneNumber;
+
+  String get phoneNumber {
+    try {
+      return _phoneNumber ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(

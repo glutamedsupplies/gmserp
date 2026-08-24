@@ -30,3 +30,30 @@ class SuperAdminGate extends StatelessWidget {
     );
   }
 }
+
+class AdminOrSuperAdminGate extends StatelessWidget {
+  const AdminOrSuperAdminGate({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final role = context.watch<AuthProvider>().user?.role;
+    if (role == UserRole.admin || role == UserRole.superAdmin) {
+      return child;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      final current = context.read<AuthProvider>().user?.role;
+      if (current == UserRole.admin || current == UserRole.superAdmin) {
+        return;
+      }
+      AppNavigator.popToRoot(context);
+    });
+
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}

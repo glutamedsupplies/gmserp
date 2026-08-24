@@ -13,12 +13,19 @@ import 'models/company_task.dart';
 import 'models/user_role.dart';
 import 'providers/auth_provider.dart';
 import 'providers/company_provider.dart';
+import 'providers/pending_requests_provider.dart';
 import 'providers/settings_provider.dart';
+import 'providers/time_card_settings_provider.dart';
+import 'providers/time_entry_provider.dart';
 import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/company/select_company_screen.dart';
 import 'screens/dashboard/admin_dashboard_screen.dart';
+import 'screens/dashboard/admin_submitted_requests_screen.dart';
+import 'screens/dashboard/employee_request_leave_screen.dart';
+import 'screens/dashboard/employee_time_card_details_screen.dart';
+import 'screens/dashboard/employee_time_in_out_screen.dart';
 import 'screens/dashboard/profile_screen.dart';
 import 'screens/dashboard/role_dashboard_screen.dart';
 import 'screens/dashboard/settings_screen.dart';
@@ -27,8 +34,12 @@ import 'screens/dashboard/super_admin_dashboard_screen.dart';
 import 'screens/dashboard/super_admin_employee_lists_screen.dart';
 import 'screens/dashboard/super_admin_role_details_screen.dart';
 import 'screens/dashboard/super_admin_role_lists_screen.dart';
+import 'screens/dashboard/super_admin_requests_screen.dart';
 import 'screens/dashboard/super_admin_task_details_screen.dart';
 import 'screens/dashboard/super_admin_task_lists_screen.dart';
+import 'screens/dashboard/super_admin_time_card_details_screen.dart';
+import 'screens/dashboard/super_admin_edit_time_card_screen.dart';
+import 'screens/dashboard/super_admin_time_card_settings_screen.dart';
 import 'screens/dashboard/super_admin_users_screen.dart';
 
 class App extends StatefulWidget {
@@ -39,9 +50,26 @@ class App extends StatefulWidget {
 }
 
 class _AppState extends State<App> {
+  final _timeEntries = TimeEntryProvider();
+  final _timeCardSettings = TimeCardSettingsProvider();
+  late final PendingRequestsProvider _pendingRequests;
+
+  @override
+  void dispose() {
+    _timeEntries.dispose();
+    _timeCardSettings.dispose();
+    _pendingRequests.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _pendingRequests = PendingRequestsProvider(
+      notificationsEnabled: () =>
+          context.read<SettingsProvider>().notificationsEnabled,
+    );
+    _timeCardSettings.load();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final companies = context.read<CompanyProvider>();
       final auth = context.read<AuthProvider>();
@@ -63,6 +91,8 @@ class _AppState extends State<App> {
           companies.clearSelection();
         }
       }
+      if (!mounted) return;
+      _pendingRequests.syncUser(auth.user);
     });
   }
 
@@ -70,19 +100,30 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
 
-    return MaterialApp(
-      title: AppConstants.appName,
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: settings.themeMode,
-      themeAnimationDuration: const Duration(milliseconds: 280),
-      themeAnimationCurve: Curves.easeOutCubic,
-      home: const _AuthGate(),
-      routes: {
-        AppRoutes.register: (_) => const RegisterScreen(),
-        AppRoutes.forgotPassword: (_) => const ForgotPasswordScreen(),
-      },
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<TimeEntryProvider>.value(value: _timeEntries),
+        ChangeNotifierProvider<TimeCardSettingsProvider>.value(
+          value: _timeCardSettings,
+        ),
+        ChangeNotifierProvider<PendingRequestsProvider>.value(
+          value: _pendingRequests,
+        ),
+      ],
+      child: MaterialApp(
+        title: AppConstants.appName,
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: settings.themeMode,
+        themeAnimationDuration: const Duration(milliseconds: 280),
+        themeAnimationCurve: Curves.easeOutCubic,
+        home: const _AuthGate(),
+        routes: {
+          AppRoutes.register: (_) => const RegisterScreen(),
+          AppRoutes.forgotPassword: (_) => const ForgotPasswordScreen(),
+        },
+      ),
     );
   }
 }
@@ -155,6 +196,16 @@ Widget _signedInPage(RouteSettings settings) {
   switch (settings.name) {
     case AppRoutes.adminDashboard:
       return const AdminDashboardScreen();
+    case AppRoutes.adminSubmittedRequests:
+      return const AdminOrSuperAdminGate(
+        child: AdminSubmittedRequestsScreen(),
+      );
+    case AppRoutes.employeeTimeInOut:
+      return const EmployeeTimeInOutScreen();
+    case AppRoutes.employeeTimeCardDetails:
+      return const EmployeeTimeCardDetailsScreen();
+    case AppRoutes.employeeRequestLeave:
+      return const EmployeeRequestLeaveScreen();
     case AppRoutes.superAdmin:
     case AppRoutes.superAdminCreate:
       return const SuperAdminGate(
@@ -215,6 +266,22 @@ Widget _signedInPage(RouteSettings settings) {
     case AppRoutes.superAdminUsers:
       return const SuperAdminGate(
         child: SuperAdminUsersScreen(),
+      );
+    case AppRoutes.superAdminRequests:
+      return const SuperAdminGate(
+        child: SuperAdminRequestsScreen(),
+      );
+    case AppRoutes.superAdminTimeCardDetails:
+      return const AdminOrSuperAdminGate(
+        child: SuperAdminTimeCardDetailsScreen(),
+      );
+    case AppRoutes.superAdminTimeCardSettings:
+      return const AdminOrSuperAdminGate(
+        child: SuperAdminTimeCardSettingsScreen(),
+      );
+    case AppRoutes.superAdminEditTimeCard:
+      return const AdminOrSuperAdminGate(
+        child: SuperAdminEditTimeCardScreen(),
       );
     case AppRoutes.profile:
       return const ProfileScreen();

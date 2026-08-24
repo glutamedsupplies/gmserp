@@ -10,6 +10,9 @@ import '../core/utils/snackbar_helper.dart';
 import '../models/user_role.dart';
 import '../providers/auth_provider.dart';
 import '../providers/company_provider.dart';
+import '../providers/pending_requests_provider.dart';
+import '../providers/settings_provider.dart';
+import 'pending_count_badge.dart';
 import 'user_avatar.dart';
 
 WidgetStateProperty<Color?> _sidebarOverlayColor(AppColors colors) {
@@ -104,12 +107,25 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       AppRoutes.superAdminTasks,
       AppRoutes.superAdminTaskDetails,
       AppRoutes.superAdminUsers,
+      AppRoutes.superAdminRequests,
     };
     if (superAdminOnly.contains(route)) {
       return role == UserRole.superAdmin;
     }
-    if (route == AppRoutes.adminDashboard) {
+    if (route == AppRoutes.adminDashboard ||
+        route == AppRoutes.adminSubmittedRequests ||
+        route == AppRoutes.superAdminTimeCardDetails ||
+        route == AppRoutes.superAdminTimeCardSettings ||
+        route == AppRoutes.superAdminEditTimeCard) {
       return role == UserRole.admin || role == UserRole.superAdmin;
+    }
+    const employeeTimeCardRoutes = {
+      AppRoutes.employeeTimeInOut,
+      AppRoutes.employeeTimeCardDetails,
+      AppRoutes.employeeRequestLeave,
+    };
+    if (employeeTimeCardRoutes.contains(route)) {
+      return role == UserRole.employee;
     }
     return true;
   }
@@ -136,6 +152,16 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
     final selectedCompany = context.watch<CompanyProvider>().selectedCompany;
     final destinations = destinationsForRole(user?.role);
     final colors = AppColors.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<PendingRequestsProvider>().syncUser(
+            context.read<AuthProvider>().user,
+          );
+    });
+    // Re-apply badge prefs when the notifications toggle changes.
+    context.watch<SettingsProvider>();
+    final pendingCount =
+        context.watch<PendingRequestsProvider>().pendingCount;
     final needsCompany = (user?.role == UserRole.employee ||
             user?.role == UserRole.admin) &&
         selectedCompany == null &&
@@ -160,6 +186,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
         expanded: !wide || _sidebarExpanded,
         currentRoute: widget.currentRoute,
         destinations: destinations,
+        pendingSubmittedCount: pendingCount,
         onSelect: _goTo,
         onLogout: _logout,
         onProfile: () => _goTo(AppRoutes.profile),
@@ -186,6 +213,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
                         expanded: true,
                         currentRoute: widget.currentRoute,
                         destinations: destinations,
+                        pendingSubmittedCount: pendingCount,
                         onSelect: (route) {
                           Navigator.of(drawerContext).pop();
                           _goTo(route);
@@ -208,6 +236,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
               _DashboardHeader(
                 title: widget.title,
                 onMenuPressed: () => _toggleNav(scaffoldContext),
+                pendingCount: pendingCount,
                 actions: widget.actions,
               ),
               Expanded(
@@ -237,11 +266,13 @@ class _DashboardHeader extends StatelessWidget {
   const _DashboardHeader({
     required this.title,
     required this.onMenuPressed,
+    this.pendingCount = 0,
     this.actions,
   });
 
   final String title;
   final VoidCallback onMenuPressed;
+  final int pendingCount;
   final List<Widget>? actions;
 
   @override
@@ -259,9 +290,16 @@ class _DashboardHeader extends StatelessWidget {
           child: Row(
                 children: [
                   IconButton(
-                    tooltip: 'Menu',
+                    tooltip: pendingCount > 0
+                        ? 'Menu · ${PendingCountBadge.labelFor(pendingCount)} pending'
+                        : 'Menu',
                     onPressed: onMenuPressed,
-                    icon: const Icon(Icons.menu_rounded),
+                    icon: BadgedIcon(
+                      icon: Icons.menu_rounded,
+                      count: pendingCount,
+                      iconSize: 24,
+                      color: colors.textPrimary,
+                    ),
                     color: colors.textPrimary,
                     style: IconButton.styleFrom(
                       highlightColor: colors.textPrimary.withValues(
@@ -339,6 +377,7 @@ class _AppSidebar extends StatelessWidget {
     required this.expanded,
     required this.currentRoute,
     required this.destinations,
+    required this.pendingSubmittedCount,
     required this.onSelect,
     required this.onLogout,
     required this.onProfile,
@@ -347,6 +386,7 @@ class _AppSidebar extends StatelessWidget {
   final bool expanded;
   final String currentRoute;
   final List<SidebarDestination> destinations;
+  final int pendingSubmittedCount;
   final ValueChanged<String> onSelect;
   final VoidCallback onLogout;
   final VoidCallback onProfile;
@@ -470,6 +510,9 @@ class _AppSidebar extends StatelessWidget {
                       selected: item.route == currentRoute,
                       icon: item.icon,
                       label: item.label,
+                      badgeCount: item.route == AppRoutes.superAdminRequests
+                          ? pendingSubmittedCount
+                          : 0,
                       onTap: () => onSelect(item.route!),
                     ),
               ],
@@ -503,6 +546,7 @@ class _NavTile extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.badgeCount = 0,
     this.foreground,
   });
 
@@ -511,6 +555,7 @@ class _NavTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final int badgeCount;
   final Color? foreground;
 
   @override
@@ -535,7 +580,12 @@ class _NavTile extends StatelessWidget {
               mainAxisAlignment:
                   expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
               children: [
-                Icon(icon, color: color, size: 22),
+                BadgedIcon(
+                  icon: icon,
+                  count: expanded ? 0 : badgeCount,
+                  iconSize: 22,
+                  color: color,
+                ),
                 if (expanded) ...[
                   const SizedBox(width: 12),
                   Expanded(
@@ -547,6 +597,10 @@ class _NavTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (badgeCount > 0) ...[
+                    const SizedBox(width: 8),
+                    PendingCountBadge(count: badgeCount),
+                  ],
                 ],
               ],
             ),
@@ -556,7 +610,12 @@ class _NavTile extends StatelessWidget {
     );
 
     if (expanded) return tile;
-    return Tooltip(message: label, child: tile);
+    return Tooltip(
+      message: badgeCount > 0
+          ? '$label · ${PendingCountBadge.labelFor(badgeCount)} pending'
+          : label,
+      child: tile,
+    );
   }
 }
 

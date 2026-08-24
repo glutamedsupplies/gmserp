@@ -25,10 +25,13 @@ class SuperAdminEmployeeListsScreen extends StatefulWidget {
       _SuperAdminEmployeeListsScreenState();
 }
 
+enum _MemberRoleFilter { all, admin, employee }
+
 class _SuperAdminEmployeeListsScreenState
     extends State<SuperAdminEmployeeListsScreen> {
   final _search = TextEditingController();
   String? _companyId;
+  _MemberRoleFilter _roleFilter = _MemberRoleFilter.all;
 
   @override
   void initState() {
@@ -53,8 +56,33 @@ class _SuperAdminEmployeeListsScreenState
     setState(() {
       _companyId = companyId;
       _search.clear();
+      _roleFilter = _MemberRoleFilter.all;
     });
     await context.read<CompanyProvider>().loadCompanyUsers(companyId);
+  }
+
+  UserRole? _roleFilterValue(_MemberRoleFilter filter) {
+    switch (filter) {
+      case _MemberRoleFilter.all:
+        return null;
+      case _MemberRoleFilter.admin:
+        return UserRole.admin;
+      case _MemberRoleFilter.employee:
+        return UserRole.employee;
+    }
+  }
+
+  bool _matchesRoleFilter(CompanyProvider companies, StaffAssignment member) {
+    final filterRole = _roleFilterValue(_roleFilter);
+    if (filterRole == null) return true;
+    final user = companies.userById(member.userId);
+    return user?.role == filterRole;
+  }
+
+  int _countByRole(CompanyProvider companies, UserRole role) {
+    return companies.staff
+        .where((member) => companies.userById(member.userId)?.role == role)
+        .length;
   }
 
   CompanyModel? _selectedCompany(CompanyProvider companies) {
@@ -72,8 +100,9 @@ class _SuperAdminEmployeeListsScreenState
       ..sort(
         (a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()),
       );
-    if (query.isEmpty) return staff;
     return staff.where((member) {
+      if (!_matchesRoleFilter(companies, member)) return false;
+      if (query.isEmpty) return true;
       final user = companies.userById(member.userId);
       final level = (user?.role ?? UserRole.user).label.toLowerCase();
       return member.username.toLowerCase().contains(query) ||
@@ -234,9 +263,13 @@ class _SuperAdminEmployeeListsScreenState
     final company = _selectedCompany(companies);
     final members = _filteredStaff(companies);
     final total = companies.staff.length;
+    final adminCount = _countByRole(companies, UserRole.admin);
+    final employeeCount = _countByRole(companies, UserRole.employee);
     final assigned = companies.staff
         .where((member) => member.jobRole.isNotEmpty || member.tasks.isNotEmpty)
         .length;
+    final hasFilters =
+        _search.text.trim().isNotEmpty || _roleFilter != _MemberRoleFilter.all;
 
     return DashboardScaffold(
       title: 'Employee lists',
@@ -250,7 +283,7 @@ class _SuperAdminEmployeeListsScreenState
           ),
           const SizedBox(height: 6),
           Text(
-            'Select a company, add people, then tap to assign role and tasks.',
+            'Select a company, add admins and employees, then tap to assign role and tasks.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
@@ -264,9 +297,11 @@ class _SuperAdminEmployeeListsScreenState
             _SummaryCard(
               companyName: company?.name ?? 'Select company',
               total: total,
+              adminCount: adminCount,
+              employeeCount: employeeCount,
               assigned: assigned,
               showing: members.length,
-              hasSearch: _search.text.trim().isNotEmpty,
+              hasFilters: hasFilters,
             ),
             const SizedBox(height: 12),
             _CompanySearchDropdown(
@@ -274,6 +309,42 @@ class _SuperAdminEmployeeListsScreenState
               selectedId: _companyId,
               logoFor: companies.logoFor,
               onSelected: _selectCompany,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Role',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AppColors.of(context).textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _RoleFilterChip(
+                    label: 'All',
+                    selected: _roleFilter == _MemberRoleFilter.all,
+                    onSelected: () =>
+                        setState(() => _roleFilter = _MemberRoleFilter.all),
+                  ),
+                  const SizedBox(width: 8),
+                  _RoleFilterChip(
+                    label: 'Admin',
+                    selected: _roleFilter == _MemberRoleFilter.admin,
+                    onSelected: () =>
+                        setState(() => _roleFilter = _MemberRoleFilter.admin),
+                  ),
+                  const SizedBox(width: 8),
+                  _RoleFilterChip(
+                    label: 'Employee',
+                    selected: _roleFilter == _MemberRoleFilter.employee,
+                    onSelected: () =>
+                        setState(() => _roleFilter = _MemberRoleFilter.employee),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -318,20 +389,20 @@ class _SuperAdminEmployeeListsScreenState
             else if (companies.staff.isEmpty)
               _EmptyState(
                 icon: Icons.groups_outlined,
-                title: 'No employees yet',
-                message: 'Add someone to this company to get started.',
-                actionLabel: 'Add employee',
+                title: 'No members yet',
+                message: 'Add an admin or employee to this company to get started.',
+                actionLabel: 'Add member',
                 onAction: company == null ? null : _addEmployee,
               )
             else if (members.isEmpty)
               _EmptyState(
                 icon: Icons.filter_alt_off_rounded,
                 title: 'No matches',
-                message: 'Try another search term.',
-                actionLabel: 'Clear search',
+                message: 'Try another role filter or search term.',
+                actionLabel: 'Clear filters',
                 onAction: () {
                   _search.clear();
-                  setState(() {});
+                  setState(() => _roleFilter = _MemberRoleFilter.all);
                 },
               )
             else
@@ -356,22 +427,27 @@ class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.companyName,
     required this.total,
+    required this.adminCount,
+    required this.employeeCount,
     required this.assigned,
     required this.showing,
-    required this.hasSearch,
+    required this.hasFilters,
   });
 
   final String companyName;
   final int total;
+  final int adminCount;
+  final int employeeCount;
   final int assigned;
   final int showing;
-  final bool hasSearch;
+  final bool hasFilters;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final countLabel =
-        hasSearch ? 'Showing $showing of $total' : '$total employees';
+    final countLabel = hasFilters
+        ? 'Showing $showing of $total'
+        : '$total members ($adminCount admin, $employeeCount employee)';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -823,6 +899,40 @@ class _EmployeeCard extends StatelessWidget {
   }
 }
 
+class _RoleFilterChip extends StatelessWidget {
+  const _RoleFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      onSelected: (_) => onSelected(),
+      selectedColor: AppColors.primary.withValues(alpha: 0.28),
+      backgroundColor: colors.inputFill,
+      side: BorderSide(
+        color: selected ? AppColors.primary : colors.border,
+      ),
+      labelStyle: TextStyle(
+        color: colors.textPrimary,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
+    );
+  }
+}
+
 class _MiniChip extends StatelessWidget {
   const _MiniChip({
     required this.label,
@@ -929,13 +1039,13 @@ class _AddEmployeeSheet extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              'Add employee',
+              'Add member',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 4),
             Text(
-              'Choose an account to add to this company.',
+              'Choose an admin or employee account to add to this company.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),

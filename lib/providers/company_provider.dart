@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/company_job_role.dart';
 import '../models/company_model.dart';
 import '../models/company_task.dart';
+import '../models/employee_time_card_profile.dart';
 import '../models/staff_assignment.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
@@ -37,6 +38,8 @@ class CompanyProvider extends ChangeNotifier {
   List<CompanyJobRole> roles = [];
   List<CompanyTaskListing> allTasks = [];
   List<CompanyRoleListing> allRoles = [];
+  List<StaffMembershipListing> allStaffMemberships = [];
+  final Map<String, List<StaffAssignment>> _staffByCompanyDoc = {};
   CompanyModel? selectedCompany;
   bool isPickingCompany = false;
   StaffAssignment? myAssignment;
@@ -164,9 +167,61 @@ class CompanyProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> loadUsersPage() async {
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      users = await _users.listUsers();
+    } catch (_) {
+      users = [];
+      errorMessage = 'Unable to load users.';
+    }
+    try {
+      companies = await _companies.listCompanies();
+      try {
+        await _loadLogos();
+      } catch (_) {}
+    } catch (_) {
+      companies = [];
+    }
+    try {
+      allStaffMemberships = await _companies.listAllStaffMemberships();
+      _staffByCompanyDoc.clear();
+      for (final membership in allStaffMemberships) {
+        _staffByCompanyDoc
+            .putIfAbsent(membership.firestoreCompanyId, () => [])
+            .add(membership.assignment);
+      }
+    } catch (_) {
+      allStaffMemberships = [];
+      _staffByCompanyDoc.clear();
+    }
+    isLoading = false;
+    notifyListeners();
+  }
+
+  List<StaffAssignment> cachedStaffForCompany(String documentId) {
+    return _staffByCompanyDoc[documentId] ?? const [];
+  }
+
+  Future<List<StaffAssignment>> loadStaffForCompany(CompanyModel company) async {
+    final key = company.firestoreId;
+    final cached = _staffByCompanyDoc[key];
+    if (cached != null && cached.isNotEmpty) {
+      return cached;
+    }
+
+    final loaded = await _companies.listStaffByDocumentId(key);
+    _staffByCompanyDoc[key] = loaded;
+    notifyListeners();
+    return loaded;
+  }
+
   Future<void> loadStaff(String companyId) async {
     try {
       staff = await _companies.listStaff(companyId);
+      _cacheStaff(companyId, staff);
       notifyListeners();
     } catch (_) {
       staff = [];
@@ -215,6 +270,14 @@ class CompanyProvider extends ChangeNotifier {
     }
   }
 
+  Future<List<StaffAssignment>> fetchStaffForCompany(String companyId) async {
+    final loaded = await _companies.listStaff(companyId);
+    staff = loaded;
+    _cacheStaff(companyId, loaded);
+    notifyListeners();
+    return loaded;
+  }
+
   Future<void> loadCompanyUsers(String companyId) async {
     isLoading = true;
     errorMessage = null;
@@ -230,6 +293,7 @@ class CompanyProvider extends ChangeNotifier {
       staff = results[1] as List<StaffAssignment>;
       tasks = results[2] as List<CompanyTask>;
       roles = results[3] as List<CompanyJobRole>;
+      _cacheStaff(companyId, staff);
     } catch (_) {
       errorMessage = 'Unable to load company users.';
       staff = [];
@@ -239,6 +303,17 @@ class CompanyProvider extends ChangeNotifier {
       isLoading = false;
       notifyListeners();
     }
+  }
+
+  void _cacheStaff(String companyKey, List<StaffAssignment> members) {
+    for (final company in companies) {
+      if (company.id == companyKey ||
+          company.firestoreId == companyKey) {
+        _staffByCompanyDoc[company.firestoreId] = members;
+        return;
+      }
+    }
+    _staffByCompanyDoc[companyKey] = members;
   }
 
   UserModel? userById(String userId) {
@@ -370,13 +445,98 @@ class CompanyProvider extends ChangeNotifier {
   Future<bool> updateUserRole({
     required String userId,
     required UserRole role,
+    UserRole? previousRole,
   }) async {
+    errorMessage = null;
     try {
+      UserRole previous = previousRole ?? UserRole.user;
+      for (final user in users) {
+        if (user.id == userId) {
+          previous = user.role;
+          break;
+        }
+      }
+
       await _users.updateUserRole(userId: userId, role: role);
+
+      if (RolePolicy.clearsCompanyMembership(previous: previous, next: role)) {
+        await _companies.removeUserFromAllCompanies(userId: userId);
+        staff.removeWhere((member) => member.userId == userId);
+        allStaffMemberships.removeWhere(
+          (item) => item.assignment.userId == userId,
+        );
+        for (final entry in _staffByCompanyDoc.entries.toList()) {
+          entry.value.removeWhere((member) => member.userId == userId);
+          if (entry.value.isEmpty) {
+            _staffByCompanyDoc.remove(entry.key);
+          }
+        }
+      }
+
       await loadUsers();
+      await _refreshStaffMemberships();
+      notifyListeners();
       return true;
     } catch (_) {
-      errorMessage = 'Could not update user role.';
+      errorMessage = 'Could not update user level.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> _refreshStaffMemberships() async {
+    try {
+      allStaffMemberships = await _companies.listAllStaffMemberships();
+      _staffByCompanyDoc.clear();
+      for (final membership in allStaffMemberships) {
+        _staffByCompanyDoc
+            .putIfAbsent(membership.firestoreCompanyId, () => [])
+            .add(membership.assignment);
+      }
+    } catch (_) {
+      allStaffMemberships = [];
+      _staffByCompanyDoc.clear();
+    }
+  }
+
+  Future<bool> syncUserCompanyMemberships({
+    required UserModel user,
+    required List<String> companyIds,
+  }) async {
+    final targetIds = {
+      for (final id in companyIds)
+        if (id.trim().isNotEmpty) id.trim(),
+    };
+    if (targetIds.isEmpty) {
+      errorMessage = 'Select at least one company.';
+      notifyListeners();
+      return false;
+    }
+
+    errorMessage = null;
+    final currentIds = <String>{};
+    for (final item in allStaffMemberships) {
+      if (item.assignment.userId == user.id) {
+        currentIds.add(item.company.id);
+      }
+    }
+
+    try {
+      for (final companyId in targetIds) {
+        if (!currentIds.contains(companyId)) {
+          await _companies.ensureStaffMember(companyId: companyId, user: user);
+        }
+      }
+      for (final companyId in currentIds) {
+        if (!targetIds.contains(companyId)) {
+          await _companies.removeStaff(companyId: companyId, userId: user.id);
+        }
+      }
+      await _refreshStaffMemberships();
+      notifyListeners();
+      return true;
+    } catch (_) {
+      errorMessage = 'Could not update company membership.';
       notifyListeners();
       return false;
     }
@@ -395,6 +555,27 @@ class CompanyProvider extends ChangeNotifier {
       return true;
     } catch (_) {
       errorMessage = 'Could not save assignment.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> saveStaffTimeCardProfile({
+    required String companyId,
+    required String userId,
+    required EmployeeTimeCardProfile profile,
+  }) async {
+    errorMessage = null;
+    try {
+      await _companies.saveStaffTimeCardProfile(
+        companyId: companyId,
+        userId: userId,
+        profile: profile,
+      );
+      await loadStaff(companyId);
+      return true;
+    } catch (_) {
+      errorMessage = 'Could not save employee time card settings.';
       notifyListeners();
       return false;
     }
@@ -486,7 +667,9 @@ class CompanyProvider extends ChangeNotifier {
         password: password,
       );
       if (!ok) {
-        errorMessage = 'Incorrect company code.';
+        errorMessage = company.staffPasswordHash.isEmpty
+            ? 'This company has no company code yet. Ask the founder to set one.'
+            : 'Incorrect company code.';
         notifyListeners();
         return false;
       }
