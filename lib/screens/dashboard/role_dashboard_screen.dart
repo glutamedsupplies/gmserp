@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class RoleDashboardScreen extends StatefulWidget {
@@ -61,22 +62,19 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
     final companies = context.watch<CompanyProvider>();
     final role = user?.role;
 
+    final density = CompactPageStyle.of(context);
+
     return DashboardScaffold(
       title: 'Dashboard',
       currentRoute: AppRoutes.dashboard,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: density.pagePadding,
         children: [
-          Text(
-            'Welcome, ${user?.username ?? 'Guest'}',
-            style: Theme.of(context).textTheme.headlineMedium,
+          CompactPageHeader(
+            title: 'Welcome, ${user?.username ?? 'Guest'}',
+            subtitle: _subtitle(role, companies.selectedCompany?.name),
           ),
-          const SizedBox(height: 8),
-          Text(
-            _subtitle(role, companies.selectedCompany?.name),
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 24),
+          SizedBox(height: density.sectionGap + 8),
           if (role == UserRole.user) ...[
             _Info(label: 'Email', value: user?.email ?? ''),
             _Info(label: 'Phone', value: user?.phoneNumber ?? ''),
@@ -166,24 +164,26 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
+    final colors = AppColors.of(context);
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: density.cardPadding.add(const EdgeInsets.all(4)),
       decoration: BoxDecoration(
-        color: AppColors.of(context).inputFill,
-        borderRadius: BorderRadius.circular(18),
+        color: colors.inputFill,
+        borderRadius: BorderRadius.circular(density.settingsCardRadius),
       ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: density.settingsIconSize,
+            height: density.settingsIconSize,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.28),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(density.radius),
             ),
-            child: Icon(icon, color: AppColors.of(context).textPrimary),
+            child: Icon(icon, color: colors.textPrimary),
           ),
-          const SizedBox(width: 14),
+          SizedBox(width: density.compact ? 10 : 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,17 +191,18 @@ class _StatCard extends StatelessWidget {
                 Text(
                   label,
                   style: TextStyle(
-                    color: AppColors.of(context).textSecondary,
+                    color: colors.textSecondary,
                     fontWeight: FontWeight.w600,
+                    fontSize: density.compact ? 12 : 14,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: density.titleSubtitleGap),
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: density.compact ? 14 : 16,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.of(context).textPrimary,
+                    color: colors.textPrimary,
                   ),
                 ),
               ],

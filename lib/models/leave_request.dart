@@ -13,6 +13,7 @@ class LeaveRequest {
   final String endDate;
   final String status;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   const LeaveRequest({
     required this.id,
@@ -27,6 +28,7 @@ class LeaveRequest {
     required this.endDate,
     required this.status,
     this.createdAt,
+    this.updatedAt,
   });
 
   bool get isActiveLeave =>
@@ -53,7 +55,9 @@ class LeaveRequest {
       startDate: data['startDate']?.toString() ?? '',
       endDate: data['endDate']?.toString() ?? '',
       status: data['status']?.toString() ?? 'pending',
-      createdAt: _parseDate(data['createdAt']),
+      createdAt:
+          _parseDate(data['createdAt']) ?? _parseDate(data['requestedAt']),
+      updatedAt: _parseDate(data['updatedAt']),
     );
   }
 

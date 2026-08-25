@@ -23,6 +23,7 @@ class TimeCardChangeRequest {
     this.currentTimeOutText = '',
     this.existingEntryId,
     this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
@@ -45,6 +46,7 @@ class TimeCardChangeRequest {
   final String currentTimeOutText;
   final String? existingEntryId;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   bool get isPending => status.toLowerCase() == 'pending';
 
@@ -100,6 +102,7 @@ class TimeCardChangeRequest {
       currentTimeOutText: currentTimeOutText ?? this.currentTimeOutText,
       existingEntryId: existingEntryId,
       createdAt: createdAt,
+      updatedAt: updatedAt,
     );
   }
 
@@ -132,6 +135,7 @@ class TimeCardChangeRequest {
           '',
       existingEntryId: data['existingEntryId']?.toString(),
       createdAt: _parseDate(data['createdAt']),
+      updatedAt: _parseDate(data['updatedAt']),
     );
   }
 

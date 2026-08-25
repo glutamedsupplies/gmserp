@@ -11,6 +11,7 @@ import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/editable_photo.dart';
@@ -136,8 +137,10 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.of(context).background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(CompactPageStyle.read(context).radius),
+        ),
       ),
       builder: (context) => _EditCompanySheet(company: company),
     );
@@ -198,19 +201,15 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           ? AppRoutes.superAdminCreate
           : AppRoutes.superAdminList,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
           if (isCreate) ...[
-          Text(
-            'Create company',
-            style: Theme.of(context).textTheme.headlineMedium,
+          const CompactPageHeader(
+            title: 'Create company',
+            subtitle:
+                'Company password is for the founder only. Company code is what employees enter to log in.',
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Company password is for the founder only. Company code is what employees enter to log in.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 20),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Form(
             key: _formKey,
             child: Column(
@@ -225,7 +224,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                       ? null
                       : () => setState(() => _logoBytes = null),
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: CompactPageStyle.of(context).sectionGap),
                 CustomTextField(
                   controller: _companyId,
                   label: 'Company ID',
@@ -349,36 +348,18 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
             ),
           ),
           ] else ...[
-          Text(
-            'Company lists',
-            style: Theme.of(context).textTheme.headlineMedium,
+          const CompactPageHeader(
+            title: 'Company lists',
+            subtitle:
+                'Tap a company to view its roles and tasks. Edit them under Role lists and Task lists. Use Employee lists to add people.',
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Tap a company to view its roles and tasks. Edit them under Role lists and Task lists. Use Employee lists to add people.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 20),
-          TextField(
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
+          CompactSearchField(
             controller: _search,
             onChanged: (_) => setState(() {}),
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: 'Search by company name or ID',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _search.text.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear',
-                      onPressed: () {
-                        _search.clear();
-                        setState(() {});
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-            ),
+            hintText: 'Search by company name or ID',
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (companies.companies.isEmpty)
             const Text('No companies yet.')
           else if (_filteredCompanies(companies).isEmpty)
@@ -386,15 +367,17 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           else
             ..._filteredCompanies(companies).map(
               (company) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
                 child: Material(
                   color: colors.inputFill,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius:
+                        BorderRadius.circular(CompactPageStyle.of(context).radius),
                     onTap: () => _openCompanyUsers(company),
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+                      padding: CompactPageStyle.of(context).cardPadding,
                       child: Row(
                         children: [
                           UserAvatar(
@@ -403,39 +386,49 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                             ),
                             bytes: companies.logoFor(company.id),
                             name: company.name,
-                            size: 44,
+                            size: 40,
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   company.name,
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   'ID: ${company.companyId}',
-                                  style: Theme.of(context).textTheme.bodyMedium,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: colors.textSecondary),
                                 ),
                               ],
                             ),
                           ),
                           IconButton(
                             tooltip: 'Edit',
+                            visualDensity: VisualDensity.compact,
                             onPressed: () => _editCompany(company),
                             icon: Icon(
                               Icons.edit_rounded,
                               color: colors.textPrimary,
+                              size: 20,
                             ),
                           ),
                           IconButton(
                             tooltip: 'Delete',
+                            visualDensity: VisualDensity.compact,
                             onPressed: () => _deleteCompany(company),
                             icon: const Icon(
                               Icons.delete_rounded,
                               color: AppColors.error,
+                              size: 20,
                             ),
                           ),
                         ],
@@ -572,7 +565,7 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(24, 16, 24, 24 + bottom),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
@@ -590,13 +583,15 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: CompactPageStyle.of(context).sectionGap),
               Text(
                 'Edit company',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: CompactPageStyle.of(context).sectionGap),
               Consumer<CompanyProvider>(
                 builder: (context, companies, _) {
                   return EditablePhoto(
@@ -614,7 +609,7 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
                   );
                 },
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: CompactPageStyle.of(context).sectionGap),
               CustomTextField(
                 controller: _id,
                 label: 'Company ID',
@@ -841,7 +836,10 @@ class _DeleteCompanyDialogState extends State<_DeleteCompanyDialog> {
           ],
         ),
       ),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+      ),
       actions: [
         SizedBox(
           width: double.infinity,
@@ -915,59 +913,60 @@ class _CompanyCreatedDialog extends StatelessWidget {
         child: Material(
           color: colors.card,
           elevation: 0,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 36, 28, 28),
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 84,
-                  height: 84,
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
                     color: AppColors.primary.withValues(alpha: 0.28),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.check_rounded,
-                    size: 44,
+                    size: 36,
                     color: AppColors.primaryDark,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 Text(
                   'Company created',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 18,
-                  ),
+                  padding: CompactPageStyle.of(context).summaryPadding,
                   decoration: BoxDecoration(
                     color: colors.inputFill,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius:
+                        BorderRadius.circular(CompactPageStyle.of(context).radius),
                   ),
                   child: Text(
                     companyName,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: colors.textPrimary,
-                    ),
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: colors.textPrimary,
+                        ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: CompactPageStyle.of(context).sectionGap),
                 Text(
                   'Share the company ID and company code with employees. Keep the company password to yourself.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.textSecondary,
+                      ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 16),
                 PrimaryButton(
                   label: 'Done',
                   onPressed: () => Navigator.of(context).pop(),
@@ -1011,10 +1010,10 @@ class _AccessSection extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
         color: fill,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: borderColor),
       ),
       child: Column(
@@ -1023,25 +1022,28 @@ class _AccessSection extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.28),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
                 ),
-                child: Icon(icon, color: colors.textPrimary),
+                child: Icon(icon, color: colors.textPrimary, size: 20),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   title,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
+                  horizontal: 8,
+                  vertical: 4,
                 ),
                 decoration: BoxDecoration(
                   color: colors.chip,
@@ -1050,7 +1052,7 @@ class _AccessSection extends StatelessWidget {
                 child: Text(
                   badge,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.w700,
                     color: colors.textPrimary,
                   ),
@@ -1058,12 +1060,14 @@ class _AccessSection extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             description,
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           ...children,
         ],
       ),

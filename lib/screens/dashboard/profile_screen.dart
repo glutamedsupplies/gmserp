@@ -10,6 +10,7 @@ import '../../core/validators/auth_validators.dart';
 import '../../providers/auth_provider.dart';
 import 'avatar_crop_screen.dart';
 import '../../widgets/custom_text_field.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/password_field.dart';
 import '../../widgets/primary_button.dart';
@@ -160,6 +161,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final isLoading = auth.isLoading;
+    final density = CompactPageStyle.of(context);
 
     return DashboardScaffold(
       title: 'Account',
@@ -171,18 +173,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Form(
             key: _formKey,
             child: ListView(
-              padding: const EdgeInsets.all(24),
+              padding: density.pagePadding,
               children: [
-                Text(
-                  'Edit profile',
-                  style: Theme.of(context).textTheme.headlineMedium,
+                const CompactPageHeader(
+                  title: 'Edit profile',
+                  subtitle:
+                      'Update your username, Gmail, phone number, or password.',
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Update your username, Gmail, phone number, or password.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 24),
+                SizedBox(height: density.sectionGap + 8),
                 Center(
                   child: GestureDetector(
                     onTap: isLoading ? null : _pickPhoto,
@@ -192,7 +190,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           key: ValueKey(auth.avatarRevision),
                           bytes: auth.avatarBytes,
                           name: auth.user?.username ?? auth.user?.email ?? '',
-                          size: 96,
+                          size: density.compact ? 80 : 96,
                         ),
                         Positioned(
                           right: 0,

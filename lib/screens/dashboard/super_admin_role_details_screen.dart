@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_job_role.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
@@ -106,60 +107,63 @@ class _SuperAdminRoleDetailsScreenState
       title: _role.name.isEmpty ? 'Role details' : _role.name,
       currentRoute: AppRoutes.superAdminRoleDetails,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
-          Text(
-            _role.name.isEmpty ? 'Role details' : _role.name,
-            style: Theme.of(context).textTheme.headlineMedium,
+          CompactPageHeader(
+            title: _role.name.isEmpty ? 'Role details' : _role.name,
+            subtitle: '${company.name}  •  ID: ${company.companyId}',
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${company.name}  •  ID: ${company.companyId}',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Container(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            padding: CompactPageStyle.of(context).summaryPadding,
             decoration: BoxDecoration(
               color: colors.header,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
               border: Border.all(color: colors.border),
             ),
             child: Row(
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: AppColors.primary.withValues(alpha: 0.22),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius:
+                        BorderRadius.circular(CompactPageStyle.of(context).radius),
                   ),
                   child: const Icon(
                     Icons.badge_outlined,
                     color: AppColors.primaryDark,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     '$taskCount ${taskCount == 1 ? 'task' : 'tasks'} linked to this role',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             'Edit role',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Change the role name or details, then save.',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Form(
             key: _formKey,
             child: Column(
@@ -176,7 +180,7 @@ class _SuperAdminRoleDetailsScreenState
                     return null;
                   },
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: CompactPageStyle.of(context).sectionGap),
                 CustomTextField(
                   controller: _description,
                   label: 'Description',
@@ -184,7 +188,7 @@ class _SuperAdminRoleDetailsScreenState
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _save(),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 PrimaryButton(
                   label: 'Save changes',
                   loadingLabel: 'Saving...',
@@ -194,7 +198,7 @@ class _SuperAdminRoleDetailsScreenState
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),

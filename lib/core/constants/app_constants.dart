@@ -3,6 +3,17 @@ class AppConstants {
 
   static const String appName = 'GMSERP';
 
+  /// Play Store / App Store country used when checking for updates.
+  static const String storeCountryCode = 'PH';
+
+  /// Android application id (must match Play Console listing).
+  static const String androidPackageName = 'gmserp.android';
+
+  /// Firestore collection for OTA release metadata (pre–Play Store).
+  static const String appConfigCollection = 'appConfig';
+  static const String androidReleaseDocId = 'android';
+  static const String iosReleaseDocId = 'ios';
+
   // Responsive breakpoints
   static const double mobileBreakpoint = 600;
   static const double tabletBreakpoint = 1024;

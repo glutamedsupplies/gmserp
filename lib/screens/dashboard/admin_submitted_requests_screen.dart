@@ -6,6 +6,8 @@ import '../../core/theme/app_colors.dart';
 import '../../models/time_card_change_request.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/time_card_change_request_repository.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class AdminSubmittedRequestsScreen extends StatefulWidget {
@@ -72,7 +74,7 @@ class _AdminSubmittedRequestsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     final filtered = _filtered;
     final pending =
         _requests.where((r) => r.isPending).length;
@@ -81,71 +83,30 @@ class _AdminSubmittedRequestsScreenState
       title: 'Submitted requests',
       currentRoute: AppRoutes.adminSubmittedRequests,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        padding: density.pagePadding,
         children: [
-          Text(
-            'Submitted requests',
-            style: Theme.of(context).textTheme.headlineMedium,
+          const CompactPageHeader(
+            title: 'Submitted requests',
+            subtitle:
+                'Track time-card change requests you sent to Super Admin.',
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Track time-card change requests you sent to Super Admin.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                ),
+          SizedBox(height: density.sectionGap),
+          CompactSummaryStrip(
+            items: [
+              CompactSummaryItem(label: 'Total', value: '${_requests.length}'),
+              CompactSummaryItem(label: 'Pending', value: '$pending'),
+              CompactSummaryItem(label: 'Showing', value: '${filtered.length}'),
+            ],
           ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            decoration: BoxDecoration(
-              color: colors.header,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: colors.border),
-            ),
-            child: Row(
-              children: [
-                _SummaryItem(label: 'Total', value: '${_requests.length}'),
-                _SummaryItem(label: 'Pending', value: '$pending'),
-                _SummaryItem(label: 'Showing', value: '${filtered.length}'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
+          SizedBox(height: density.cardGap),
           Row(
             children: [
               Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: colors.card,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: colors.border),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _statusFilter,
-                      isExpanded: true,
-                      items: const [
-                        DropdownMenuItem(value: 'All', child: Text('All')),
-                        DropdownMenuItem(
-                          value: 'Pending',
-                          child: Text('Pending'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Approved',
-                          child: Text('Approved'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Rejected',
-                          child: Text('Rejected'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _statusFilter = value);
-                      },
-                    ),
-                  ),
+                child: CompactFilterDropdown(
+                  value: _statusFilter,
+                  items: const ['All', 'Pending', 'Approved', 'Rejected'],
+                  onChanged: (value) => setState(() => _statusFilter = value),
+                  hint: 'Status',
                 ),
               ),
               IconButton(
@@ -156,11 +117,11 @@ class _AdminSubmittedRequestsScreenState
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: density.sectionGap),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: CircularProgressIndicator()),
+            const AppLoadingView(
+              title: 'Loading requests',
+              message: 'Fetching submitted leave requests…',
             )
           else if (_error != null)
             _MessageCard(icon: Icons.error_outline, message: _error!)
@@ -172,40 +133,8 @@ class _AdminSubmittedRequestsScreenState
           else
             for (final request in filtered) ...[
               _SubmittedRequestCard(request: request),
-              const SizedBox(height: 10),
+              SizedBox(height: density.cardGap),
             ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryItem extends StatelessWidget {
-  const _SummaryItem({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppColors.of(context);
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primaryDark,
-                ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
-          ),
         ],
       ),
     );
@@ -236,6 +165,7 @@ class _SubmittedRequestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     final statusColor = _statusColor(request.status);
     final employee =
         request.employeeName.isEmpty ? 'Employee' : request.employeeName;
@@ -243,10 +173,10 @@ class _SubmittedRequestCard extends StatelessWidget {
         request.companyName.isEmpty ? 'Unknown company' : request.companyName;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      padding: density.cardPadding,
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -372,17 +302,24 @@ class _MessageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 28, 16, 28),
+      padding: density.compact
+          ? const EdgeInsets.fromLTRB(14, 22, 14, 22)
+          : const EdgeInsets.fromLTRB(16, 28, 16, 28),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 34, color: colors.textSecondary),
-          const SizedBox(height: 10),
+          Icon(
+            icon,
+            size: density.compact ? 28 : 34,
+            color: colors.textSecondary,
+          ),
+          SizedBox(height: density.cardGap),
           Text(
             message,
             textAlign: TextAlign.center,

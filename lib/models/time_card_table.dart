@@ -459,7 +459,7 @@ List<TimeCardTableRow> buildStaffTimeCardTableRows({
   }
 
   rows.sort((a, b) {
-    final byDate = b.workDate.compareTo(a.workDate);
+    final byDate = a.workDate.compareTo(b.workDate);
     if (byDate != 0) return byDate;
     return a.employeeName.toLowerCase().compareTo(b.employeeName.toLowerCase());
   });

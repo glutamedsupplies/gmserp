@@ -12,6 +12,8 @@ import '../providers/auth_provider.dart';
 import '../providers/company_provider.dart';
 import '../providers/pending_requests_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/user_outcome_notifications_provider.dart';
+import 'compact_page.dart';
 import 'pending_count_badge.dart';
 import 'user_avatar.dart';
 
@@ -53,8 +55,14 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   bool _redirectScheduled = false;
 
   Future<void> _logout() async {
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Signing out',
+      message: 'Ending your session…',
+    );
     context.read<CompanyProvider>().clearSelection();
     await context.read<AuthProvider>().logout();
+    SnackBarHelper.hideLoading();
     if (!mounted) return;
     SnackBarHelper.showInfo(context, 'You have been signed out.');
   }
@@ -108,24 +116,33 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       AppRoutes.superAdminTaskDetails,
       AppRoutes.superAdminUsers,
       AppRoutes.superAdminRequests,
+      AppRoutes.superAdminLogs,
     };
     if (superAdminOnly.contains(route)) {
+      if (route == AppRoutes.superAdminRequests) {
+        return role == UserRole.superAdmin || role == UserRole.admin;
+      }
       return role == UserRole.superAdmin;
     }
     if (route == AppRoutes.adminDashboard ||
         route == AppRoutes.adminSubmittedRequests ||
         route == AppRoutes.superAdminTimeCardDetails ||
-        route == AppRoutes.superAdminTimeCardSettings ||
-        route == AppRoutes.superAdminEditTimeCard) {
+        route == AppRoutes.superAdminTimeCardSettings) {
       return role == UserRole.admin || role == UserRole.superAdmin;
+    }
+    if (route == AppRoutes.timeCardCalendar ||
+        route == AppRoutes.notifications) {
+      return role == UserRole.employee || role == UserRole.admin;
     }
     const employeeTimeCardRoutes = {
       AppRoutes.employeeTimeInOut,
       AppRoutes.employeeTimeCardDetails,
-      AppRoutes.employeeRequestLeave,
     };
     if (employeeTimeCardRoutes.contains(route)) {
       return role == UserRole.employee;
+    }
+    if (route == AppRoutes.employeeRequestLeave) {
+      return role == UserRole.employee || role == UserRole.admin;
     }
     return true;
   }
@@ -152,13 +169,14 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
     final selectedCompany = context.watch<CompanyProvider>().selectedCompany;
     final destinations = destinationsForRole(user?.role);
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<PendingRequestsProvider>().syncUser(
             context.read<AuthProvider>().user,
           );
     });
-    // Re-apply badge prefs when the notifications toggle changes.
+    // Rebuild chrome when appearance/notification prefs change.
     context.watch<SettingsProvider>();
     final pendingCount =
         context.watch<PendingRequestsProvider>().pendingCount;
@@ -236,6 +254,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
               _DashboardHeader(
                 title: widget.title,
                 onMenuPressed: () => _toggleNav(scaffoldContext),
+                onSelect: _goTo,
                 pendingCount: pendingCount,
                 actions: widget.actions,
               ),
@@ -246,7 +265,9 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 220),
                         curve: Curves.easeOutCubic,
-                        width: _sidebarExpanded ? 268 : 84,
+                        width: _sidebarExpanded
+                            ? density.sidebarExpandedWidth
+                            : density.sidebarCollapsedWidth,
                         color: colors.sidebar,
                         child: sidebar,
                       ),
@@ -266,12 +287,14 @@ class _DashboardHeader extends StatelessWidget {
   const _DashboardHeader({
     required this.title,
     required this.onMenuPressed,
+    required this.onSelect,
     this.pendingCount = 0,
     this.actions,
   });
 
   final String title;
   final VoidCallback onMenuPressed;
+  final ValueChanged<String> onSelect;
   final int pendingCount;
   final List<Widget>? actions;
 
@@ -280,94 +303,116 @@ class _DashboardHeader extends StatelessWidget {
     final user = context.watch<AuthProvider>().user;
     final company = context.watch<CompanyProvider>().selectedCompany;
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     return Material(
       color: colors.header,
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+          padding: density.headerPadding,
           child: Row(
-                children: [
-                  IconButton(
-                    tooltip: pendingCount > 0
-                        ? 'Menu · ${PendingCountBadge.labelFor(pendingCount)} pending'
-                        : 'Menu',
-                    onPressed: onMenuPressed,
-                    icon: BadgedIcon(
-                      icon: Icons.menu_rounded,
-                      count: pendingCount,
-                      iconSize: 24,
-                      color: colors.textPrimary,
-                    ),
-                    color: colors.textPrimary,
-                    style: IconButton.styleFrom(
-                      highlightColor: colors.textPrimary.withValues(
-                        alpha: 0.08,
-                      ),
-                    ),
+            children: [
+              IconButton(
+                tooltip: pendingCount > 0
+                    ? 'Menu · ${PendingCountBadge.labelFor(pendingCount)} pending'
+                    : 'Menu',
+                onPressed: onMenuPressed,
+                icon: BadgedIcon(
+                  icon: Icons.menu_rounded,
+                  count: pendingCount,
+                  iconSize: density.compact ? 22 : 24,
+                  color: colors.textPrimary,
+                ),
+                color: colors.textPrimary,
+                style: IconButton.styleFrom(
+                  highlightColor: colors.textPrimary.withValues(
+                    alpha: 0.08,
                   ),
-                  SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: FittedBox(
-                      fit: BoxFit.contain,
-                      child: Image.asset('assets/branding/gmserp_logo.png'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: colors.textPrimary,
-                          ),
-                        ),
-                        if (company != null)
-                          Text(
-                            company.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: colors.sidebarMuted,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  ...?actions,
-                  if (user != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.chip,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        user.role.label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
-            ),
+              SizedBox(
+                width: density.headerLogoSize,
+                height: density.headerLogoSize,
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  child: Image.asset('assets/branding/gmserp_logo.png'),
+                ),
+              ),
+              SizedBox(width: density.compact ? 8 : 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: density.headerTitleSize,
+                        fontWeight: FontWeight.w800,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    if (company != null)
+                      Text(
+                        company.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: density.compact ? 11 : 12,
+                          fontWeight: FontWeight.w600,
+                          color: colors.sidebarMuted,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              ...?actions,
+              if (user?.role == UserRole.superAdmin)
+                IconButton(
+                  tooltip: 'Logs',
+                  onPressed: () => onSelect(AppRoutes.superAdminLogs),
+                  icon: Icon(
+                    Icons.history_rounded,
+                    size: density.compact ? 22 : 24,
+                    color: colors.textPrimary,
+                  ),
+                  color: colors.textPrimary,
+                  style: IconButton.styleFrom(
+                    highlightColor: colors.textPrimary.withValues(alpha: 0.08),
+                  ),
+                )
+              else if (user?.role == UserRole.admin ||
+                  user?.role == UserRole.employee)
+                Builder(
+                  builder: (context) {
+                    final unseen = context
+                        .watch<UserOutcomeNotificationsProvider>()
+                        .unseenCount;
+                    return IconButton(
+                      tooltip: unseen > 0
+                          ? 'Notifications · ${PendingCountBadge.labelFor(unseen)} new'
+                          : 'Notifications',
+                      onPressed: () => onSelect(AppRoutes.notifications),
+                      icon: BadgedIcon(
+                        icon: Icons.notifications_rounded,
+                        count: unseen,
+                        iconSize: density.compact ? 22 : 24,
+                        color: colors.textPrimary,
+                      ),
+                      color: colors.textPrimary,
+                      style: IconButton.styleFrom(
+                        highlightColor:
+                            colors.textPrimary.withValues(alpha: 0.08),
+                      ),
+                    );
+                  },
+                ),
+            ],
           ),
+        ),
+      ),
     );
   }
 }
@@ -397,31 +442,28 @@ class _AppSidebar extends StatelessWidget {
     final user = auth.user;
     final selected = currentRoute == AppRoutes.profile;
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
+    final profileRadius = density.radius + 2;
 
     return ColoredBox(
       color: colors.sidebar,
       child: Column(
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(
-              expanded ? 10 : 8,
-              12,
-              expanded ? 10 : 8,
-              8,
-            ),
+            padding: density.sidebarProfilePadding,
             child: Material(
               color: selected ? colors.sidebarSelected : Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(profileRadius),
               child: InkWell(
                 onTap: onProfile,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(profileRadius),
                 overlayColor: _sidebarOverlayColor(colors),
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(
                     expanded ? 8 : 4,
-                    10,
+                    density.compact ? 8 : 10,
                     expanded ? 8 : 4,
-                    10,
+                    density.compact ? 8 : 10,
                   ),
                   child: expanded
                       ? Row(
@@ -430,9 +472,9 @@ class _AppSidebar extends StatelessWidget {
                               key: ValueKey(auth.avatarRevision),
                               bytes: auth.avatarBytes,
                               name: user?.username ?? user?.email ?? '',
-                              size: 44,
+                              size: density.sidebarAvatarSize,
                             ),
-                            const SizedBox(width: 10),
+                            SizedBox(width: density.compact ? 8 : 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,22 +482,56 @@ class _AppSidebar extends StatelessWidget {
                                   Text(
                                     'GMSERP',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: density.sidebarBrandSize,
                                       fontWeight: FontWeight.w800,
                                       color: colors.textPrimary,
                                     ),
                                   ),
-                                  Text(
-                                    user?.username.isNotEmpty == true
-                                        ? user!.username
-                                        : 'Account',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: colors.textPrimary,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          user?.username.isNotEmpty == true
+                                              ? user!.username
+                                              : 'Account',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize:
+                                                density.compact ? 12 : 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: colors.textPrimary,
+                                          ),
+                                        ),
+                                      ),
+                                      if (user != null) ...[
+                                        SizedBox(
+                                          width: density.compact ? 6 : 8,
+                                        ),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal:
+                                                density.compact ? 8 : 10,
+                                            vertical:
+                                                density.compact ? 2 : 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: colors.chip,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            user.role.label,
+                                            style: TextStyle(
+                                              fontSize:
+                                                  density.compact ? 9 : 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: colors.textPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                   if (user?.email.isNotEmpty == true)
                                     Text(
@@ -463,7 +539,7 @@ class _AppSidebar extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: density.compact ? 10 : 11,
                                         fontWeight: FontWeight.w600,
                                         color: colors.sidebarMuted,
                                       ),
@@ -480,7 +556,7 @@ class _AppSidebar extends StatelessWidget {
                               key: ValueKey(auth.avatarRevision),
                               bytes: auth.avatarBytes,
                               name: user?.username ?? user?.email ?? '',
-                              size: 40,
+                              size: density.sidebarCollapsedAvatarSize,
                             ),
                           ),
                         ),
@@ -489,12 +565,17 @@ class _AppSidebar extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(color: colors.border, height: 24),
+            padding: EdgeInsets.symmetric(
+              horizontal: density.compact ? 12 : 16,
+            ),
+            child: Divider(
+              color: colors.border,
+              height: density.compact ? 16 : 24,
+            ),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: density.sidebarNavPadding,
               children: [
                 for (final item in destinations)
                   if (item.children.isNotEmpty)
@@ -519,11 +600,21 @@ class _AppSidebar extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(color: colors.border, height: 16),
+            padding: EdgeInsets.symmetric(
+              horizontal: density.compact ? 12 : 16,
+            ),
+            child: Divider(
+              color: colors.border,
+              height: density.compact ? 12 : 16,
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
+            padding: EdgeInsets.fromLTRB(
+              density.compact ? 8 : 10,
+              0,
+              density.compact ? 8 : 10,
+              density.compact ? 12 : 16,
+            ),
             child: _NavTile(
               expanded: expanded,
               selected: false,
@@ -561,20 +652,22 @@ class _NavTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
+    final radius = density.radius + 2;
     final color = foreground ?? colors.textPrimary;
     final tile = Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: density.sidebarTileGap),
       child: Material(
         color: selected ? colors.sidebarSelected : Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(radius),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(radius),
           overlayColor: _sidebarOverlayColor(colors),
           child: Padding(
             padding: EdgeInsets.symmetric(
-              horizontal: expanded ? 14 : 0,
-              vertical: 12,
+              horizontal: expanded ? density.sidebarTilePadding.horizontal / 2 : 0,
+              vertical: density.sidebarTilePadding.vertical / 2,
             ),
             child: Row(
               mainAxisAlignment:
@@ -583,15 +676,16 @@ class _NavTile extends StatelessWidget {
                 BadgedIcon(
                   icon: icon,
                   count: expanded ? 0 : badgeCount,
-                  iconSize: 22,
+                  iconSize: density.sidebarIconSize,
                   color: color,
                 ),
                 if (expanded) ...[
-                  const SizedBox(width: 12),
+                  SizedBox(width: density.compact ? 10 : 12),
                   Expanded(
                     child: Text(
                       label,
                       style: TextStyle(
+                        fontSize: density.compact ? 13 : 14,
                         color: color,
                         fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                       ),
@@ -686,6 +780,8 @@ class _NavDropdownState extends State<_NavDropdown> {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
+    final radius = density.radius + 2;
     final active = widget.destination.containsRoute(widget.currentRoute);
 
     if (!widget.expanded) {
@@ -702,32 +798,33 @@ class _NavDropdownState extends State<_NavDropdown> {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: density.sidebarTileGap),
       child: Column(
         children: [
           Material(
             color: active && !_open
                 ? colors.sidebarSelected
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(radius),
             child: InkWell(
               onTap: () => setState(() => _open = !_open),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(radius),
               overlayColor: _sidebarOverlayColor(colors),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: density.sidebarTilePadding,
                 child: Row(
                   children: [
                     Icon(
                       widget.destination.icon,
                       color: colors.textPrimary,
-                      size: 22,
+                      size: density.sidebarIconSize,
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: density.compact ? 10 : 12),
                     Expanded(
                       child: Text(
                         widget.destination.label,
                         style: TextStyle(
+                          fontSize: density.compact ? 13 : 14,
                           color: colors.textPrimary,
                           fontWeight:
                               active ? FontWeight.w800 : FontWeight.w600,
@@ -739,6 +836,7 @@ class _NavDropdownState extends State<_NavDropdown> {
                           ? Icons.expand_less_rounded
                           : Icons.expand_more_rounded,
                       color: colors.textSecondary,
+                      size: density.compact ? 20 : 24,
                     ),
                   ],
                 ),
@@ -747,7 +845,10 @@ class _NavDropdownState extends State<_NavDropdown> {
           ),
           if (_open)
             Padding(
-              padding: const EdgeInsets.only(left: 18, top: 4),
+              padding: EdgeInsets.only(
+                left: density.compact ? 14 : 18,
+                top: density.compact ? 2 : 4,
+              ),
               child: Column(
                 children: [
                   for (final child in widget.destination.children)

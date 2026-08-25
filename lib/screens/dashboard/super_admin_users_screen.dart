@@ -13,6 +13,8 @@ import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/user_avatar.dart';
@@ -473,24 +475,20 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       child: CustomScrollView(
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            padding: CompactPageStyle.of(context).pagePaddingTopOnly,
             sliver: SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'User levels',
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Set account levels and filter by company or account level.',
-                    style: Theme.of(context).textTheme.bodyMedium,
+                  const CompactPageHeader(
+                    title: 'User levels',
+                    subtitle:
+                        'Set account levels and filter by company or account level.',
                   ),
                   if (superAdmins.isNotEmpty) ...[
-                    const SizedBox(height: 14),
+                    SizedBox(height: CompactPageStyle.of(context).sectionGap),
                     _SectionLabel(title: 'Super Admin'),
-                    const SizedBox(height: 6),
+                    SizedBox(height: CompactPageStyle.of(context).cardGap),
                     ...superAdmins.map(
                       (user) => _UserLevelTile(
                         user: user,
@@ -500,7 +498,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
                   _SummaryCard(
                     total: regularTotal,
                     showing: filteredUsers.length,
@@ -508,7 +506,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                     levelFilter: levelFilterName,
                     hasFilters: hasFilters,
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -529,7 +527,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                                 onSelected: _onCompanyFilterSelected,
                               ),
                       ),
-                      const SizedBox(width: 10),
+                      SizedBox(width: CompactPageStyle.of(context).cardGap),
                       Expanded(
                         child: _AccountLevelFilterDropdown(
                           selected: _levelFilter,
@@ -539,70 +537,58 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  TextField(
+                  SizedBox(height: CompactPageStyle.of(context).cardGap),
+                  CompactSearchField(
                     controller: _search,
                     onChanged: (_) => setState(() {}),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: 'Search name, email, or level',
-                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                      suffixIcon: _search.text.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Clear',
-                              onPressed: () {
-                                _search.clear();
-                                setState(() {});
-                              },
-                              icon: const Icon(Icons.close_rounded, size: 20),
-                            ),
-                    ),
+                    hintText: 'Search name, email, or level',
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
                   _SectionLabel(
                     title: hasFilters ? 'Filtered users' : 'All users',
                   ),
-                  const SizedBox(height: 6),
+                  SizedBox(height: CompactPageStyle.of(context).cardGap),
                 ],
               ),
             ),
           ),
           if (companies.isLoading)
             const SliverPadding(
-              padding: EdgeInsets.only(top: 28, bottom: 24),
+              padding: EdgeInsets.only(top: 28, bottom: 20),
               sliver: SliverToBoxAdapter(
-                child: Center(child: CircularProgressIndicator()),
+                child: AppLoadingView(
+                  title: 'Loading users',
+                  message: 'Fetching all accounts…',
+                ),
               ),
             )
           else if (companies.errorMessage != null && companies.users.isEmpty)
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              padding: CompactPageStyle.of(context).listPadding,
               sliver: SliverToBoxAdapter(
                 child: Text(companies.errorMessage!),
               ),
             )
           else if (regularTotal == 0 && superAdmins.isEmpty)
-            const SliverPadding(
-              padding: EdgeInsets.fromLTRB(20, 0, 20, 24),
+            SliverPadding(
+              padding: CompactPageStyle.of(context).listPadding,
               sliver: SliverToBoxAdapter(
                 child: Text('No users found.'),
               ),
             )
           else if (_loadingCompanyStaff)
-            const SliverPadding(
-              padding: EdgeInsets.fromLTRB(20, 0, 20, 24),
-              sliver: SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: CircularProgressIndicator()),
+            SliverPadding(
+              padding: CompactPageStyle.of(context).listPadding,
+              sliver: const SliverToBoxAdapter(
+                child: AppLoadingView(
+                  title: 'Loading company staff',
+                  message: 'Filtering users for this company…',
                 ),
               ),
             )
           else if (filteredUsers.isEmpty)
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              padding: CompactPageStyle.of(context).listPadding,
               sliver: SliverToBoxAdapter(
                 child: _EmptyState(
                   message:
@@ -614,7 +600,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              padding: CompactPageStyle.of(context).listPadding,
               sliver: SliverList.builder(
                 itemCount: filteredUsers.length,
                 itemBuilder: (context, index) {
@@ -677,41 +663,43 @@ class _SummaryCard extends StatelessWidget {
     ];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
             ),
             child: const Icon(
               Icons.manage_accounts_outlined,
               color: AppColors.primaryDark,
-              size: 22,
+              size: 18,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   countLabel,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                 ),
                 if (filterParts.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
                     filterParts.join(' • '),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: colors.textSecondary,
                         ),
                     maxLines: 2,
@@ -745,18 +733,18 @@ class _UserLevelTile extends StatelessWidget {
     final colors = AppColors.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
       child: Material(
         color: colors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+            padding: CompactPageStyle.of(context).cardPadding,
             child: Row(
               children: [
-                UserAvatar(name: user.username, bytes: null, size: 36),
+                UserAvatar(name: user.username, bytes: null, size: 32),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -785,7 +773,7 @@ class _UserLevelTile extends StatelessWidget {
                       ? Icons.verified_rounded
                       : Icons.manage_accounts_outlined,
                   color: locked ? AppColors.primary : colors.textSecondary,
-                  size: 20,
+                  size: 18,
                 ),
               ],
             ),
@@ -812,23 +800,23 @@ class _EmptyState extends StatelessWidget {
     final colors = AppColors.of(context);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      padding: CompactPageStyle.of(context).cardPadding,
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
           Icon(Icons.filter_alt_off_rounded,
-              size: 32, color: colors.textSecondary),
-          const SizedBox(height: 8),
+              size: 28, color: colors.textSecondary),
+          SizedBox(height: CompactPageStyle.of(context).cardGap),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: CompactPageStyle.of(context).cardGap),
           TextButton(onPressed: onAction, child: Text(actionLabel)),
         ],
       ),
@@ -861,9 +849,9 @@ class _FilterDropdownShell extends StatelessWidget {
 
     return Material(
       color: colors.inputFill,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         onTap: enabled ? onTap : null,
         child: InputDecorator(
           decoration: InputDecoration(
@@ -871,22 +859,22 @@ class _FilterDropdownShell extends StatelessWidget {
             isDense: true,
             filled: true,
             fillColor: colors.inputFill,
-            contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+            contentPadding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
               borderSide: BorderSide(color: colors.border),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
               borderSide: BorderSide(color: colors.border),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
               borderSide: BorderSide(color: colors.border),
             ),
             suffixIcon: Icon(
               Icons.keyboard_arrow_down_rounded,
-              size: 22,
+              size: 20,
               color: enabled ? colors.textSecondary : colors.textHint,
             ),
           ),
@@ -895,18 +883,17 @@ class _FilterDropdownShell extends StatelessWidget {
               if (leading != null)
                 leading!
               else
-                Icon(icon, size: 20, color: colors.textSecondary),
+                Icon(icon, size: 18, color: colors.textSecondary),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: muted || !enabled
                             ? colors.textHint
                             : colors.textPrimary,
-                        fontSize: 14,
                       ),
                 ),
               ),
@@ -1447,11 +1434,11 @@ class _PickerTile extends StatelessWidget {
       color: selected
           ? AppColors.primary.withValues(alpha: 0.16)
           : colors.inputFill,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       child: ListTile(
         dense: true,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
           side: BorderSide(
             color: selected ? AppColors.primary : colors.border,
           ),

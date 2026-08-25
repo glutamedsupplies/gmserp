@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class UserDashboardScreen extends StatelessWidget {
@@ -11,23 +12,20 @@ class UserDashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
+    final density = CompactPageStyle.of(context);
 
     return DashboardScaffold(
       title: 'User Dashboard',
       currentRoute: AppRoutes.userDashboard,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: density.pagePadding,
         children: [
-          Text(
-            'Welcome, ${user?.username ?? 'User'}',
-            style: Theme.of(context).textTheme.headlineMedium,
+          CompactPageHeader(
+            title: 'Welcome, ${user?.username ?? 'User'}',
+            subtitle:
+                'You are signed in as a User. This dashboard is for standard account access.',
           ),
-          const SizedBox(height: 8),
-          Text(
-            'You are signed in as a User. This dashboard is for standard account access.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 24),
+          SizedBox(height: density.sectionGap + 8),
           _Info(label: 'Email', value: user?.email ?? ''),
           _Info(label: 'Phone', value: user?.phoneNumber ?? ''),
           _Info(label: 'Level', value: user?.role.label ?? 'User'),

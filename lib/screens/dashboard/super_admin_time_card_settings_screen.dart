@@ -11,6 +11,8 @@ import '../../models/staff_assignment.dart';
 import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
 
@@ -137,7 +139,6 @@ class _SuperAdminTimeCardSettingsScreenState
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>().user;
     final companies = context.watch<CompanyProvider>();
-    final colors = AppColors.of(context);
     final isSuperAdmin = _isSuperAdmin(auth?.role);
     final company = _activeCompany(companies, isSuperAdmin);
     final allStaff = company == null ? <StaffAssignment>[] : _allStaff(companies);
@@ -147,24 +148,17 @@ class _SuperAdminTimeCardSettingsScreenState
       title: 'Time card settings',
       currentRoute: AppRoutes.superAdminTimeCardSettings,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
-          Text(
-            'Time card settings',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            isSuperAdmin
+          CompactPageHeader(
+            title: 'Time card settings',
+            subtitle: isSuperAdmin
                 ? 'Choose a company and employee, then set daily rate and weekly schedule.'
                 : company == null
                     ? 'Select a company to set employee rates and schedules.'
                     : 'Set daily rate and weekly time in / time out for ${company.name}.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                ),
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (!isSuperAdmin && company == null)
             const _HintCard(
               icon: Icons.business_outlined,
@@ -193,16 +187,16 @@ class _SuperAdminTimeCardSettingsScreenState
                 });
               },
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             if (company == null)
               const _HintCard(
                 icon: Icons.business_outlined,
                 message: 'Select a company to view employee settings.',
               )
             else if (companies.isLoading && staff.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: CircularProgressIndicator()),
+              const AppLoadingView(
+                title: 'Loading settings',
+                message: 'Fetching employee time card settings…',
               )
             else if (allStaff.isEmpty)
               const _HintCard(
@@ -232,7 +226,7 @@ class _SuperAdminTimeCardSettingsScreenState
                     profile: profile,
                   ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: CompactPageStyle.of(context).cardGap),
               ],
           ],
         ],
@@ -267,10 +261,10 @@ class _FilterBar extends StatelessWidget {
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -281,6 +275,8 @@ class _FilterBar extends StatelessWidget {
                 child: DropdownButton<String?>(
                   value: selectedCompanyId,
                   isExpanded: true,
+                  isDense: true,
+                  style: Theme.of(context).textTheme.bodySmall,
                   hint: const Text('Select company'),
                   items: [
                     for (final company in sortedCompanies)
@@ -296,13 +292,15 @@ class _FilterBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: CompactPageStyle.of(context).cardGap),
           ],
           _DropdownShell(
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String?>(
                 value: employeeFilterId,
                 isExpanded: true,
+                isDense: true,
+                style: Theme.of(context).textTheme.bodySmall,
                 hint: const Text('All employees'),
                 items: [
                   const DropdownMenuItem<String?>(
@@ -337,10 +335,11 @@ class _DropdownShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
+      height: CompactPageStyle.of(context).filterHeight,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: child,
@@ -359,20 +358,20 @@ class _HintCard extends StatelessWidget {
     final colors = AppColors.of(context);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: CompactPageStyle.of(context).cardPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
-          Icon(icon, color: colors.textHint, size: 22),
+          Icon(icon, color: colors.textHint, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: colors.textSecondary,
                   ),
             ),
@@ -511,7 +510,7 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
       duration: const Duration(milliseconds: 180),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(
           color: widget.expanded ? AppColors.primaryDark : colors.border,
           width: widget.expanded ? 1.4 : 1,
@@ -521,13 +520,13 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
         children: [
           InkWell(
             onTap: widget.onToggle,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              padding: CompactPageStyle.of(context).cardPadding,
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 16,
+                    radius: 14,
                     backgroundColor: colors.header,
                     child: Text(
                       widget.member.username.isEmpty
@@ -536,7 +535,7 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                       style: const TextStyle(
                         color: AppColors.primaryDark,
                         fontWeight: FontWeight.w800,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
                   ),
@@ -570,6 +569,7 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                         ? Icons.expand_less_rounded
                         : Icons.expand_more_rounded,
                     color: colors.textSecondary,
+                    size: 20,
                   ),
                 ],
               ),
@@ -578,7 +578,7 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
           if (widget.expanded) ...[
             Divider(height: 1, color: colors.border),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              padding: CompactPageStyle.of(context).cardPadding,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -588,7 +588,7 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                           fontWeight: FontWeight.w700,
                         ),
                   ),
-                  const SizedBox(height: 6),
+                  SizedBox(height: CompactPageStyle.of(context).cardGap),
                   TextField(
                     controller: _rateController,
                     keyboardType:
@@ -598,18 +598,24 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                         RegExp(r'[0-9.]'),
                       ),
                     ],
+                    style: Theme.of(context).textTheme.bodySmall,
                     decoration: InputDecoration(
                       isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       prefixText: '₱ ',
                       hintText: '0.00',
                       filled: true,
                       fillColor: colors.inputFill,
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius:
+                            BorderRadius.circular(CompactPageStyle.of(context).radius),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
                   Row(
                     children: [
                       Text(
@@ -623,14 +629,14 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                         label: '9–6',
                         onTap: () => _applyPreset(DayShiftSchedule.nineToSix),
                       ),
-                      const SizedBox(width: 6),
+                      SizedBox(width: CompactPageStyle.of(context).cardGap),
                       _PresetChip(
                         label: '10–7',
                         onTap: () => _applyPreset(DayShiftSchedule.tenToSeven),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: CompactPageStyle.of(context).cardGap),
                   for (final day
                       in EmployeeWeeklySchedule.weekdayLabels.keys) ...[
                     _DayRow(
@@ -652,9 +658,10 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                       onPickIn: () => _pickTime(weekday: day, isTimeIn: true),
                       onPickOut: () => _pickTime(weekday: day, isTimeIn: false),
                     ),
-                    if (day != DateTime.sunday) const SizedBox(height: 6),
+                    if (day != DateTime.sunday)
+                      SizedBox(height: CompactPageStyle.of(context).cardGap),
                   ],
-                  const SizedBox(height: 14),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
                   PrimaryButton(
                     label: _saving ? 'Saving…' : 'Save settings',
                     isLoading: _saving,
@@ -719,10 +726,10 @@ class _DayRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+      padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(

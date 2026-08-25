@@ -100,9 +100,11 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     if (!timeEntries.canClockInToday) {
       SnackBarHelper.showError(
         context,
-        timeEntries.activeEntry != null
-            ? 'You are already clocked in.'
-            : 'You already completed time in / time out for today.',
+        timeEntries.pendingClockIn != null
+            ? 'Your time-in request is already pending approval.'
+            : timeEntries.activeEntry != null
+                ? 'You are already clocked in.'
+                : 'You already completed time in / time out for today.',
       );
       return;
     }
@@ -110,24 +112,31 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final confirmed = await _confirmAction(
       title: 'Confirm time in',
       message:
-          'Record your time in for ${company.name} now?\n\n'
+          'Submit a time-in request for ${company.name} now?\n\n'
+          'An admin or super admin must approve it before it is saved.\n'
           'Only one time in / time out is allowed per day.',
-      confirmLabel: 'Time in',
+      confirmLabel: 'Request time in',
     );
     if (!confirmed || !mounted) return;
 
-    final ok = await context.read<TimeEntryProvider>().clockIn(
+    final ok = await context.read<TimeEntryProvider>().requestClockIn(
           user: user,
           company: company,
         );
     if (!mounted) return;
     if (ok) {
-      SnackBarHelper.showSuccess(context, 'Time in recorded.');
+      final pending = context.read<TimeEntryProvider>().pendingClockIn;
+      SnackBarHelper.showSuccess(
+        context,
+        pending == null
+            ? 'Time-in request submitted for approval.'
+            : 'Time-in request submitted at ${pending.requestedAtLabel}. Waiting for approval.',
+      );
     } else {
       SnackBarHelper.showError(
         context,
         context.read<TimeEntryProvider>().errorMessage ??
-            'Could not record time in.',
+            'Could not submit time-in request.',
       );
     }
   }
@@ -137,7 +146,18 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final company = context.read<CompanyProvider>().selectedCompany;
     if (user == null || company == null) return;
 
-    final active = context.read<TimeEntryProvider>().activeEntry;
+    final timeEntries = context.read<TimeEntryProvider>();
+    if (!timeEntries.canClockOutToday) {
+      SnackBarHelper.showError(
+        context,
+        timeEntries.pendingClockOut != null
+            ? 'Your time-out request is already pending approval.'
+            : 'No approved time-in yet. Wait for approval before timing out.',
+      );
+      return;
+    }
+
+    final active = timeEntries.activeEntry;
     final started = active == null
         ? ''
         : '\nStarted at ${formatClockTime(active.timeIn)}.';
@@ -145,24 +165,31 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final confirmed = await _confirmAction(
       title: 'Confirm time out',
       message:
-          'Record your time out for ${company.name} now?$started\n\n'
-          'You will not be able to time in again today.',
-      confirmLabel: 'Time out',
+          'Submit a time-out request for ${company.name} now?$started\n\n'
+          'An admin or super admin must approve it before it is saved.\n'
+          'You will not be able to time in again today after approval.',
+      confirmLabel: 'Request time out',
     );
     if (!confirmed || !mounted) return;
 
-    final ok = await context.read<TimeEntryProvider>().clockOut(
+    final ok = await context.read<TimeEntryProvider>().requestClockOut(
           user: user,
           company: company,
         );
     if (!mounted) return;
     if (ok) {
-      SnackBarHelper.showSuccess(context, 'Time out recorded.');
+      final pending = context.read<TimeEntryProvider>().pendingClockOut;
+      SnackBarHelper.showSuccess(
+        context,
+        pending == null
+            ? 'Time-out request submitted for approval.'
+            : 'Time-out request submitted at ${pending.requestedAtLabel}. Waiting for approval.',
+      );
     } else {
       SnackBarHelper.showError(
         context,
         context.read<TimeEntryProvider>().errorMessage ??
-            'Could not record time out.',
+            'Could not submit time-out request.',
       );
     }
   }
@@ -221,17 +248,26 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final clockedIn = active != null;
     final completedToday = timeEntries.hasCompletedToday;
     final canClockIn = timeEntries.canClockInToday;
+    final canClockOut = timeEntries.canClockOutToday;
+    final pendingIn = timeEntries.pendingClockIn;
+    final pendingOut = timeEntries.pendingClockOut;
     final sessionElapsed = _sessionElapsed(active);
     final todayRecord = timeEntries.todayEntries.isEmpty
         ? null
         : timeEntries.todayEntries.first;
-    final statusLabel = clockedIn
-        ? 'Clocked in'
-        : completedToday
-            ? 'Completed for today'
-            : 'Not clocked in';
-    final displayTimeIn = active?.timeIn ?? todayRecord?.timeIn;
-    final displayTimeOut = active?.timeOut ?? todayRecord?.timeOut;
+    final statusLabel = pendingOut != null
+        ? 'Time out pending approval'
+        : clockedIn
+            ? 'Clocked in'
+            : pendingIn != null
+                ? 'Time in pending approval'
+                : completedToday
+                    ? 'Completed for today'
+                    : 'Not clocked in';
+    final displayTimeIn =
+        active?.timeIn ?? pendingIn?.requestedAt ?? todayRecord?.timeIn;
+    final displayTimeOut =
+        active?.timeOut ?? pendingOut?.requestedAt ?? todayRecord?.timeOut;
 
     return DashboardScaffold(
       title: 'Time in / Time out',
@@ -247,7 +283,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
           Text(
             company == null
                 ? 'Select a company to record your attendance.'
-                : 'Live attendance for ${company.name}. One session per day.',
+                : 'Submit time in / out for ${company.name}. '
+                    'Admin or super admin must approve before it is saved.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 20),
@@ -273,11 +310,15 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                 child: _StatTile(
                   icon: Icons.event_available_outlined,
                   label: 'Today status',
-                  value: clockedIn
-                      ? 'On shift'
-                      : completedToday
-                          ? 'Done'
-                          : 'Open',
+                  value: pendingOut != null
+                      ? 'Out pending'
+                      : clockedIn
+                          ? 'On shift'
+                          : pendingIn != null
+                              ? 'In pending'
+                              : completedToday
+                                  ? 'Done'
+                                  : 'Open',
                 ),
               ),
             ],
@@ -301,29 +342,37 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             )
           else ...[
             PrimaryButton(
-              label: clockedIn
-                  ? 'Time out'
-                  : completedToday
-                      ? 'Completed for today'
-                      : 'Time in',
+              label: pendingOut != null
+                  ? 'Time out pending'
+                  : canClockOut
+                      ? 'Request time out'
+                      : pendingIn != null
+                          ? 'Time in pending'
+                          : completedToday
+                              ? 'Completed for today'
+                              : 'Request time in',
               isLoading: timeEntries.isSaving,
-              onPressed: company == null ||
-                      timeEntries.isSaving ||
-                      (!clockedIn && !canClockIn)
+              onPressed: company == null || timeEntries.isSaving
                   ? null
-                  : clockedIn
+                  : canClockOut
                       ? _clockOut
-                      : _clockIn,
+                      : canClockIn
+                          ? _clockIn
+                          : null,
             ),
             const SizedBox(height: 12),
             Text(
               company == null
                   ? 'Open a company from Switch company before clocking in.'
-                  : clockedIn
-                      ? 'Confirm time out when your shift ends. You can only record once per day.'
-                      : completedToday
-                          ? 'You already finished time in / time out for today.'
-                          : 'Confirm time in to start your shift. Only one session is allowed per day.',
+                  : pendingOut != null
+                      ? 'Time-out request at ${pendingOut.requestedAtLabel} is waiting for approval.'
+                      : canClockOut
+                          ? 'Submit time out when your shift ends. It saves only after approval.'
+                          : pendingIn != null
+                              ? 'Time-in request at ${pendingIn.requestedAtLabel} is waiting for approval.'
+                              : completedToday
+                                  ? 'You already finished attendance for today.'
+                                  : 'Submit time in to start. It saves only after admin or super admin approval.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: colors.textSecondary,

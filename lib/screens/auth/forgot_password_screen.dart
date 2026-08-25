@@ -31,11 +31,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final auth = context.read<AuthProvider>();
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Sending reset link',
+      message: 'Preparing password recovery…',
+    );
     final success = await auth.forgotPassword(
       email: _emailController.text.trim(),
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      SnackBarHelper.hideLoading();
+      return;
+    }
+    SnackBarHelper.hideLoading();
 
     if (success) {
       SnackBarHelper.showSuccess(

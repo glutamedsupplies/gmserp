@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/constants/app_constants.dart';
 import 'core/constants/app_routes.dart';
+import 'core/navigation/app_navigator.dart';
 import 'core/navigation/post_login.dart';
 import 'core/navigation/role_gate.dart';
 import 'core/theme/app_colors.dart';
@@ -17,15 +18,18 @@ import 'providers/pending_requests_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/time_card_settings_provider.dart';
 import 'providers/time_entry_provider.dart';
+import 'providers/user_outcome_notifications_provider.dart';
 import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/company/select_company_screen.dart';
 import 'screens/dashboard/admin_dashboard_screen.dart';
 import 'screens/dashboard/admin_submitted_requests_screen.dart';
+import 'screens/dashboard/attendance_calendar_screen.dart';
 import 'screens/dashboard/employee_request_leave_screen.dart';
 import 'screens/dashboard/employee_time_card_details_screen.dart';
 import 'screens/dashboard/employee_time_in_out_screen.dart';
+import 'screens/dashboard/notifications_screen.dart';
 import 'screens/dashboard/profile_screen.dart';
 import 'screens/dashboard/role_dashboard_screen.dart';
 import 'screens/dashboard/settings_screen.dart';
@@ -34,13 +38,17 @@ import 'screens/dashboard/super_admin_dashboard_screen.dart';
 import 'screens/dashboard/super_admin_employee_lists_screen.dart';
 import 'screens/dashboard/super_admin_role_details_screen.dart';
 import 'screens/dashboard/super_admin_role_lists_screen.dart';
+import 'screens/dashboard/super_admin_logs_screen.dart';
 import 'screens/dashboard/super_admin_requests_screen.dart';
 import 'screens/dashboard/super_admin_task_details_screen.dart';
 import 'screens/dashboard/super_admin_task_lists_screen.dart';
 import 'screens/dashboard/super_admin_time_card_details_screen.dart';
-import 'screens/dashboard/super_admin_edit_time_card_screen.dart';
 import 'screens/dashboard/super_admin_time_card_settings_screen.dart';
 import 'screens/dashboard/super_admin_users_screen.dart';
+import 'services/leave_reminder_service.dart';
+import 'services/leave_request_repository.dart';
+import 'services/notification_service.dart';
+import 'widgets/app_loading_card.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -53,12 +61,14 @@ class _AppState extends State<App> {
   final _timeEntries = TimeEntryProvider();
   final _timeCardSettings = TimeCardSettingsProvider();
   late final PendingRequestsProvider _pendingRequests;
+  late final UserOutcomeNotificationsProvider _userOutcomes;
 
   @override
   void dispose() {
     _timeEntries.dispose();
     _timeCardSettings.dispose();
     _pendingRequests.dispose();
+    _userOutcomes.dispose();
     super.dispose();
   }
 
@@ -69,7 +79,9 @@ class _AppState extends State<App> {
       notificationsEnabled: () =>
           context.read<SettingsProvider>().notificationsEnabled,
     );
+    _userOutcomes = UserOutcomeNotificationsProvider();
     _timeCardSettings.load();
+    NotificationService.instance.onNotificationTap = _handleNotificationTap;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final companies = context.read<CompanyProvider>();
       final auth = context.read<AuthProvider>();
@@ -93,7 +105,75 @@ class _AppState extends State<App> {
       }
       if (!mounted) return;
       _pendingRequests.syncUser(auth.user);
+      _userOutcomes.syncUser(auth.user);
+      await _syncLeaveRemindersForUser();
+
+      final launchPayload =
+          await NotificationService.instance.consumeLaunchPayload();
+      if (!mounted) return;
+      if (launchPayload != null) {
+        _handleNotificationTap(launchPayload);
+      }
     });
+  }
+
+  void _handleNotificationTap(String? payload) {
+    final auth = context.read<AuthProvider>();
+    if (payload == NotificationService.calendarRoutePayload) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        AppNavigator.signedInKey.currentState?.pushNamedAndRemoveUntil(
+          AppRoutes.timeCardCalendar,
+          (route) => route.isFirst,
+        );
+      });
+      return;
+    }
+
+    final outcomeEntryId = NotificationService.tryParseOutcomeEntryId(payload);
+    if (payload == NotificationService.notificationsRoutePayload ||
+        outcomeEntryId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        AppNavigator.signedInKey.currentState?.pushNamedAndRemoveUntil(
+          AppRoutes.notifications,
+          (route) => route.isFirst,
+        );
+      });
+      return;
+    }
+
+    if (auth.user?.role != UserRole.superAdmin &&
+        auth.user?.role != UserRole.admin) {
+      return;
+    }
+
+    final target = RequestNotificationPayload.tryParse(payload);
+    // Defer until signed-in navigator exists (cold start from tray).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppNavigator.openSuperAdminRequests(
+        requestType: target?.type,
+        requestId: target?.id,
+      );
+    });
+  }
+
+  Future<void> _syncLeaveRemindersForUser() async {
+    final auth = context.read<AuthProvider>();
+    final user = auth.user;
+    final company = context.read<CompanyProvider>().selectedCompany;
+    if (user == null || company == null) return;
+    if (user.role != UserRole.employee && user.role != UserRole.admin) {
+      return;
+    }
+    try {
+      final leaves = await LeaveRequestRepository().listForUserCompany(
+        userId: user.id,
+        companyId: company.id,
+      );
+      await LeaveReminderService.instance.syncUpcomingLeaveReminders(
+        userId: user.id,
+        leaves: leaves,
+      );
+    } catch (_) {}
   }
 
   @override
@@ -108,6 +188,9 @@ class _AppState extends State<App> {
         ),
         ChangeNotifierProvider<PendingRequestsProvider>.value(
           value: _pendingRequests,
+        ),
+        ChangeNotifierProvider<UserOutcomeNotificationsProvider>.value(
+          value: _userOutcomes,
         ),
       ],
       child: MaterialApp(
@@ -135,11 +218,19 @@ class _AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
+    // Keep Super Admin + employee/admin notification listeners in sync.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      context.read<PendingRequestsProvider>().syncUser(auth.user);
+      context.read<UserOutcomeNotificationsProvider>().syncUser(auth.user);
+    });
+
     if (auth.isInitializing) {
       return Scaffold(
         backgroundColor: AppColors.of(context).background,
-        body: const Center(
-          child: CircularProgressIndicator(),
+        body: const AppLoadingView(
+          title: 'Starting GMSERP',
+          message: 'Restoring your session…',
         ),
       );
     }
@@ -174,6 +265,7 @@ class _SignedInNavigatorState extends State<_SignedInNavigator> {
   @override
   Widget build(BuildContext context) {
     return Navigator(
+      key: AppNavigator.signedInKey,
       onGenerateInitialRoutes: (navigator, initialRoute) {
         return [
           MaterialPageRoute<void>(
@@ -206,6 +298,10 @@ Widget _signedInPage(RouteSettings settings) {
       return const EmployeeTimeCardDetailsScreen();
     case AppRoutes.employeeRequestLeave:
       return const EmployeeRequestLeaveScreen();
+    case AppRoutes.timeCardCalendar:
+      return const AttendanceCalendarScreen();
+    case AppRoutes.notifications:
+      return const NotificationsScreen();
     case AppRoutes.superAdmin:
     case AppRoutes.superAdminCreate:
       return const SuperAdminGate(
@@ -268,8 +364,22 @@ Widget _signedInPage(RouteSettings settings) {
         child: SuperAdminUsersScreen(),
       );
     case AppRoutes.superAdminRequests:
+      final args = settings.arguments;
+      String? focusType;
+      String? focusId;
+      if (args is Map) {
+        focusType = args['type']?.toString();
+        focusId = args['id']?.toString();
+      }
+      return AdminOrSuperAdminGate(
+        child: SuperAdminRequestsScreen(
+          focusRequestType: focusType,
+          focusRequestId: focusId,
+        ),
+      );
+    case AppRoutes.superAdminLogs:
       return const SuperAdminGate(
-        child: SuperAdminRequestsScreen(),
+        child: SuperAdminLogsScreen(),
       );
     case AppRoutes.superAdminTimeCardDetails:
       return const AdminOrSuperAdminGate(
@@ -278,10 +388,6 @@ Widget _signedInPage(RouteSettings settings) {
     case AppRoutes.superAdminTimeCardSettings:
       return const AdminOrSuperAdminGate(
         child: SuperAdminTimeCardSettingsScreen(),
-      );
-    case AppRoutes.superAdminEditTimeCard:
-      return const AdminOrSuperAdminGate(
-        child: SuperAdminEditTimeCardScreen(),
       );
     case AppRoutes.profile:
       return const ProfileScreen();

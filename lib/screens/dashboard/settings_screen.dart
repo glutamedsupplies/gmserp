@@ -9,7 +9,9 @@ import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/pending_requests_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/app_update_service.dart';
 import '../../services/notification_service.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -20,6 +22,7 @@ class SettingsScreen extends StatelessWidget {
     final user = context.watch<AuthProvider>().user;
     final settings = context.watch<SettingsProvider>();
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     return DashboardScaffold(
       title: 'Settings',
@@ -29,73 +32,94 @@ class SettingsScreen extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: ListView(
-            padding: const EdgeInsets.all(24),
+            padding: density.pagePadding,
             children: [
-              Text(
-                'Settings',
-                style: Theme.of(context).textTheme.headlineMedium,
+              CompactPageHeader(
+                title: 'Settings',
+                subtitle: 'Manage appearance, alerts, and your account.',
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Manage appearance, alerts, and your account.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 28),
-              const _SectionLabel('Appearance'),
+              SizedBox(height: density.sectionGap + 8),
+              _SectionLabel('Appearance'),
               _SettingsCard(
-                child: _SwitchRow(
-                  icon: settings.isDarkMode
-                      ? Icons.dark_mode_rounded
-                      : Icons.light_mode_rounded,
-                  title: 'Dark mode',
-                  subtitle: settings.isDarkMode
-                      ? 'Using a dim green layout for low light'
-                      : 'Using the light GMS theme',
-                  value: settings.isDarkMode,
-                  onChanged: settings.setDarkMode,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const _SectionLabel('Preferences'),
-              _SettingsCard(
-                child: _SwitchRow(
-                  icon: Icons.notifications_rounded,
-                  title: 'Notifications',
-                  subtitle: settings.notificationsEnabled
-                      ? (user?.role == UserRole.superAdmin
-                          ? 'Request alerts, sound, and app icon badge'
-                          : 'Alerts for account and company updates')
-                      : 'Push alerts and app icon badge are off',
-                  value: settings.notificationsEnabled,
-                  onChanged: (value) async {
-                    if (value) {
-                      final allowed =
-                          await NotificationService.instance.requestPermission();
-                      if (!context.mounted) return;
-                      if (!allowed) {
+                child: Column(
+                  children: [
+                    _SwitchRow(
+                      icon: settings.isDarkMode
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                      title: 'Dark mode',
+                      subtitle: settings.isDarkMode
+                          ? 'Using a dim green layout for low light'
+                          : 'Using the light GMS theme',
+                      value: settings.isDarkMode,
+                      onChanged: settings.setDarkMode,
+                    ),
+                    Divider(height: 1, color: colors.border),
+                    _SwitchRow(
+                      icon: settings.isCompactMode
+                          ? Icons.view_compact_rounded
+                          : Icons.view_agenda_rounded,
+                      title: 'Compact mode',
+                      subtitle: settings.isCompactMode
+                          ? 'Denser sidebar, header, pages, and cards'
+                          : 'Roomier chrome, spacing, and titles',
+                      value: settings.isCompactMode,
+                      onChanged: (value) async {
+                        await settings.setCompactMode(value);
+                        if (!context.mounted) return;
                         SnackBarHelper.showInfo(
                           context,
-                          'Notification permission is required on this device.',
+                          value
+                              ? 'Compact mode turned on.'
+                              : 'Normal mode turned on.',
                         );
-                      }
-                    }
-                    await settings.setNotificationsEnabled(value);
-                    if (!context.mounted) return;
-                    await context
-                        .read<PendingRequestsProvider>()
-                        .refreshNotificationPrefs();
-                    if (!context.mounted) return;
-                    SnackBarHelper.showInfo(
-                      context,
-                      value
-                          ? 'Notifications turned on.'
-                          : 'Notifications paused.',
-                    );
-                  },
+                      },
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 24),
-              const _SectionLabel('Account'),
+              SizedBox(height: density.sectionGap + 8),
+              if (user?.role == UserRole.superAdmin ||
+                  user?.role == UserRole.admin) ...[
+                _SectionLabel('Preferences'),
+                _SettingsCard(
+                  child: _SwitchRow(
+                    icon: Icons.notifications_rounded,
+                    title: 'Notifications',
+                    subtitle: settings.notificationsEnabled
+                        ? 'Request alerts, sound, and app icon badge'
+                        : 'Push alerts and app icon badge are off',
+                    value: settings.notificationsEnabled,
+                    onChanged: (value) async {
+                      if (value) {
+                        final allowed = await NotificationService.instance
+                            .requestPermission();
+                        if (!context.mounted) return;
+                        if (!allowed) {
+                          SnackBarHelper.showInfo(
+                            context,
+                            'Notification permission is required on this device.',
+                          );
+                        }
+                      }
+                      await settings.setNotificationsEnabled(value);
+                      if (!context.mounted) return;
+                      await context
+                          .read<PendingRequestsProvider>()
+                          .refreshNotificationPrefs();
+                      if (!context.mounted) return;
+                      SnackBarHelper.showInfo(
+                        context,
+                        value
+                            ? 'Notifications turned on.'
+                            : 'Notifications paused.',
+                      );
+                    },
+                  ),
+                ),
+                SizedBox(height: density.sectionGap + 8),
+              ],
+              _SectionLabel('Account'),
               _SettingsCard(
                 child: _NavRow(
                   icon: Icons.person_rounded,
@@ -110,18 +134,26 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 24),
-              const _SectionLabel('About'),
+              SizedBox(height: density.sectionGap + 8),
+              _SectionLabel('About'),
               _SettingsCard(
-                child: _NavRow(
-                  icon: Icons.info_outline_rounded,
-                  title: AppConstants.appName,
-                  subtitle: 'Version 0.1.0',
+                child: Column(
+                  children: [
+                    const _AboutVersionRow(),
+                    Divider(height: 1, color: colors.border),
+                    _NavRow(
+                      icon: Icons.system_update_rounded,
+                      title: 'Check for updates',
+                      subtitle:
+                          'Checks Firebase release info, then Google Play / App Store',
+                      onTap: () => AppUpdateService.checkForUpdates(context),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: density.sectionGap),
               Text(
-                'GMSERP keeps your theme on this device.',
+                'GMSERP keeps your theme and density on this device.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colors.textHint,
                     ),
@@ -134,6 +166,40 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+class _AboutVersionRow extends StatefulWidget {
+  const _AboutVersionRow();
+
+  @override
+  State<_AboutVersionRow> createState() => _AboutVersionRowState();
+}
+
+class _AboutVersionRowState extends State<_AboutVersionRow> {
+  late Future<String> _versionLabel;
+
+  @override
+  void initState() {
+    super.initState();
+    _versionLabel = AppUpdateService.versionLabel();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: _versionLabel,
+      builder: (context, snapshot) {
+        final version = snapshot.data ?? '…';
+        return _NavRow(
+          icon: Icons.info_outline_rounded,
+          title: AppConstants.appName,
+          subtitle: snapshot.hasError
+              ? 'Version unavailable'
+              : 'Version $version',
+        );
+      },
+    );
+  }
+}
+
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.label);
 
@@ -141,12 +207,16 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
     return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 10),
+      padding: EdgeInsets.only(
+        left: 4,
+        bottom: density.compact ? 6 : 10,
+      ),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(
-          fontSize: 12,
+          fontSize: density.compact ? 11 : 12,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.7,
           color: AppColors.of(context).textSecondary,
@@ -163,9 +233,10 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
     return Material(
       color: AppColors.of(context).inputFill,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(density.settingsCardRadius),
       child: child,
     );
   }
@@ -188,12 +259,14 @@ class _SwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
+    final colors = AppColors.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+      padding: density.settingsRowPadding,
       child: Row(
         children: [
           _IconBadge(icon: icon),
-          const SizedBox(width: 14),
+          SizedBox(width: density.compact ? 10 : 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,18 +274,18 @@ class _SwitchRow extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: density.compact ? 14 : 16,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.of(context).textPrimary,
+                    color: colors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: density.titleSubtitleGap),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: density.compact ? 12 : 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.of(context).textSecondary,
+                    color: colors.textSecondary,
                   ),
                 ),
               ],
@@ -244,15 +317,18 @@ class _NavRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(density.settingsCardRadius),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: density.compact
+            ? const EdgeInsets.all(12)
+            : const EdgeInsets.all(16),
         child: Row(
           children: [
             _IconBadge(icon: icon),
-            const SizedBox(width: 14),
+            SizedBox(width: density.compact ? 10 : 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -260,16 +336,16 @@ class _NavRow extends StatelessWidget {
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: density.compact ? 14 : 16,
                       fontWeight: FontWeight.w800,
                       color: colors.textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: density.titleSubtitleGap),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: density.compact ? 12 : 13,
                       fontWeight: FontWeight.w600,
                       color: colors.textSecondary,
                     ),
@@ -296,14 +372,20 @@ class _IconBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
+    final size = density.settingsIconSize;
     return Container(
-      width: 44,
-      height: 44,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: AppColors.primary.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(density.radius),
       ),
-      child: Icon(icon, color: AppColors.of(context).textPrimary),
+      child: Icon(
+        icon,
+        size: density.compact ? 20 : 24,
+        color: AppColors.of(context).textPrimary,
+      ),
     );
   }
 }

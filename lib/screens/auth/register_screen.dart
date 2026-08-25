@@ -41,6 +41,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final auth = context.read<AuthProvider>();
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Creating account',
+      message: 'Setting up your GMSERP profile…',
+    );
     final success = await auth.register(
       username: _usernameController.text.trim(),
       email: _emailController.text.trim(),
@@ -48,7 +53,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       password: _passwordController.text,
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      SnackBarHelper.hideLoading();
+      return;
+    }
+    SnackBarHelper.hideLoading();
 
     if (success) {
       SnackBarHelper.showSuccess(context, 'Account successfully created.');

@@ -32,6 +32,12 @@ class TimeCardChangeRequestRepository {
     return _hydrateCurrents(_sorted(snapshot.docs));
   }
 
+  Future<List<TimeCardChangeRequest>> listByEmployeeId(String employeeId) async {
+    final snapshot =
+        await _requests.where('employeeId', isEqualTo: employeeId).get();
+    return _hydrateCurrents(_sorted(snapshot.docs));
+  }
+
   /// Live pending count for Super Admin inbox (all time-change requests).
   Stream<int> watchPendingCount() {
     return _requests.snapshots().map((snapshot) {

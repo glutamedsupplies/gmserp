@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_task.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
@@ -104,6 +105,7 @@ class _SuperAdminTaskDetailsScreenState
   @override
   Widget build(BuildContext context) {
     final companies = context.watch<CompanyProvider>();
+    final colors = AppColors.of(context);
     final company = widget.listing.company;
     final roleIds = {for (final role in companies.roles) role.id};
 
@@ -111,18 +113,13 @@ class _SuperAdminTaskDetailsScreenState
       title: _task.title.isEmpty ? 'Task details' : _task.title,
       currentRoute: AppRoutes.superAdminTaskDetails,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
-          Text(
-            _task.title.isEmpty ? 'Task details' : _task.title,
-            style: Theme.of(context).textTheme.headlineMedium,
+          CompactPageHeader(
+            title: _task.title.isEmpty ? 'Task details' : _task.title,
+            subtitle: '${company.name}  •  ID: ${company.companyId}',
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${company.name}  •  ID: ${company.companyId}',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Row(
             children: [
               Expanded(
@@ -131,7 +128,7 @@ class _SuperAdminTaskDetailsScreenState
                   value: _formatTaskDate(_task.createdAt),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: _DateCard(
                   label: 'Last updated',
@@ -140,25 +137,42 @@ class _SuperAdminTaskDetailsScreenState
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             'Edit task',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Change the role, name, or details, then save.',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Form(
             key: _formKey,
             child: Column(
               children: [
                 if (companies.roles.isNotEmpty || _roleId.isNotEmpty) ...[
                   DropdownButtonFormField<String?>(
+                    isDense: true,
                     initialValue: _roleId.isEmpty ? null : _roleId,
-                    decoration: const InputDecoration(labelText: 'Role'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                    decoration: InputDecoration(
+                      labelText: 'Role',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius:
+                            BorderRadius.circular(CompactPageStyle.of(context).radius),
+                      ),
+                    ),
                     items: [
                       if (companies.roles.isNotEmpty)
                         const DropdownMenuItem<String?>(
@@ -192,7 +206,7 @@ class _SuperAdminTaskDetailsScreenState
                       setState(() => _roleId = value);
                     },
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
                 ],
                 CustomTextField(
                   controller: _title,
@@ -206,7 +220,7 @@ class _SuperAdminTaskDetailsScreenState
                     return null;
                   },
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: CompactPageStyle.of(context).sectionGap),
                 CustomTextField(
                   controller: _description,
                   label: 'Description',
@@ -214,7 +228,7 @@ class _SuperAdminTaskDetailsScreenState
                   textInputAction: TextInputAction.newline,
                   keyboardType: TextInputType.multiline,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 PrimaryButton(
                   label: 'Save changes',
                   loadingLabel: 'Saving...',
@@ -224,7 +238,7 @@ class _SuperAdminTaskDetailsScreenState
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
@@ -261,31 +275,29 @@ class _DateCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: colors.textSecondary,
-            ),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: colors.textPrimary,
-              height: 1.35,
-            ),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: colors.textPrimary,
+                  height: 1.35,
+                ),
           ),
         ],
       ),

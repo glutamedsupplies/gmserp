@@ -4,18 +4,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SettingsProvider extends ChangeNotifier {
   static const _darkModeKey = 'settings.dark_mode';
   static const _notificationsKey = 'settings.notifications';
+  static const _compactModeKey = 'settings.compact_mode';
 
   bool _darkMode = false;
   bool _notificationsEnabled = true;
+  bool _compactMode = true;
 
   bool get isDarkMode => _darkMode;
   bool get notificationsEnabled => _notificationsEnabled;
+  bool get isCompactMode => _compactMode;
   ThemeMode get themeMode => _darkMode ? ThemeMode.dark : ThemeMode.light;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _darkMode = prefs.getBool(_darkModeKey) ?? false;
     _notificationsEnabled = prefs.getBool(_notificationsKey) ?? true;
+    _compactMode = prefs.getBool(_compactModeKey) ?? true;
     notifyListeners();
   }
 
@@ -33,5 +37,13 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_notificationsKey, value);
+  }
+
+  Future<void> setCompactMode(bool value) async {
+    if (_compactMode == value) return;
+    _compactMode = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_compactModeKey, value);
   }
 }

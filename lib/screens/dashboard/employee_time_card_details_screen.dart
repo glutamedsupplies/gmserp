@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_model.dart';
 import '../../models/leave_request.dart';
 import '../../models/time_card_table.dart';
@@ -17,6 +18,8 @@ import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
 import '../../services/leave_request_repository.dart';
 import '../../services/time_entry_repository.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/time_card_month_filter.dart';
 import '../../widgets/time_card_report_table.dart';
@@ -256,14 +259,18 @@ class _EmployeeTimeCardDetailsScreenState
                                   company: company,
                                 );
                             if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Time entry updated.')),
+                            SnackBarHelper.showSuccess(
+                              context,
+                              'Time entry updated.',
                             );
                           } catch (e) {
                             if (!mounted) return;
                             setStateDialog(() => saving = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(e is StateError ? e.message : 'Could not update time entry.')),
+                            SnackBarHelper.showError(
+                              context,
+                              e is StateError
+                                  ? e.message
+                                  : 'Could not update time entry.',
                             );
                           }
                         },
@@ -349,7 +356,7 @@ class _EmployeeTimeCardDetailsScreenState
       title: 'Time card details',
       currentRoute: AppRoutes.employeeTimeCardDetails,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
           Text(
             company == null
@@ -359,16 +366,16 @@ class _EmployeeTimeCardDetailsScreenState
                   color: colors.textSecondary,
                 ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: CompactPageStyle.of(context).cardGap),
           if (company == null)
             _EmptyState(
               icon: Icons.business_outlined,
               message: 'Open a company from Switch company first.',
             )
           else if (timeEntries.isLoading && timeEntries.allEntries.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(child: CircularProgressIndicator()),
+            const AppLoadingView(
+              title: 'Loading time cards',
+              message: 'Fetching your entries…',
             )
           else ...[
             if (active != null) ...[

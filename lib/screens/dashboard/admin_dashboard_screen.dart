@@ -8,7 +8,9 @@ import '../../models/staff_assignment.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/app_loading_card.dart';
 import '../../widgets/custom_text_field.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 enum _MemberRoleFilter { all, admin, employee }
@@ -75,58 +77,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final company = context.read<CompanyProvider>().selectedCompany;
     if (company == null) return;
 
-    final roleController = TextEditingController();
-    final taskController = TextEditingController();
     final existing = context
         .read<CompanyProvider>()
         .staff
         .where((item) => item.userId == member.id)
         .toList();
-    if (existing.isNotEmpty) {
-      roleController.text = existing.first.jobRole;
-      taskController.text = existing.first.tasks.join(', ');
-    }
+    final initialRole = existing.isNotEmpty ? existing.first.jobRole : '';
+    final initialTasks =
+        existing.isNotEmpty ? existing.first.tasks.join(', ') : '';
 
-    final saved = await showDialog<bool>(
+    final result = await showDialog<({String role, String tasks})>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Assign ${member.username}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CustomTextField(
-                controller: roleController,
-                label: 'Role',
-                hint: 'e.g. Cashier, Inventory',
-              ),
-              const SizedBox(height: 12),
-              CustomTextField(
-                controller: taskController,
-                label: 'Task',
-                hint: 'e.g. Handle POS, Count stock',
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => _AssignMemberDialog(
+        username: member.username,
+        initialRole: initialRole,
+        initialTasks: initialTasks,
+      ),
     );
 
-    if (saved != true || !mounted) {
-      roleController.dispose();
-      taskController.dispose();
-      return;
-    }
+    if (result == null || !mounted) return;
 
     final ok = await context.read<CompanyProvider>().assignStaff(
           companyId: company.id,
@@ -135,16 +104,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             username: member.username,
             email: member.email,
             roleId: existing.isNotEmpty ? existing.first.roleId : '',
-            jobRole: roleController.text.trim(),
-            tasks: taskController.text
+            jobRole: result.role,
+            tasks: result.tasks
                 .split(',')
                 .map((item) => item.trim())
                 .where((item) => item.isNotEmpty)
                 .toList(),
           ),
         );
-    roleController.dispose();
-    taskController.dispose();
     if (!mounted) return;
     if (ok) {
       SnackBarHelper.showSuccess(context, 'Assignment saved.');
@@ -167,24 +134,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final adminCount = _countByRole(companies, UserRole.admin);
     final employeeCount = _countByRole(companies, UserRole.employee);
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     return DashboardScaffold(
       title: 'Staff',
       currentRoute: AppRoutes.adminDashboard,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: density.pagePadding,
         children: [
-          Text(
-            company?.name ?? 'Company',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Assign admins and employees a specific role and task for this company.',
-            style: Theme.of(context).textTheme.bodyMedium,
+          CompactPageHeader(
+            title: company?.name ?? 'Company',
+            subtitle:
+                'Assign admins and employees a specific role and task for this company.',
           ),
           if (total > 0) ...[
-            const SizedBox(height: 8),
+            SizedBox(height: density.titleSubtitleGap),
             Text(
               '$total members ($adminCount admin, $employeeCount employee)',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -192,7 +156,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   ),
             ),
           ],
-          const SizedBox(height: 16),
+          SizedBox(height: density.sectionGap),
           Text(
             'Role',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -200,7 +164,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   fontWeight: FontWeight.w600,
                 ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: density.titleSubtitleGap),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -230,7 +194,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           const SizedBox(height: 24),
           if (companies.isLoading)
-            const Center(child: CircularProgressIndicator())
+            const AppLoadingView(
+              title: 'Loading members',
+              message: 'Fetching company admins and employees…',
+            )
           else if (total == 0)
             const Text(
               'No admins or employees in this company yet. Ask Super Admin to add members.',
@@ -325,6 +292,79 @@ class _RoleFilterChip extends StatelessWidget {
         color: colors.textPrimary,
         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
       ),
+    );
+  }
+}
+
+class _AssignMemberDialog extends StatefulWidget {
+  const _AssignMemberDialog({
+    required this.username,
+    required this.initialRole,
+    required this.initialTasks,
+  });
+
+  final String username;
+  final String initialRole;
+  final String initialTasks;
+
+  @override
+  State<_AssignMemberDialog> createState() => _AssignMemberDialogState();
+}
+
+class _AssignMemberDialogState extends State<_AssignMemberDialog> {
+  late final TextEditingController _roleController;
+  late final TextEditingController _taskController;
+
+  @override
+  void initState() {
+    super.initState();
+    _roleController = TextEditingController(text: widget.initialRole);
+    _taskController = TextEditingController(text: widget.initialTasks);
+  }
+
+  @override
+  void dispose() {
+    _roleController.dispose();
+    _taskController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Assign ${widget.username}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CustomTextField(
+            controller: _roleController,
+            label: 'Role',
+            hint: 'e.g. Cashier, Inventory',
+          ),
+          const SizedBox(height: 12),
+          CustomTextField(
+            controller: _taskController,
+            label: 'Task',
+            hint: 'e.g. Handle POS, Count stock',
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            (
+              role: _roleController.text.trim(),
+              tasks: _taskController.text.trim(),
+            ),
+          ),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

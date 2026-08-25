@@ -63,19 +63,19 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'YOUR_MACOS_API_KEY',
-    appId: 'YOUR_MACOS_APP_ID',
-    messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
-    iosBundleId: 'com.example.newGmserp',
+    apiKey: 'AIzaSyAwpoTTlFmMIoaLW3A0TBgOLYFAiBll6x8',
+    appId: '1:901927576776:ios:68e7fcb7077349acf931fd',
+    messagingSenderId: '901927576776',
+    projectId: 'gmserp-ffc76',
+    storageBucket: 'gmserp-ffc76.firebasestorage.app',
+    iosBundleId: 'com.exampleGmserp.ios',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'YOUR_WINDOWS_API_KEY',
-    appId: 'YOUR_WINDOWS_APP_ID',
-    messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
+    apiKey: 'AIzaSyAeBYouKxv47RR2s4fmgZs3_QRiFga01rg',
+    appId: '1:901927576776:web:3a8d0835845d0ecaf931fd',
+    messagingSenderId: '901927576776',
+    projectId: 'gmserp-ffc76',
+    storageBucket: 'gmserp-ffc76.firebasestorage.app',
   );
 }

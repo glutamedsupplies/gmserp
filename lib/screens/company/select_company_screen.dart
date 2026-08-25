@@ -10,6 +10,8 @@ import '../../models/company_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../widgets/password_field.dart';
+import '../../widgets/compact_page.dart';
+import '../../widgets/app_loading_card.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/user_avatar.dart';
 
@@ -85,11 +87,17 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
     }
 
     setState(() => _opening = true);
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Opening company',
+      message: 'Unlocking ${company.name}…',
+    );
     final ok = await companies.unlockCompanyById(
       companyId: company.id,
       password: code,
       fallback: company,
     );
+    SnackBarHelper.hideLoading();
     if (!mounted) return;
     if (!ok) {
       setState(() => _opening = false);
@@ -105,9 +113,6 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
   }
 
   Future<void> _openCompany(CompanyModel company) async {
-    final codeController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
     final code = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -115,80 +120,11 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
-        final bottom = MediaQuery.viewInsetsOf(context).bottom;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottom),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.of(context).border,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  company.name,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Enter the company code to open this company.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 20),
-                PasswordField(
-                  controller: codeController,
-                  label: 'Company code',
-                  hint: 'Code shared with employees',
-                  autofocus: true,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) {
-                    if (formKey.currentState?.validate() ?? false) {
-                      Navigator.pop(context, codeController.text);
-                    }
-                  },
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Company code is required.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-                PrimaryButton(
-                  label: 'Open company',
-                  onPressed: () {
-                    if (formKey.currentState?.validate() ?? false) {
-                      Navigator.pop(context, codeController.text);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (context) => _CompanyCodeSheet(company: company),
     );
 
-    if (code == null || !mounted) {
-      codeController.dispose();
-      return;
-    }
-
+    if (code == null || !mounted) return;
     await _unlockAndGo(company, code);
-    codeController.dispose();
   }
 
   @override
@@ -214,25 +150,43 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
             ),
             Expanded(
               child: companies.isLoading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const AppLoadingView(
+                      title: 'Loading companies',
+                      message: 'Fetching your company list…',
+                    )
                   : Column(
                       children: [
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                          padding: CompactPageStyle.of(context).pagePaddingTopOnly,
                           child: Column(
                             children: [
                               Text(
                                 'Choose a company',
                                 textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.headlineMedium,
+                                style: (CompactPageStyle.of(context).compact
+                                        ? Theme.of(context).textTheme.titleLarge
+                                        : Theme.of(context)
+                                            .textTheme
+                                            .headlineMedium)
+                                    ?.copyWith(fontWeight: FontWeight.w800),
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(
+                                height:
+                                    CompactPageStyle.of(context).titleSubtitleGap,
+                              ),
                               Text(
                                 canGoBack
                                     ? 'Pick another company, or go back to the current one.'
                                     : 'Swipe to pick a company, then continue to the dashboard.',
                                 textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodyMedium,
+                                style: (CompactPageStyle.of(context).compact
+                                        ? Theme.of(context).textTheme.bodySmall
+                                        : Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium)
+                                    ?.copyWith(
+                                  color: AppColors.of(context).textSecondary,
+                                ),
                               ),
                             ],
                           ),
@@ -312,8 +266,14 @@ class _LockedSelectHeader extends StatelessWidget {
   final VoidCallback? onBack;
 
   Future<void> _logout(BuildContext context) async {
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Signing out',
+      message: 'Ending your session…',
+    );
     context.read<CompanyProvider>().clearSelection();
     await context.read<AuthProvider>().logout();
+    SnackBarHelper.hideLoading();
     if (!context.mounted) return;
     SnackBarHelper.showInfo(context, 'You have been signed out.');
     AppNavigator.popToRoot(context);
@@ -322,6 +282,7 @@ class _LockedSelectHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     final role = context.watch<AuthProvider>().user?.role.label;
 
     return Material(
@@ -329,7 +290,7 @@ class _LockedSelectHeader extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+          padding: density.headerPadding,
           child: Row(
             children: [
               if (onBack != null)
@@ -340,14 +301,14 @@ class _LockedSelectHeader extends StatelessWidget {
                   color: colors.textPrimary,
                 ),
               SizedBox(
-                width: 36,
-                height: 36,
+                width: density.headerLogoSize,
+                height: density.headerLogoSize,
                 child: FittedBox(
                   fit: BoxFit.contain,
                   child: Image.asset('assets/branding/gmserp_logo.png'),
                 ),
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: density.compact ? 8 : 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,7 +318,7 @@ class _LockedSelectHeader extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: density.headerTitleSize,
                         fontWeight: FontWeight.w800,
                         color: colors.textPrimary,
                       ),
@@ -366,7 +327,7 @@ class _LockedSelectHeader extends StatelessWidget {
                       Text(
                         role,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: density.compact ? 11 : 12,
                           fontWeight: FontWeight.w600,
                           color: colors.sidebarMuted,
                         ),
@@ -404,19 +365,21 @@ class _CompanyCarouselCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final cardRadius = density.compact ? 20.0 : 28.0;
 
     return Material(
       color: selected
           ? AppColors.primary.withValues(alpha: dark ? 0.18 : 0.22)
           : colors.inputFill,
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(cardRadius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(cardRadius),
         onTap: onTap,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(cardRadius),
             border: Border.all(
               color: selected
                   ? AppColors.primary.withValues(alpha: 0.7)
@@ -425,7 +388,9 @@ class _CompanyCarouselCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            padding: density.compact
+                ? const EdgeInsets.fromLTRB(18, 18, 18, 16)
+                : const EdgeInsets.fromLTRB(24, 24, 24, 20),
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: SizedBox(
@@ -437,23 +402,28 @@ class _CompanyCarouselCard extends StatelessWidget {
                       key: ValueKey('${company.id}-$logoRevision'),
                       bytes: logoBytes,
                       name: company.name,
-                      size: 96,
+                      size: density.compact ? 80 : 96,
                     ),
-                    const SizedBox(height: 20),
+                    SizedBox(height: density.sectionGap + 6),
                     Text(
                       company.name,
                       textAlign: TextAlign.center,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineMedium,
+                      style: (density.compact
+                              ? Theme.of(context).textTheme.titleLarge
+                              : Theme.of(context).textTheme.headlineMedium)
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
-                    const SizedBox(height: 10),
+                    SizedBox(height: density.cardGap),
                     Text(
                       'COMPANY ID: ${company.companyId}',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      style: density.compact
+                          ? Theme.of(context).textTheme.bodySmall
+                          : Theme.of(context).textTheme.bodyMedium,
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: density.sectionGap),
                     Text(
                       selected ? 'Selected' : 'Swipe to choose',
                       style: TextStyle(
@@ -499,6 +469,90 @@ class _CarouselDots extends StatelessWidget {
           ),
         );
       }),
+    );
+  }
+}
+
+class _CompanyCodeSheet extends StatefulWidget {
+  const _CompanyCodeSheet({required this.company});
+
+  final CompanyModel company;
+
+  @override
+  State<_CompanyCodeSheet> createState() => _CompanyCodeSheetState();
+}
+
+class _CompanyCodeSheetState extends State<_CompanyCodeSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _codeController = TextEditingController();
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.pop(context, _codeController.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottom),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.of(context).border,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              widget.company.name,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Enter the company code to open this company.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 20),
+            PasswordField(
+              controller: _codeController,
+              label: 'Company code',
+              hint: 'Code shared with employees',
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Company code is required.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            PrimaryButton(
+              label: 'Open company',
+              onPressed: _submit,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

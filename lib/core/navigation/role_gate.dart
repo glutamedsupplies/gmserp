@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/app_loading_card.dart';
 import 'app_navigator.dart';
 
 class SuperAdminGate extends StatelessWidget {
@@ -26,7 +27,10 @@ class SuperAdminGate extends StatelessWidget {
     });
 
     return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
+      body: AppLoadingView(
+        title: 'Checking access',
+        message: 'Verifying Super Admin permissions…',
+      ),
     );
   }
 }
@@ -53,7 +57,10 @@ class AdminOrSuperAdminGate extends StatelessWidget {
     });
 
     return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
+      body: AppLoadingView(
+        title: 'Checking access',
+        message: 'Verifying admin permissions…',
+      ),
     );
   }
 }

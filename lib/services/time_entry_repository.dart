@@ -271,6 +271,85 @@ class TimeEntryRepository {
     return entries;
   }
 
+  /// Apply an approved employee clock-in request (writes open time entry).
+  Future<TimeEntry> applyApprovedClockIn({
+    required String userId,
+    required String userEmail,
+    required String username,
+    required String companyId,
+    required String companyDocumentId,
+    required String companyName,
+    required String workDate,
+    required DateTime timeIn,
+  }) async {
+    final open = await getOpenEntry(userId: userId, companyId: companyId);
+    if (open != null) {
+      throw StateError('Employee already has an open time entry.');
+    }
+    final today = await getEntryForWorkDate(
+      userId: userId,
+      companyId: companyId,
+      workDate: workDate,
+    );
+    if (today != null) {
+      throw StateError('Employee already has a time card for $workDate.');
+    }
+
+    final data = <String, dynamic>{
+      'userId': userId,
+      'userEmail': userEmail,
+      'username': username,
+      'companyId': companyId,
+      'companyDocumentId': companyDocumentId,
+      'companyName': companyName,
+      'status': TimeEntryStatus.open.storageValue,
+      'timeIn': Timestamp.fromDate(timeIn),
+      'timeOut': null,
+      'durationSeconds': null,
+      'workDate': workDate,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final doc = await _entries.add(data);
+    final snapshot = await doc.get();
+    return TimeEntry.fromFirestore(
+      id: snapshot.id,
+      data: snapshot.data() ?? data,
+    );
+  }
+
+  /// Apply an approved employee clock-out request.
+  Future<TimeEntry> applyApprovedClockOut({
+    required String entryId,
+    required DateTime timeOut,
+  }) async {
+    final ref = _entries.doc(entryId);
+    final snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data() == null) {
+      throw StateError('Open time entry not found for clock-out.');
+    }
+    final entry = TimeEntry.fromFirestore(
+      id: snapshot.id,
+      data: snapshot.data()!,
+    );
+    if (!entry.isOpen) {
+      throw StateError('Time entry is already closed.');
+    }
+    if (!timeOut.isAfter(entry.timeIn)) {
+      throw StateError('Time out must be after time in.');
+    }
+
+    final durationSeconds = timeOut.difference(entry.timeIn).inSeconds;
+    await ref.update({
+      'status': TimeEntryStatus.closed.storageValue,
+      'timeOut': Timestamp.fromDate(timeOut),
+      'durationSeconds': durationSeconds,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    final updated = await ref.get();
+    return TimeEntry.fromFirestore(id: updated.id, data: updated.data()!);
+  }
+
   /// Admin/super admin: create or update an employee's time in / time out.
   Future<TimeEntry> adminSaveEntry({
     String? entryId,

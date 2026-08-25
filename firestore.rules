@@ -90,24 +90,15 @@ service cloud.firestore {
     }
 
     match /timeEntries/{entryId} {
-      // Admins/super admins need collection queries by companyId (employee table).
       allow read: if isSignedIn() && (
         isSuperAdmin()
         || isAdmin()
         || resource.data.userId == request.auth.uid
       );
 
-      allow create: if isSignedIn() && (
-        isAdmin()
-        || validTimeEntryCreate()
-      );
-
-      allow update: if isSignedIn() && (
-        isAdmin()
-        || validTimeEntryClockOut()
-      );
-
-      allow delete: if isAdmin();
+      // Employees cannot write time entries directly (prevents clock bypass).
+      // Admin/super admin write after approving clock requests.
+      allow create, update, delete: if isAdmin();
     }
 
     match /timeCardSettings/{docId} {
@@ -129,14 +120,43 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /clockRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        isSuperAdmin()
+        || isAdmin()
+        || resource.data.userId == request.auth.uid
+      );
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && (
+          request.resource.data.type == 'clockIn'
+          || request.resource.data.type == 'clockOut'
+        );
+
+      allow update, delete: if isAdmin();
+    }
+
     match /timeCardChangeRequests/{requestId} {
-      allow read: if isAdmin();
+      allow read: if isSignedIn() && (
+        isSuperAdmin()
+        || isAdmin()
+        || resource.data.requesterId == request.auth.uid
+        || resource.data.employeeId == request.auth.uid
+      );
 
       allow create: if isAdmin()
         && request.resource.data.status == 'pending'
         && request.resource.data.requesterId == request.auth.uid;
 
       allow update, delete: if isSuperAdmin();
+    }
+
+    // OTA release info for in-app "Check for updates" (before Play Store listing).
+    match /appConfig/{platform} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSuperAdmin();
     }
   }
 }

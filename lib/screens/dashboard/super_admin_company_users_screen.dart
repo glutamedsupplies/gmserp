@@ -5,6 +5,8 @@ import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/company_model.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class SuperAdminCompanyUsersScreen extends StatefulWidget {
@@ -47,23 +49,20 @@ class _SuperAdminCompanyUsersScreenState
       title: company.name,
       currentRoute: AppRoutes.superAdminCompanyUsers,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
-          Text(
-            company.name,
-            style: Theme.of(context).textTheme.headlineMedium,
+          CompactPageHeader(
+            title: company.name,
+            subtitle: 'COMPANY ID: ${company.companyId}',
           ),
-          const SizedBox(height: 8),
-          Text(
-            'COMPANY ID: ${company.companyId}',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 8),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Roles and tasks are view only here. Edit them under Companies → Role lists and Task lists. Assign people under Employee lists.',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Row(
             children: [
               Expanded(
@@ -72,7 +71,7 @@ class _SuperAdminCompanyUsersScreenState
                   value: _formatCompanyDate(company.createdAt),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: _CompanyDateCard(
                   label: 'Last updated',
@@ -81,7 +80,7 @@ class _SuperAdminCompanyUsersScreenState
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -110,25 +109,29 @@ class _SuperAdminCompanyUsersScreenState
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             'Roles',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Job roles set up for this company.',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (companies.isLoading && companies.roles.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 24),
-              child: Center(child: CircularProgressIndicator()),
+            const AppLoadingView(
+              title: 'Loading roles',
+              message: 'Fetching company roles…',
             )
           else if (companies.roles.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
+            Padding(
+              padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
               child: Text('No roles yet. Add them from Role lists.'),
             )
           else
@@ -137,43 +140,56 @@ class _SuperAdminCompanyUsersScreenState
                   .where((task) => task.roleId == role.id)
                   .length;
               return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
                 child: Material(
                   color: colors.inputFill,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
                   child: ListTile(
+                    dense: true,
+                    contentPadding: CompactPageStyle.of(context).cardPadding,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius:
+                          BorderRadius.circular(CompactPageStyle.of(context).radius),
                     ),
                     leading: Icon(
                       Icons.badge_outlined,
                       color: colors.textPrimary,
+                      size: 20,
                     ),
-                    title: Text(role.name),
+                    title: Text(
+                      role.name,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                     subtitle: Text(
                       [
                         if (role.description.isNotEmpty) role.description,
                         '$taskCount ${taskCount == 1 ? 'task' : 'tasks'}',
                       ].join(' • '),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
                 ),
               );
             }),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             'Tasks',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Tasks linked to roles for this company.',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (companies.tasks.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
+            Padding(
+              padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
               child: Text('No tasks yet. Add them from Task lists.'),
             )
           else
@@ -183,20 +199,33 @@ class _SuperAdminCompanyUsersScreenState
                 if (task.description.isNotEmpty) task.description,
               ].join(' • ');
               return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
                 child: Material(
                   color: colors.inputFill,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
                   child: ListTile(
+                    dense: true,
+                    contentPadding: CompactPageStyle.of(context).cardPadding,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius:
+                          BorderRadius.circular(CompactPageStyle.of(context).radius),
                     ),
                     leading: Icon(
                       Icons.task_alt_rounded,
                       color: colors.textPrimary,
+                      size: 20,
                     ),
-                    title: Text(task.title),
-                    subtitle: subtitle.isEmpty ? null : Text(subtitle),
+                    title: Text(
+                      task.title,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    subtitle: subtitle.isEmpty
+                        ? null
+                        : Text(
+                            subtitle,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                   ),
                 ),
               );
@@ -233,31 +262,29 @@ class _CompanyDateCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: colors.textSecondary,
-            ),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colors.textSecondary,
+                ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: colors.textPrimary,
-              height: 1.35,
-            ),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: colors.textPrimary,
+                  height: 1.35,
+                ),
           ),
         ],
       ),

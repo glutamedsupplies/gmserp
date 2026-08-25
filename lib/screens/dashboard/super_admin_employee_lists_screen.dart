@@ -13,6 +13,8 @@ import '../../models/staff_assignment.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/user_avatar.dart';
@@ -135,8 +137,10 @@ class _SuperAdminEmployeeListsScreenState
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.of(context).background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(CompactPageStyle.read(context).radius),
+        ),
       ),
       builder: (context) => _AddEmployeeSheet(users: available),
     );
@@ -219,8 +223,10 @@ class _SuperAdminEmployeeListsScreenState
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.of(context).background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(CompactPageStyle.read(context).radius),
+        ),
       ),
       builder: (context) => _AssignEmployeeSheet(
         member: member,
@@ -275,18 +281,14 @@ class _SuperAdminEmployeeListsScreenState
       title: 'Employee lists',
       currentRoute: AppRoutes.superAdminEmployees,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
-          Text(
-            'Employee lists',
-            style: Theme.of(context).textTheme.headlineMedium,
+          const CompactPageHeader(
+            title: 'Employee lists',
+            subtitle:
+                'Select a company, add admins and employees, then tap to assign role and tasks.',
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Select a company, add admins and employees, then tap to assign role and tasks.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (companies.companies.isEmpty)
             _EmptyState(
               icon: Icons.business_rounded,
@@ -303,22 +305,22 @@ class _SuperAdminEmployeeListsScreenState
               showing: members.length,
               hasFilters: hasFilters,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             _CompanySearchDropdown(
               companies: companies.companies,
               selectedId: _companyId,
               logoFor: companies.logoFor,
               onSelected: _selectCompany,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             Text(
               'Role',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: AppColors.of(context).textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -346,29 +348,14 @@ class _SuperAdminEmployeeListsScreenState
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: CompactSearchField(
                     controller: _search,
                     onChanged: (_) => setState(() {}),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: 'Search name, email, role, or task',
-                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                      suffixIcon: _search.text.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Clear',
-                              onPressed: () {
-                                _search.clear();
-                                setState(() {});
-                              },
-                              icon: const Icon(Icons.close_rounded, size: 20),
-                            ),
-                    ),
+                    hintText: 'Search name, email, role, or task',
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -380,11 +367,11 @@ class _SuperAdminEmployeeListsScreenState
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             if (companies.isLoading)
-              const Padding(
-                padding: EdgeInsets.only(top: 28),
-                child: Center(child: CircularProgressIndicator()),
+              const AppLoadingView(
+                title: 'Loading employees',
+                message: 'Fetching company members…',
               )
             else if (companies.staff.isEmpty)
               _EmptyState(
@@ -450,42 +437,44 @@ class _SummaryCard extends StatelessWidget {
         : '$total members ($adminCount admin, $employeeCount employee)';
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
             ),
             child: const Icon(
               Icons.badge_outlined,
               color: AppColors.primaryDark,
-              size: 22,
+              size: 20,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   companyName,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '$countLabel  •  $assigned assigned',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: colors.textSecondary,
                       ),
                 ),
@@ -516,8 +505,10 @@ class _CompanySearchDropdown extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.of(context).background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(CompactPageStyle.read(context).radius),
+        ),
       ),
       builder: (context) => _CompanyPickerSheet(
         companies: companies,
@@ -541,9 +532,9 @@ class _CompanySearchDropdown extends StatelessWidget {
 
     return Material(
       color: colors.inputFill,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         onTap: () => _openPicker(context),
         child: InputDecorator(
           decoration: InputDecoration(
@@ -551,12 +542,13 @@ class _CompanySearchDropdown extends StatelessWidget {
             isDense: true,
             filled: true,
             fillColor: colors.inputFill,
+            contentPadding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
               borderSide: BorderSide(color: colors.border),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
               borderSide: BorderSide(color: colors.border),
             ),
             suffixIcon: Icon(
@@ -570,16 +562,16 @@ class _CompanySearchDropdown extends StatelessWidget {
                 UserAvatar(
                   bytes: logoFor(selected.id),
                   name: selected.name,
-                  size: 28,
+                  size: 24,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
               ] else
                 Icon(
                   Icons.business_rounded,
-                  size: 20,
+                  size: 18,
                   color: colors.textSecondary,
                 ),
-              if (selected == null) const SizedBox(width: 10),
+              if (selected == null) const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   selected == null
@@ -587,7 +579,7 @@ class _CompanySearchDropdown extends StatelessWidget {
                       : '${selected.name}  •  ${selected.companyId}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: selected == null
                             ? colors.textHint
                             : colors.textPrimary,
@@ -644,7 +636,7 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
 
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -659,28 +651,42 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             Text(
               'Select company',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Search by company name or ID.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             TextField(
               controller: _query,
               autofocus: true,
               onChanged: (_) => setState(() {}),
+              style: Theme.of(context).textTheme.bodySmall,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 hintText: 'Search companies...',
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                hintStyle: TextStyle(fontSize: 12, color: colors.textHint),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: colors.textHint,
+                ),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 32),
                 suffixIcon: _query.text.isEmpty
                     ? null
                     : IconButton(
@@ -689,11 +695,23 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                           _query.clear();
                           setState(() {});
                         },
-                        icon: const Icon(Icons.close_rounded, size: 20),
+                        icon: const Icon(Icons.close_rounded, size: 18),
                       ),
+                filled: true,
+                fillColor: colors.card,
+                border: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderSide: BorderSide(color: colors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderSide: BorderSide(color: colors.border),
+                ),
               ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             ConstrainedBox(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.sizeOf(context).height * 0.45,
@@ -704,14 +722,14 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                       child: Text(
                         'No companies match that search.',
                         textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     )
                   : ListView.separated(
                       shrinkWrap: true,
                       itemCount: items.length,
                       separatorBuilder: (context, index) =>
-                          const SizedBox(height: 6),
+                          SizedBox(height: CompactPageStyle.of(context).cardGap),
                       itemBuilder: (context, index) {
                         final company = items[index];
                         final selected = company.id == widget.selectedId;
@@ -719,11 +737,14 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                           color: selected
                               ? AppColors.primary.withValues(alpha: 0.16)
                               : colors.inputFill,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius:
+                              BorderRadius.circular(CompactPageStyle.of(context).radius),
                           child: ListTile(
                             dense: true,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(
+                                CompactPageStyle.of(context).radius,
+                              ),
                               side: BorderSide(
                                 color: selected
                                     ? AppColors.primary
@@ -733,14 +754,18 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                             leading: UserAvatar(
                               bytes: widget.logoFor(company.id),
                               name: company.name,
-                              size: 36,
+                              size: 32,
                             ),
                             title: Text(
                               company.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall,
                             ),
-                            subtitle: Text('ID: ${company.companyId}'),
+                            subtitle: Text(
+                              'ID: ${company.companyId}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                             trailing: selected
                                 ? const Icon(
                                     Icons.check_circle_rounded,
@@ -781,26 +806,26 @@ class _EmployeeCard extends StatelessWidget {
         member.username.isEmpty ? 'Unnamed employee' : member.username;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
       child: Material(
         color: colors.card,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
           side: BorderSide(color: colors.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            padding: CompactPageStyle.of(context).cardPadding,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 UserAvatar(
                   name: name,
                   bytes: null,
-                  size: 40,
+                  size: 36,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -812,7 +837,10 @@ class _EmployeeCard extends StatelessWidget {
                           Expanded(
                             child: Text(
                               name,
-                              style: Theme.of(context).textTheme.titleMedium,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -827,14 +855,13 @@ class _EmployeeCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         member.email,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: colors.textSecondary,
-                              fontSize: 13,
                             ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: CompactPageStyle.of(context).sectionGap),
                       Wrap(
                         spacing: 6,
                         runSpacing: 6,
@@ -985,25 +1012,32 @@ class _EmptyState extends StatelessWidget {
     final colors = AppColors.of(context);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 36, color: colors.textSecondary),
-          const SizedBox(height: 10),
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
+          Icon(icon, size: 32, color: colors.textSecondary),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
           ),
           if (onAction != null && actionLabel != null) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             TextButton(onPressed: onAction, child: Text(actionLabel!)),
           ],
         ],
@@ -1022,7 +1056,7 @@ class _AddEmployeeSheet extends StatelessWidget {
     final colors = AppColors.of(context);
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1037,45 +1071,56 @@ class _AddEmployeeSheet extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             Text(
               'Add member',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Choose an admin or employee account to add to this company.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 380),
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: users.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 6),
+                separatorBuilder: (context, index) =>
+                    SizedBox(height: CompactPageStyle.of(context).cardGap),
                 itemBuilder: (context, index) {
                   final user = users[index];
                   return Material(
                     color: colors.inputFill,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius:
+                        BorderRadius.circular(CompactPageStyle.of(context).radius),
                     child: ListTile(
                       dense: true,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius:
+                            BorderRadius.circular(CompactPageStyle.of(context).radius),
                       ),
                       leading: UserAvatar(
                         name: user.username,
                         bytes: null,
-                        size: 36,
+                        size: 32,
                       ),
-                      title: Text(user.username),
+                      title: Text(
+                        user.username,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                       subtitle: Text(
                         user.email,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                       trailing: _MiniChip(
                         label: user.role.label,
@@ -1171,7 +1216,7 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
 
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1186,28 +1231,39 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             Text(
               name,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Pick a role, then select tasks.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             DropdownButtonFormField<String>(
               isDense: true,
               initialValue: widget.roles.any((item) => item.id == _roleId)
                   ? _roleId
                   : widget.roles.first.id,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Role',
                 isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                ),
               ),
+              style: Theme.of(context).textTheme.bodySmall,
               items: [
                 for (final item in widget.roles)
                   DropdownMenuItem(
@@ -1226,19 +1282,20 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 });
               },
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             if (filtered.isEmpty)
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: CompactPageStyle.of(context).cardPadding,
                 decoration: BoxDecoration(
                   color: colors.inputFill,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                      BorderRadius.circular(CompactPageStyle.of(context).radius),
                   border: Border.all(color: colors.border),
                 ),
                 child: Text(
                   'No tasks for this role yet. Add them under Task lists.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               )
             else
@@ -1248,7 +1305,7 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                   shrinkWrap: true,
                   itemCount: filtered.length,
                   separatorBuilder: (context, index) =>
-                      const SizedBox(height: 6),
+                      SizedBox(height: CompactPageStyle.of(context).cardGap),
                   itemBuilder: (context, index) {
                     final task = filtered[index];
                     final selected = _selectedTasks.contains(task.title);
@@ -1256,11 +1313,14 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                       color: selected
                           ? AppColors.primary.withValues(alpha: 0.16)
                           : colors.inputFill,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius:
+                          BorderRadius.circular(CompactPageStyle.of(context).radius),
                       child: ListTile(
                         dense: true,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(
+                            CompactPageStyle.of(context).radius,
+                          ),
                           side: BorderSide(
                             color: selected ? AppColors.primary : colors.border,
                           ),
@@ -1270,15 +1330,19 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                               ? Icons.check_box_rounded
                               : Icons.check_box_outline_blank_rounded,
                           color: colors.textPrimary,
-                          size: 22,
+                          size: 20,
                         ),
-                        title: Text(task.title),
+                        title: Text(
+                          task.title,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
                         subtitle: task.description.isEmpty
                             ? null
                             : Text(
                                 task.description,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                         onTap: () => _toggleTask(task.title),
                       ),
@@ -1287,16 +1351,16 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 ),
               ),
             if (_selectedTasks.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              SizedBox(height: CompactPageStyle.of(context).sectionGap),
               Text(
                 '${_selectedTasks.length} selected',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colors.textSecondary,
                     ),
               ),
             ],
-            const SizedBox(height: 12),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             PrimaryButton(
               label: 'Save assignment',
               onPressed: role == null

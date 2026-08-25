@@ -36,13 +36,22 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final auth = context.read<AuthProvider>();
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Signing in',
+      message: 'Checking your credentials…',
+    );
     final success = await auth.login(
       email: _emailController.text.trim(),
       password: _passwordController.text,
       rememberMe: true,
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      SnackBarHelper.hideLoading();
+      return;
+    }
+    SnackBarHelper.hideLoading();
 
     if (success) {
       context.read<CompanyProvider>().clearSelection();

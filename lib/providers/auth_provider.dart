@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/local_avatar_factory.dart';
 import '../services/local_avatar_store.dart';
+import '../services/notification_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   AuthProvider({required AuthService authService})
@@ -216,6 +219,8 @@ class AuthProvider extends ChangeNotifier {
       _avatarRevision++;
       _isLoading = false;
       notifyListeners();
+      // Drop Super Admin tray / badge notifications as soon as the session ends.
+      unawaited(NotificationService.instance.clearAll());
     }
   }
 

@@ -5,12 +5,19 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/responsive.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/app_loading_card.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   Future<void> _logout(BuildContext context) async {
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Signing out',
+      message: 'Ending your session…',
+    );
     await context.read<AuthProvider>().logout();
+    SnackBarHelper.hideLoading();
     if (!context.mounted) return;
     SnackBarHelper.showInfo(context, 'You have been signed out.');
     if (Navigator.of(context).canPop()) {
@@ -29,8 +36,12 @@ class HomeScreen extends StatelessWidget {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       });
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: AppColors.of(context).background,
+        body: const AppLoadingView(
+          title: 'Signing out',
+          message: 'Returning to login…',
+        ),
       );
     }
 

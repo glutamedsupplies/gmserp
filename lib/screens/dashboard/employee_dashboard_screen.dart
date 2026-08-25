@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_routes.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
 class EmployeeDashboardScreen extends StatefulWidget {
@@ -37,29 +38,26 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
     final company = companies.selectedCompany;
     final assignment = companies.myAssignment;
 
+    final density = CompactPageStyle.of(context);
+
     return DashboardScaffold(
       title: 'Employee Dashboard',
       currentRoute: AppRoutes.employeeDashboard,
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: density.pagePadding,
         children: [
-          Text(
-            'Welcome, ${user?.username ?? 'Employee'}',
-            style: Theme.of(context).textTheme.headlineMedium,
+          CompactPageHeader(
+            title: 'Welcome, ${user?.username ?? 'Employee'}',
+            subtitle: 'Company: ${company?.name ?? '-'}',
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Company: ${company?.name ?? '-'}',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 24),
+          SizedBox(height: density.sectionGap + 8),
           Text(
             'Assigned by Admin',
             style: Theme.of(context).textTheme.titleMedium,
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: density.cardGap),
           Text('Role: ${assignment?.jobRole.isNotEmpty == true ? assignment!.jobRole : 'Not assigned yet'}'),
-          const SizedBox(height: 8),
+          SizedBox(height: density.titleSubtitleGap),
           Text(
             assignment?.tasks.isNotEmpty == true
                 ? 'Tasks: ${assignment!.tasks.join(', ')}'

@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../models/clock_request.dart';
 import '../models/company_model.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
+import '../services/clock_request_repository.dart';
 import '../services/time_entry_repository.dart';
 
 class TimeEntryProvider extends ChangeNotifier {
-  TimeEntryProvider({TimeEntryRepository? repository})
-      : _repository = repository ?? TimeEntryRepository();
+  TimeEntryProvider({
+    TimeEntryRepository? repository,
+    ClockRequestRepository? clockRequests,
+  })  : _repository = repository ?? TimeEntryRepository(),
+        _clockRequests = clockRequests ?? ClockRequestRepository();
 
   final TimeEntryRepository _repository;
+  final ClockRequestRepository _clockRequests;
 
   bool isLoading = false;
   bool isSaving = false;
@@ -18,6 +24,8 @@ class TimeEntryProvider extends ChangeNotifier {
   List<TimeEntry> todayEntries = [];
   List<TimeEntry> recentEntries = [];
   List<TimeEntry> allEntries = [];
+  ClockRequest? pendingClockIn;
+  ClockRequest? pendingClockOut;
 
   Duration get todayWorked => sumEntriesDuration(todayEntries);
 
@@ -31,9 +39,15 @@ class TimeEntryProvider extends ChangeNotifier {
   bool get hasCompletedToday =>
       todayEntries.any((entry) => !entry.isOpen);
 
-  /// True when the employee may start a new time-in for today.
+  /// True when the employee may submit a new time-in request for today.
   bool get canClockInToday =>
-      activeEntry == null && todayEntries.isEmpty;
+      activeEntry == null &&
+      todayEntries.isEmpty &&
+      pendingClockIn == null;
+
+  /// True when the employee may submit a time-out request.
+  bool get canClockOutToday =>
+      activeEntry != null && pendingClockOut == null;
 
   Future<void> loadForCompany({
     required UserModel user,
@@ -56,16 +70,30 @@ class TimeEntryProvider extends ChangeNotifier {
           userId: user.id,
           companyId: company.id,
         ),
+        _clockRequests.findPendingClockIn(
+          userId: user.id,
+          companyId: company.id,
+          workDate: workDate,
+        ),
+        _clockRequests.findPendingClockOut(
+          userId: user.id,
+          companyId: company.id,
+          workDate: workDate,
+        ),
       ]);
 
       activeEntry = results[0] as TimeEntry?;
       todayEntries = results[1] as List<TimeEntry>;
       recentEntries = results[2] as List<TimeEntry>;
+      pendingClockIn = results[3] as ClockRequest?;
+      pendingClockOut = results[4] as ClockRequest?;
     } catch (_) {
       errorMessage = 'Unable to load time card records.';
       activeEntry = null;
       todayEntries = [];
       recentEntries = [];
+      pendingClockIn = null;
+      pendingClockOut = null;
     } finally {
       isLoading = false;
       notifyListeners();
@@ -77,6 +105,8 @@ class TimeEntryProvider extends ChangeNotifier {
     todayEntries = [];
     recentEntries = [];
     allEntries = [];
+    pendingClockIn = null;
+    pendingClockOut = null;
     errorMessage = null;
     isLoading = false;
     isSaving = false;
@@ -104,11 +134,23 @@ class TimeEntryProvider extends ChangeNotifier {
           userId: user.id,
           companyId: company.id,
         ),
+        _clockRequests.findPendingClockIn(
+          userId: user.id,
+          companyId: company.id,
+          workDate: workDate,
+        ),
+        _clockRequests.findPendingClockOut(
+          userId: user.id,
+          companyId: company.id,
+          workDate: workDate,
+        ),
       ]);
 
       activeEntry = results[0] as TimeEntry?;
       todayEntries = results[1] as List<TimeEntry>;
       allEntries = results[2] as List<TimeEntry>;
+      pendingClockIn = results[3] as ClockRequest?;
+      pendingClockOut = results[4] as ClockRequest?;
       recentEntries = allEntries.length <= 12
           ? allEntries
           : allEntries.take(12).toList();
@@ -118,13 +160,15 @@ class TimeEntryProvider extends ChangeNotifier {
       todayEntries = [];
       recentEntries = [];
       allEntries = [];
+      pendingClockIn = null;
+      pendingClockOut = null;
     } finally {
       isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<bool> clockIn({
+  Future<bool> requestClockIn({
     required UserModel user,
     required CompanyModel company,
   }) async {
@@ -133,14 +177,16 @@ class TimeEntryProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final entry = await _repository.clockIn(user: user, company: company);
-      activeEntry = entry;
+      pendingClockIn = await _clockRequests.submitClockIn(
+        user: user,
+        company: company,
+      );
       await _reloadLists(user: user, company: company);
       return true;
     } catch (error) {
       errorMessage = error is StateError
           ? error.message
-          : 'Could not record time in.';
+          : 'Could not submit time-in request.';
       notifyListeners();
       return false;
     } finally {
@@ -149,13 +195,14 @@ class TimeEntryProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> clockOut({
+  Future<bool> requestClockOut({
     required UserModel user,
     required CompanyModel company,
   }) async {
     final entry = activeEntry;
     if (entry == null) {
-      errorMessage = 'You are not clocked in.';
+      errorMessage =
+          'No approved time-in yet. Wait for admin approval before timing out.';
       notifyListeners();
       return false;
     }
@@ -165,14 +212,17 @@ class TimeEntryProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _repository.clockOut(entryId: entry.id);
-      activeEntry = null;
+      pendingClockOut = await _clockRequests.submitClockOut(
+        user: user,
+        company: company,
+        entryId: entry.id,
+      );
       await _reloadLists(user: user, company: company);
       return true;
     } catch (error) {
       errorMessage = error is StateError
           ? error.message
-          : 'Could not record time out.';
+          : 'Could not submit time-out request.';
       notifyListeners();
       return false;
     } finally {
@@ -197,10 +247,22 @@ class TimeEntryProvider extends ChangeNotifier {
         userId: user.id,
         companyId: company.id,
       ),
+      _clockRequests.findPendingClockIn(
+        userId: user.id,
+        companyId: company.id,
+        workDate: workDate,
+      ),
+      _clockRequests.findPendingClockOut(
+        userId: user.id,
+        companyId: company.id,
+        workDate: workDate,
+      ),
     ]);
     activeEntry = results[0] as TimeEntry?;
     todayEntries = results[1] as List<TimeEntry>;
     recentEntries = results[2] as List<TimeEntry>;
+    pendingClockIn = results[3] as ClockRequest?;
+    pendingClockOut = results[4] as ClockRequest?;
   }
 }
 

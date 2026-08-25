@@ -1,3 +1,9 @@
+# Android release signing (never commit secrets)
+/android/key.properties
+/android/upload-keystore.jks
+*.jks
+*.keystore
+
 # Miscellaneous
 *.class
 *.log

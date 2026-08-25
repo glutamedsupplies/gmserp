@@ -59,11 +59,16 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
               route: AppRoutes.employeeTimeCardDetails,
             ),
             SidebarDestination(
-              label: 'Request leave',
-              icon: Icons.event_busy_outlined,
-              route: AppRoutes.employeeRequestLeave,
+              label: 'Calendar',
+              icon: Icons.calendar_month_rounded,
+              route: AppRoutes.timeCardCalendar,
             ),
           ],
+        ),
+        SidebarDestination(
+          label: 'Request leave',
+          icon: Icons.event_busy_outlined,
+          route: AppRoutes.employeeRequestLeave,
         ),
         SidebarDestination(
           label: 'Switch company',
@@ -95,9 +100,9 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
               route: AppRoutes.superAdminTimeCardSettings,
             ),
             SidebarDestination(
-              label: 'Edit time card',
-              icon: Icons.edit_calendar_outlined,
-              route: AppRoutes.superAdminEditTimeCard,
+              label: 'Calendar',
+              icon: Icons.calendar_month_rounded,
+              route: AppRoutes.timeCardCalendar,
             ),
           ],
         ),
@@ -105,6 +110,16 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
           label: 'Submitted requests',
           icon: Icons.outbox_outlined,
           route: AppRoutes.adminSubmittedRequests,
+        ),
+        SidebarDestination(
+          label: 'Requests',
+          icon: Icons.inbox_outlined,
+          route: AppRoutes.superAdminRequests,
+        ),
+        SidebarDestination(
+          label: 'Request leave',
+          icon: Icons.event_busy_outlined,
+          route: AppRoutes.employeeRequestLeave,
         ),
         SidebarDestination(
           label: 'Switch company',
@@ -160,11 +175,6 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
               label: 'Time card settings',
               icon: Icons.tune_rounded,
               route: AppRoutes.superAdminTimeCardSettings,
-            ),
-            SidebarDestination(
-              label: 'Edit time card',
-              icon: Icons.edit_calendar_outlined,
-              route: AppRoutes.superAdminEditTimeCard,
             ),
           ],
         ),

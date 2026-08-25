@@ -1,61 +1,33 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import 'feedback_toast.dart';
 
+/// App-wide feedback API. Success / danger / info use interactive floating
+/// cards; loading uses a spinner card overlay (login, logout, etc.).
 class SnackBarHelper {
   SnackBarHelper._();
 
   static void showSuccess(BuildContext context, String message) {
-    _show(
-      context,
-      message: message,
-      backgroundColor: AppColors.success,
-      icon: Icons.check_circle_outline,
-    );
+    FeedbackToast.showSuccess(context, message);
   }
 
   static void showError(BuildContext context, String message) {
-    _show(
-      context,
-      message: message,
-      backgroundColor: AppColors.error,
-      icon: Icons.error_outline,
-    );
+    FeedbackToast.showDanger(context, message);
   }
 
   static void showInfo(BuildContext context, String message) {
-    _show(
-      context,
-      message: message,
-      backgroundColor: AppColors.primary,
-      icon: Icons.info_outline,
-    );
+    FeedbackToast.showInfo(context, message);
   }
 
-  static void _show(
+  static void showLoading(
     BuildContext context, {
-    required String message,
-    required Color backgroundColor,
-    required IconData icon,
+    String title = 'Please wait',
+    String message = 'Working…',
   }) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          backgroundColor: backgroundColor,
-          content: Row(
-            children: [
-              Icon(icon, color: AppColors.onPrimary, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(color: AppColors.onPrimary),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+    FeedbackToast.showLoading(context, title: title, message: message);
+  }
+
+  static void hideLoading() {
+    FeedbackToast.hideLoading();
   }
 }

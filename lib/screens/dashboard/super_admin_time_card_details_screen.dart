@@ -17,6 +17,8 @@ import '../../providers/time_card_settings_provider.dart';
 import '../../services/leave_request_repository.dart';
 import '../../services/time_card_change_request_repository.dart';
 import '../../services/time_entry_repository.dart';
+import '../../widgets/app_loading_card.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/time_card_month_filter.dart';
 import '../../widgets/time_card_report_table.dart';
@@ -185,7 +187,7 @@ class _SuperAdminTimeCardDetailsScreenState
       );
     return members.where((member) {
       final role = companies.userById(member.userId)?.role;
-      return role == UserRole.employee || role == UserRole.admin;
+      return role == UserRole.employee;
     }).toList();
   }
 
@@ -570,7 +572,6 @@ class _SuperAdminTimeCardDetailsScreenState
     final auth = context.watch<AuthProvider>().user;
     final companies = context.watch<CompanyProvider>();
     final schedule = context.watch<TimeCardSettingsProvider>().schedule;
-    final colors = AppColors.of(context);
     final isSuperAdmin = _isSuperAdmin(auth?.role);
     final company = _activeCompany(companies, isSuperAdmin);
 
@@ -614,25 +615,18 @@ class _SuperAdminTimeCardDetailsScreenState
       title: 'Time card details',
       currentRoute: AppRoutes.superAdminTimeCardDetails,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        padding: CompactPageStyle.of(context).pagePadding,
         children: [
-          Text(
-            'Time card details',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            isSuperAdmin
+          CompactPageHeader(
+            title: 'Time card details',
+            subtitle: isSuperAdmin
                 ? 'Review attendance by company, employee, and period.'
                 : company == null
                     ? 'Select a company to review employee time cards.'
                     : 'Attendance for ${company.name} · '
                         '${staff.length} staff · shift ${schedule.shiftStartLabel}',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                ),
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (!isSuperAdmin && company == null)
             const _MessageCard(
               icon: Icons.business_outlined,
@@ -691,7 +685,7 @@ class _SuperAdminTimeCardDetailsScreenState
                         globalSchedule: schedule,
                       ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             _SummaryStrip(
               staffCount: sources.length,
               rowCount: tableRows.length,
@@ -700,11 +694,11 @@ class _SuperAdminTimeCardDetailsScreenState
               absent: tableRows.where((r) => r.status == 'Absent').length,
               onLeave: tableRows.where((r) => r.status == 'On Leave').length,
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: CircularProgressIndicator()),
+              const AppLoadingView(
+                title: 'Loading time cards',
+                message: 'Fetching staff clock entries…',
               )
             else if (_error != null)
               _MessageCard(icon: Icons.error_outline, message: _error!)
@@ -783,10 +777,10 @@ class _FilterBar extends StatelessWidget {
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -795,13 +789,15 @@ class _FilterBar extends StatelessWidget {
             viewDate: viewDate,
             onViewDateChanged: onViewDateChanged,
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: CompactPageStyle.of(context).cardGap),
           if (isSuperAdmin) ...[
             _DropdownShell(
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String?>(
                   value: selectedCompanyId,
                   isExpanded: true,
+                  isDense: true,
+                  style: Theme.of(context).textTheme.bodySmall,
                   hint: const Text('Select company'),
                   items: [
                     for (final company in sortedCompanies)
@@ -817,7 +813,7 @@ class _FilterBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: CompactPageStyle.of(context).cardGap),
           ],
           Row(
             children: [
@@ -827,6 +823,8 @@ class _FilterBar extends StatelessWidget {
                     child: DropdownButton<TimeCardPeriodFilter>(
                       value: periodFilter,
                       isExpanded: true,
+                      isDense: true,
+                      style: Theme.of(context).textTheme.bodySmall,
                       items: [
                         for (final option in TimeCardPeriodFilter.values)
                           DropdownMenuItem(
@@ -841,13 +839,15 @@ class _FilterBar extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: CompactPageStyle.of(context).cardGap),
               Expanded(
                 child: _DropdownShell(
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String?>(
                       value: employeeFilterId,
                       isExpanded: true,
+                      isDense: true,
+                      style: Theme.of(context).textTheme.bodySmall,
                       hint: const Text('All employees'),
                       items: [
                         const DropdownMenuItem<String?>(
@@ -870,7 +870,7 @@ class _FilterBar extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: CompactPageStyle.of(context).cardGap),
           Row(
             children: [
               Expanded(
@@ -879,6 +879,8 @@ class _FilterBar extends StatelessWidget {
                     child: DropdownButton<String>(
                       value: statusFilter,
                       isExpanded: true,
+                      isDense: true,
+                      style: Theme.of(context).textTheme.bodySmall,
                       items: const [
                         DropdownMenuItem(value: 'All', child: Text('All status')),
                         DropdownMenuItem(
@@ -903,47 +905,33 @@ class _FilterBar extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: CompactPageStyle.of(context).cardGap),
               FilledButton.icon(
                 onPressed: onViewPressed,
-                icon: const Icon(Icons.image_outlined, size: 18),
+                icon: const Icon(Icons.image_outlined, size: 16),
                 label: const Text('View'),
                 style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
+                  minimumSize: Size(0, CompactPageStyle.of(context).filterHeight),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   backgroundColor: AppColors.primaryDark,
                   foregroundColor: AppColors.onPrimary,
+                  textStyle: Theme.of(context).textTheme.labelMedium,
                 ),
               ),
               IconButton(
                 tooltip: 'Refresh',
                 onPressed: onRefresh,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
                 color: AppColors.primaryDark,
+                visualDensity: VisualDensity.compact,
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          TextField(
+          SizedBox(height: CompactPageStyle.of(context).cardGap),
+          CompactSearchField(
             controller: searchController,
             onChanged: onSearchChanged,
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Search employee name or email',
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
-              filled: true,
-              fillColor: colors.card,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: colors.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: colors.border),
-              ),
-            ),
+            hintText: 'Search employee name or email',
           ),
         ],
       ),
@@ -960,10 +948,11 @@ class _DropdownShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
+      height: CompactPageStyle.of(context).filterHeight,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: child,
@@ -1001,31 +990,32 @@ class _SummaryStrip extends StatelessWidget {
     ];
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0)
-              Container(width: 1, height: 28, color: colors.border),
+              Container(width: 1, height: 24, color: colors.border),
             Expanded(
               child: Column(
                 children: [
                   Text(
-                    items[i].$1,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: colors.textSecondary,
+                    items[i].$2,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: items[i].$3,
                         ),
                   ),
                   Text(
-                    items[i].$2,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: items[i].$3,
+                    items[i].$1,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colors.textSecondary,
+                          fontSize: 10,
                         ),
                   ),
                 ],
@@ -1049,20 +1039,20 @@ class _MessageCard extends StatelessWidget {
     final colors = AppColors.of(context);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      padding: CompactPageStyle.of(context).cardPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
-          Icon(icon, color: colors.textHint),
+          Icon(icon, color: colors.textHint, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: colors.textSecondary,
                   ),
             ),
