@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/utils/responsive.dart';
 import 'compact_page.dart';
 
 class PrimaryButton extends StatelessWidget {
@@ -20,17 +21,20 @@ class PrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final density = CompactPageStyle.of(context);
+    final webShell = Responsive.isWebOrDesktopShell;
     return SizedBox(
       width: double.infinity,
       height: density.buttonHeight,
       child: ElevatedButton(
         onPressed: (isLoading || onPressed == null) ? null : onPressed,
-        style: isLoading
-            ? ElevatedButton.styleFrom(
-                disabledBackgroundColor: AppColors.primary,
-                disabledForegroundColor: AppColors.onPrimary,
-              )
-            : null,
+        style: ElevatedButton.styleFrom(
+          elevation: webShell ? 0 : null,
+          shadowColor: Colors.transparent,
+          disabledBackgroundColor:
+              isLoading ? AppColors.primary : null,
+          disabledForegroundColor:
+              isLoading ? AppColors.onPrimary : null,
+        ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
           child: isLoading

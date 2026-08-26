@@ -38,6 +38,11 @@ class UserRepository {
       'lastSource': source,
     };
 
+    // Preserve existing photoUrl on merge saves unless this write sets one.
+    if (user.photoUrl.trim().isNotEmpty) {
+      data['photoUrl'] = user.photoUrl.trim();
+    }
+
     if (source == 'login') {
       data['lastLoginAt'] = FieldValue.serverTimestamp();
       data['lastLoginEmail'] = user.email;
@@ -52,6 +57,20 @@ class UserRepository {
     }
 
     await ref.set(data, SetOptions(merge: true));
+  }
+
+  Future<void> updatePhotoUrl({
+    required String userId,
+    required String? photoUrl,
+  }) async {
+    final trimmed = photoUrl?.trim() ?? '';
+    await _users.doc(userId).set(
+      {
+        'photoUrl': trimmed,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   Future<UserModel?> getUserById(String uid) async {

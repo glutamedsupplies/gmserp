@@ -108,7 +108,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         }
       }
       if (!mounted) return;
-      syncUserNotificationProviders(context);
+      _syncNotifications();
       await _syncLeaveRemindersForUser();
 
       final launchPayload =
@@ -134,11 +134,22 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       final companies = context.read<CompanyProvider>();
       final stillValid = await companies.ensureCompanySessionValid();
       if (!mounted) return;
-      syncUserNotificationProviders(context);
+      _syncNotifications();
       if (!stillValid && companies.selectedCompany != null) {
         // AuthGate rebuilds to SelectCompanyScreen when unlock is cleared.
       }
     });
+  }
+
+  /// [App]'s [context] is above [PendingRequestsProvider] / outcomes — never
+  /// [context.read] those from here; use the instances owned by this state.
+  void _syncNotifications() {
+    syncUserNotificationProvidersWith(
+      auth: context.read<AuthProvider>(),
+      companies: context.read<CompanyProvider>(),
+      pendingRequests: _pendingRequests,
+      userOutcomes: _userOutcomes,
+    );
   }
 
   void _handleNotificationTap(String? payload) {

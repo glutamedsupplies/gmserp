@@ -72,60 +72,17 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     required String title,
     required String message,
     required String confirmLabel,
-  }) async {
-    final colors = AppColors.of(context);
-    final controller = TextEditingController();
-    final note = await showDialog<String>(
+  }) {
+    return showDialog<String>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(message),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                minLines: 2,
-                maxLines: 4,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Note',
-                  hintText: 'Required — reason or details for this request',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(
-                'Cancel',
-                style: TextStyle(color: colors.textSecondary),
-              ),
-            ),
-            FilledButton(
-              onPressed: () {
-                final value = controller.text.trim();
-                if (value.isEmpty) return;
-                Navigator.of(dialogContext).pop(value);
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryDark,
-                foregroundColor: AppColors.onPrimary,
-              ),
-              child: Text(confirmLabel),
-            ),
-          ],
+        return _ClockNoteDialog(
+          title: title,
+          message: message,
+          confirmLabel: confirmLabel,
         );
       },
     );
-    controller.dispose();
-    return note;
   }
 
   Future<void> _clockIn() async {
@@ -895,5 +852,92 @@ class _HistoryTile extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _ClockNoteDialog extends StatefulWidget {
+  const _ClockNoteDialog({
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+  });
+
+  final String title;
+  final String message;
+  final String confirmLabel;
+
+  @override
+  State<_ClockNoteDialog> createState() => _ClockNoteDialogState();
+}
+
+class _ClockNoteDialogState extends State<_ClockNoteDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(widget.message),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 4,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: 'Note',
+                hintText: 'Required — reason or details for this request',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: colors.textSecondary),
+          ),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.primaryDark,
+            foregroundColor: AppColors.onPrimary,
+          ),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final value = _controller.text.trim();
+    if (value.isEmpty) return;
+    Navigator.of(context).pop(value);
   }
 }

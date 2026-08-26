@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../models/clock_request.dart';
@@ -6,6 +7,18 @@ import '../models/time_entry.dart';
 import '../models/user_model.dart';
 import '../services/clock_request_repository.dart';
 import '../services/time_entry_repository.dart';
+
+String _clockRequestErrorMessage(Object error, String fallback) {
+  if (error is StateError) {
+    final message = error.message.trim();
+    if (message.isNotEmpty) return message;
+  }
+  if (error is FirebaseException) {
+    final message = error.message?.trim();
+    if (message != null && message.isNotEmpty) return message;
+  }
+  return fallback;
+}
 
 class TimeEntryProvider extends ChangeNotifier {
   TimeEntryProvider({
@@ -185,12 +198,17 @@ class TimeEntryProvider extends ChangeNotifier {
         company: company,
         note: note,
       );
-      await _reloadLists(user: user, company: company);
+      try {
+        await _reloadLists(user: user, company: company);
+      } catch (_) {
+        // Request already saved; a refresh glitch should not look like failure.
+      }
       return true;
     } catch (error) {
-      errorMessage = error is StateError
-          ? error.message
-          : 'Could not submit time-in request.';
+      errorMessage = _clockRequestErrorMessage(
+        error,
+        'Could not submit time-in request.',
+      );
       notifyListeners();
       return false;
     } finally {
@@ -223,12 +241,17 @@ class TimeEntryProvider extends ChangeNotifier {
         note: note,
         entryId: activeEntry?.id,
       );
-      await _reloadLists(user: user, company: company);
+      try {
+        await _reloadLists(user: user, company: company);
+      } catch (_) {
+        // Request already saved; a refresh glitch should not look like failure.
+      }
       return true;
     } catch (error) {
-      errorMessage = error is StateError
-          ? error.message
-          : 'Could not submit time-out request.';
+      errorMessage = _clockRequestErrorMessage(
+        error,
+        'Could not submit time-out request.',
+      );
       notifyListeners();
       return false;
     } finally {

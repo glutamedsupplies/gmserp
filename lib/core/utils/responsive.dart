@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
@@ -26,6 +28,14 @@ class Responsive {
 
   static bool isDesktop(BuildContext context) =>
       screenType(context) == ScreenType.desktop;
+
+  /// Browser or desktop OS — use rail chrome / wider auth layouts.
+  static bool get isWebOrDesktopShell {
+    if (kIsWeb) return true;
+    return defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
 
   static double horizontalPadding(BuildContext context) {
     switch (screenType(context)) {

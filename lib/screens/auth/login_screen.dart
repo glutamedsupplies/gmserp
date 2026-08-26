@@ -71,6 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final isLoading = context.watch<AuthProvider>().isLoading;
 
     return AuthScaffold(
+      showCard: false,
       child: Form(
         key: _formKey,
         child: Column(

@@ -198,17 +198,8 @@ class _CenteredFeedbackBarrier extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 340),
-          child: child,
-        ),
-      ),
-    );
-
     final stacked = Stack(
+      fit: StackFit.expand,
       children: [
         Positioned.fill(
           child: GestureDetector(
@@ -219,7 +210,19 @@ class _CenteredFeedbackBarrier extends StatelessWidget {
             ),
           ),
         ),
-        content,
+        Positioned.fill(
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
 

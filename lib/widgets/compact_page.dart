@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/utils/responsive.dart';
 import '../providers/settings_provider.dart';
 
 /// Density tokens for in-app chrome and pages (compact vs normal).
@@ -132,7 +133,7 @@ class CompactPageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
-    return Row(
+    final header = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
@@ -144,6 +145,7 @@ class CompactPageHeader extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontSize: density.pageTitleSize,
                       fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
                     ),
               ),
               if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
@@ -153,6 +155,7 @@ class CompactPageHeader extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontSize: density.bodySize,
                         color: colors.textSecondary,
+                        height: 1.4,
                       ),
                 ),
               ],
@@ -164,6 +167,31 @@ class CompactPageHeader extends StatelessWidget {
           trailing!,
         ],
       ],
+    );
+
+    if (!Responsive.isWebOrDesktopShell) return header;
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        density.compact ? 14 : 18,
+        density.compact ? 14 : 18,
+        density.compact ? 14 : 18,
+        density.compact ? 12 : 16,
+      ),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(density.radius + 2),
+        border: Border.all(color: colors.border),
+        boxShadow: [
+          BoxShadow(
+            color: colors.shadow,
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: header,
     );
   }
 }

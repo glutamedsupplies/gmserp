@@ -121,6 +121,7 @@ class FirebaseAuthService implements AuthService {
       email: email,
       phoneNumber: existing?.phoneNumber ?? firebaseUser.phoneNumber ?? '',
       role: RolePolicy.resolve(email: email, existing: existing?.role),
+      photoUrl: existing?.photoUrl ?? firebaseUser.photoURL ?? '',
     );
 
     try {
@@ -341,6 +342,7 @@ class FirebaseAuthService implements AuthService {
           email: savedEmail,
           existing: existing?.role,
         ),
+        photoUrl: existing?.photoUrl ?? '',
       );
 
       await _users.saveProfile(user: user, source: 'profile');

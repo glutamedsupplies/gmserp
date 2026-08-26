@@ -7,6 +7,7 @@ import '../core/navigation/app_navigator.dart';
 import '../core/navigation/notification_sync.dart';
 import '../core/navigation/sidebar_destinations.dart';
 import '../core/theme/app_colors.dart';
+import '../core/utils/responsive.dart';
 import '../core/utils/snackbar_helper.dart';
 import '../models/user_role.dart';
 import '../providers/auth_provider.dart';
@@ -151,23 +152,32 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   }
 
   void _toggleNav(BuildContext scaffoldContext) {
+    // Auto-inline layouts have no burger; drawer mode only on phones/tablets.
+    if (Responsive.isWebOrDesktopShell) return;
     final wide = MediaQuery.sizeOf(scaffoldContext).width >=
         AppConstants.tabletBreakpoint;
     if (wide) {
       setState(() => _sidebarExpanded = !_sidebarExpanded);
+      return;
+    }
+    final scaffold = Scaffold.of(scaffoldContext);
+    if (scaffold.isDrawerOpen) {
+      Navigator.of(scaffoldContext).pop();
     } else {
-      final scaffold = Scaffold.of(scaffoldContext);
-      if (scaffold.isDrawerOpen) {
-        Navigator.of(scaffoldContext).pop();
-      } else {
-        scaffold.openDrawer();
-      }
+      scaffold.openDrawer();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= AppConstants.tabletBreakpoint;
+    final width = MediaQuery.sizeOf(context).width;
+    final wide = width >= AppConstants.tabletBreakpoint;
+    final autoInline = Responsive.isWebOrDesktopShell;
+    // Desktop/web: always show a rail that expands/collapses with width.
+    // Mobile: drawer when narrow, optional rail when wide.
+    final useInlineSidebar = autoInline || wide;
+    final sidebarExpanded = autoInline ? wide : _sidebarExpanded;
+    final showMenuButton = !useInlineSidebar;
     final user = context.watch<AuthProvider>().user;
     final companies = context.watch<CompanyProvider>();
     final destinations =
@@ -203,7 +213,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
         hoverColor: AppColors.primary.withValues(alpha: 0.10),
       ),
       child: _AppSidebar(
-        expanded: !wide || _sidebarExpanded,
+        expanded: sidebarExpanded,
         currentRoute: widget.currentRoute,
         destinations: destinations,
         pendingSubmittedCount: pendingCount,
@@ -215,7 +225,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
 
     return Scaffold(
       backgroundColor: colors.background,
-      drawer: wide
+      drawer: useInlineSidebar
           ? null
           : Drawer(
               backgroundColor: colors.sidebar,
@@ -255,6 +265,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
             children: [
               _DashboardHeader(
                 title: widget.title,
+                showMenuButton: showMenuButton,
                 onMenuPressed: () => _toggleNav(scaffoldContext),
                 onSelect: _goTo,
                 pendingCount: pendingCount,
@@ -263,17 +274,29 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
               Expanded(
                 child: Row(
                   children: [
-                    if (wide)
+                    if (useInlineSidebar)
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 220),
                         curve: Curves.easeOutCubic,
-                        width: _sidebarExpanded
+                        width: sidebarExpanded
                             ? density.sidebarExpandedWidth
                             : density.sidebarCollapsedWidth,
-                        color: colors.sidebar,
+                        decoration: BoxDecoration(
+                          color: colors.sidebar,
+                          border: Border(
+                            right: BorderSide(color: colors.border),
+                          ),
+                        ),
                         child: sidebar,
                       ),
-                    Expanded(child: widget.child),
+                    Expanded(
+                      child: ColoredBox(
+                        color: Responsive.isWebOrDesktopShell
+                            ? colors.inputFill.withValues(alpha: 0.45)
+                            : colors.background,
+                        child: widget.child,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -290,11 +313,13 @@ class _DashboardHeader extends StatelessWidget {
     required this.title,
     required this.onMenuPressed,
     required this.onSelect,
+    this.showMenuButton = true,
     this.pendingCount = 0,
     this.actions,
   });
 
   final String title;
+  final bool showMenuButton;
   final VoidCallback onMenuPressed;
   final ValueChanged<String> onSelect;
   final int pendingCount;
@@ -309,68 +334,96 @@ class _DashboardHeader extends StatelessWidget {
 
     return Material(
       color: colors.header,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: density.headerPadding,
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: pendingCount > 0
-                    ? 'Menu · ${PendingCountBadge.labelFor(pendingCount)} pending'
-                    : 'Menu',
-                onPressed: onMenuPressed,
-                icon: BadgedIcon(
-                  icon: Icons.menu_rounded,
-                  count: pendingCount,
-                  iconSize: density.compact ? 22 : 24,
-                  color: colors.textPrimary,
-                ),
-                color: colors.textPrimary,
-                style: IconButton.styleFrom(
-                  highlightColor: colors.textPrimary.withValues(
-                    alpha: 0.08,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.header,
+          border: Border(
+            bottom: BorderSide(color: colors.border),
+          ),
+          boxShadow: Responsive.isWebOrDesktopShell
+              ? [
+                  BoxShadow(
+                    color: colors.shadow,
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
                   ),
-                ),
-              ),
-              SizedBox(
-                width: density.headerLogoSize,
-                height: density.headerLogoSize,
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: Image.asset('assets/branding/gmserp_logo.png'),
-                ),
-              ),
-              SizedBox(width: density.compact ? 8 : 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: density.headerTitleSize,
-                        fontWeight: FontWeight.w800,
-                        color: colors.textPrimary,
+                ]
+              : null,
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: density.headerPadding.add(
+              Responsive.isWebOrDesktopShell
+                  ? const EdgeInsets.symmetric(horizontal: 6)
+                  : EdgeInsets.zero,
+            ),
+            child: Row(
+              children: [
+                if (showMenuButton)
+                  IconButton(
+                    tooltip: pendingCount > 0
+                        ? 'Menu · ${PendingCountBadge.labelFor(pendingCount)} pending'
+                        : 'Menu',
+                    onPressed: onMenuPressed,
+                    icon: BadgedIcon(
+                      icon: Icons.menu_rounded,
+                      count: pendingCount,
+                      iconSize: density.compact ? 22 : 24,
+                      color: colors.textPrimary,
+                    ),
+                    color: colors.textPrimary,
+                    style: IconButton.styleFrom(
+                      highlightColor: colors.textPrimary.withValues(
+                        alpha: 0.08,
                       ),
                     ),
-                    if (company != null)
+                  ),
+                Container(
+                  width: density.headerLogoSize,
+                  height: density.headerLogoSize,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: colors.card.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(density.radius),
+                    border: Border.all(color: colors.border),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: Image.asset('assets/branding/gmserp_logo.png'),
+                  ),
+                ),
+                SizedBox(width: density.compact ? 10 : 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        company.name,
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: density.compact ? 11 : 12,
-                          fontWeight: FontWeight.w600,
-                          color: colors.sidebarMuted,
+                          fontSize: density.headerTitleSize,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                          color: colors.textPrimary,
                         ),
                       ),
-                  ],
+                      if (company != null)
+                        Text(
+                          company.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: density.compact ? 11 : 12,
+                            fontWeight: FontWeight.w600,
+                            color: colors.sidebarMuted,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              ...?actions,
+                ...?actions,
               if (user?.role == UserRole.superAdmin) ...[
                 IconButton(
                   tooltip: 'Create announcement',
@@ -439,6 +492,7 @@ class _DashboardHeader extends StatelessWidget {
                 ),
             ],
           ),
+        ),
         ),
       ),
     );

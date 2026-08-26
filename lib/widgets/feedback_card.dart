@@ -153,6 +153,7 @@ class AppFeedbackCard extends StatelessWidget {
                     Text(
                       message,
                       textAlign: TextAlign.center,
+                      softWrap: true,
                       style: TextStyle(
                         fontSize: messageSize,
                         fontWeight: FontWeight.w600,

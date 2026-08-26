@@ -65,6 +65,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final isLoading = context.watch<AuthProvider>().isLoading;
 
     return AuthScaffold(
+      showCard: false,
       child: Form(
         key: _formKey,
         child: Column(

@@ -6,6 +6,7 @@ class UserModel {
   final String email;
   final String? _phoneNumber;
   final UserRole role;
+  final String photoUrl;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -15,6 +16,7 @@ class UserModel {
     required this.email,
     required String this._phoneNumber,
     this.role = UserRole.user,
+    this.photoUrl = '',
     this.createdAt,
     this.updatedAt,
   });
@@ -27,6 +29,8 @@ class UserModel {
     }
   }
 
+  bool get hasPhotoUrl => photoUrl.trim().isNotEmpty;
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
       id: json['id'] as String? ?? '',
@@ -34,6 +38,7 @@ class UserModel {
       email: json['email'] as String? ?? '',
       phoneNumber: json['phoneNumber'] as String? ?? '',
       role: UserRole.fromStorage(json['role'] as String?),
+      photoUrl: json['photoUrl'] as String? ?? '',
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),
     );
@@ -49,6 +54,7 @@ class UserModel {
       email: data['email'] as String? ?? '',
       phoneNumber: data['phoneNumber'] as String? ?? '',
       role: UserRole.fromStorage(data['role'] as String?),
+      photoUrl: data['photoUrl'] as String? ?? '',
       createdAt: _parseDate(data['createdAt']),
       updatedAt: _parseDate(data['updatedAt']),
     );
@@ -61,6 +67,7 @@ class UserModel {
       'email': email,
       'phoneNumber': phoneNumber,
       'role': role.storageValue,
+      'photoUrl': photoUrl,
     };
   }
 
@@ -70,6 +77,7 @@ class UserModel {
     String? email,
     String? phoneNumber,
     UserRole? role,
+    String? photoUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -79,6 +87,7 @@ class UserModel {
       email: email ?? this.email,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       role: role ?? this.role,
+      photoUrl: photoUrl ?? this.photoUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

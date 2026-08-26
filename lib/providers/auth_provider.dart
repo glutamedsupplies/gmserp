@@ -1,20 +1,30 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/avatar_cloud_store.dart';
 import '../services/local_avatar_factory.dart';
 import '../services/local_avatar_store.dart';
 import '../services/notification_service.dart';
+import '../services/user_repository.dart';
 
 class AuthProvider extends ChangeNotifier {
-  AuthProvider({required AuthService authService})
-      : _authService = authService, // ignore: prefer_initializing_formals
-        _avatars = createLocalAvatarStore();
+  AuthProvider({
+    required AuthService authService,
+    AvatarCloudStore? avatarCloud,
+    UserRepository? users,
+  })  : _authService = authService, // ignore: prefer_initializing_formals
+        _avatars = createLocalAvatarStore(),
+        _avatarCloud = avatarCloud ?? AvatarCloudStore(),
+        _users = users ?? UserRepository();
 
   final AuthService _authService;
   final LocalAvatarStore _avatars;
+  final AvatarCloudStore _avatarCloud;
+  final UserRepository _users;
 
   bool _isLoading = false;
   bool _isAuthenticated = false;
@@ -43,9 +53,9 @@ class AuthProvider extends ChangeNotifier {
       _isAuthenticated = sessionUser != null;
       _errorMessage = null;
       try {
-        await _loadLocalAvatar();
+        await _loadAvatar();
       } catch (error) {
-        debugPrint('Could not load local avatar: $error');
+        debugPrint('Could not load avatar: $error');
       }
     } catch (_) {
       _user = null;
@@ -75,9 +85,9 @@ class AuthProvider extends ChangeNotifier {
         _isAuthenticated = true;
         _errorMessage = null;
         try {
-          await _loadLocalAvatar();
+          await _loadAvatar();
         } catch (error) {
-          debugPrint('Could not load local avatar: $error');
+          debugPrint('Could not load avatar: $error');
         }
         return true;
       }
@@ -146,7 +156,7 @@ class AuthProvider extends ChangeNotifier {
       if (result.success && result.user != null) {
         _user = result.user;
         _errorMessage = null;
-        await _loadLocalAvatar();
+        await _loadAvatar();
         return true;
       }
 
@@ -156,6 +166,7 @@ class AuthProvider extends ChangeNotifier {
     });
   }
 
+  /// Saves the photo locally and uploads it so other devices (web/mobile) see it.
   Future<bool> saveLocalAvatar(List<int> bytes) async {
     final user = _user;
     if (user == null) {
@@ -167,6 +178,13 @@ class AuthProvider extends ChangeNotifier {
       await _avatars.write(user.id, bytes);
       _avatarBytes = Uint8List.fromList(bytes);
       _avatarRevision++;
+
+      final url = await _avatarCloud.upload(userId: user.id, bytes: bytes);
+      await _users.updatePhotoUrl(userId: user.id, photoUrl: url);
+      try {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
+      } catch (_) {}
+      _user = user.copyWith(photoUrl: url);
       _errorMessage = null;
       return true;
     });
@@ -177,19 +195,45 @@ class AuthProvider extends ChangeNotifier {
     if (user == null) return false;
     return _runAuthAction(() async {
       await _avatars.delete(user.id);
+      try {
+        await _avatarCloud.delete(user.id);
+      } catch (error) {
+        debugPrint('Cloud avatar delete failed: $error');
+      }
+      await _users.updatePhotoUrl(userId: user.id, photoUrl: '');
+      try {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
+      } catch (_) {}
       _avatarBytes = null;
       _avatarRevision++;
+      _user = user.copyWith(photoUrl: '');
       _errorMessage = null;
       return true;
     });
   }
 
-  Future<void> _loadLocalAvatar() async {
+  Future<void> _loadAvatar() async {
     final user = _user;
     if (user == null) {
       _avatarBytes = null;
       return;
     }
+
+    // Prefer cloud so a photo saved on phone appears on web (and vice versa).
+    if (user.hasPhotoUrl) {
+      try {
+        final remote = await _avatarCloud.downloadBytes(user.photoUrl);
+        if (remote != null && remote.isNotEmpty) {
+          await _avatars.write(user.id, remote);
+          _avatarBytes = remote;
+          _avatarRevision++;
+          return;
+        }
+      } catch (error) {
+        debugPrint('Could not download cloud avatar: $error');
+      }
+    }
+
     _avatarBytes = await _avatars.read(user.id);
     _avatarRevision++;
   }
@@ -200,6 +244,7 @@ class AuthProvider extends ChangeNotifier {
       final sessionUser = await _authService.checkAuthentication();
       if (sessionUser != null) {
         _user = sessionUser;
+        await _loadAvatar();
         notifyListeners();
       }
     } catch (_) {}
