@@ -26,6 +26,10 @@ class ActivityLogRepository {
         _announcementRepository =
             announcementRepository ?? AnnouncementRepository();
 
+  /// Missing timestamps sort to the bottom (oldest), not the top.
+  static final DateTime _unknownOccurredAt =
+      DateTime.fromMillisecondsSinceEpoch(0);
+
   final LeaveRequestRepository _leaveRepository;
   final TimeCardChangeRequestRepository _timeChangeRepository;
   final ClockRequestRepository _clockRepository;
@@ -194,7 +198,7 @@ class ActivityLogRepository {
       subjectEmail: leave.userEmail,
       summary: summary,
       detail: detailParts.join(' · '),
-      occurredAt: leave.updatedAt ?? leave.createdAt ?? DateTime.now(),
+      occurredAt: leave.updatedAt ?? leave.createdAt ?? _unknownOccurredAt,
       leaveRange: range,
       reviewerName: reviewer,
     );
@@ -247,7 +251,7 @@ class ActivityLogRepository {
       workDate: change.workDate,
       summary: summary,
       detail: detailParts.join(' · '),
-      occurredAt: change.updatedAt ?? change.createdAt ?? DateTime.now(),
+      occurredAt: change.updatedAt ?? change.createdAt ?? _unknownOccurredAt,
     );
   }
 
@@ -315,7 +319,7 @@ class ActivityLogRepository {
       actorName: change.actorName,
       summary: summary,
       detail: detail,
-      occurredAt: change.createdAt ?? DateTime.now(),
+      occurredAt: change.createdAt ?? _unknownOccurredAt,
     );
   }
 
@@ -334,7 +338,7 @@ class ActivityLogRepository {
       actorName: actor,
       summary: item.subject,
       detail: item.message,
-      occurredAt: item.createdAt ?? DateTime.now(),
+      occurredAt: item.createdAt ?? _unknownOccurredAt,
     );
   }
 }

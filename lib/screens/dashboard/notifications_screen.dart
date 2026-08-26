@@ -196,7 +196,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<ActivityLogEntry> _filtered([CompanyProvider? companies]) {
     final query = _search.trim().toLowerCase();
     final companyProvider = companies ?? context.read<CompanyProvider>();
-    return _items.where((item) {
+    final list = _items.where((item) {
       if (_auditMode && !_matchesCompany(item, companyProvider)) return false;
 
       if (_typeFilter == 'Time in / out' || _typeFilter == 'Time card') {
@@ -229,6 +229,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (query.isNotEmpty && !item.searchText.contains(query)) return false;
       return true;
     }).toList();
+
+    // Newest activity / notifications always first.
+    list.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    return list;
   }
 
   @override
