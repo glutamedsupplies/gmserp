@@ -107,10 +107,15 @@ class LeaveRequestRepository {
   Future<void> updateStatus({
     required String requestId,
     required String status,
+    String reviewerId = '',
+    String reviewerName = '',
   }) async {
     await _leaves.doc(requestId).update({
       'status': status,
       'updatedAt': FieldValue.serverTimestamp(),
+      if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
+      if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
+      'reviewedAt': FieldValue.serverTimestamp(),
     });
   }
 

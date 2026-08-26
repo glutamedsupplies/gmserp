@@ -26,12 +26,11 @@ class CompanyTask {
     required this.id,
     required this.title,
     this.description = '',
-    String roleId = '',
+    String this._roleId = '',
     String roleName = '',
     this.createdAt,
     this.updatedAt,
-  })  : _roleId = roleId,
-        _roleName = roleName;
+  })  : _roleName = roleName;
 
   factory CompanyTask.fromFirestore({
     required String id,

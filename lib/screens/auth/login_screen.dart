@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
+import '../../core/utils/feedback_toast.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../core/validators/auth_validators.dart';
 import '../../providers/auth_provider.dart';
@@ -40,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
       context,
       title: 'Signing in',
       message: 'Checking your credentials…',
+      kind: FeedbackKind.success,
     );
     final success = await auth.login(
       email: _emailController.text.trim(),
@@ -125,9 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 20),
             PrimaryButton(
               label: 'Sign In',
-              loadingLabel: 'Signing in...',
-              isLoading: isLoading,
-              onPressed: _submit,
+              onPressed: isLoading ? null : _submit,
             ),
             const SizedBox(height: 32),
             Wrap(

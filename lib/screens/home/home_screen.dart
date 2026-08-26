@@ -11,18 +11,15 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   Future<void> _logout(BuildContext context) async {
-    SnackBarHelper.showLoading(
+    await SnackBarHelper.confirmLogout(
       context,
-      title: 'Signing out',
-      message: 'Ending your session…',
+      clearCompanySelection: false,
+      onSignedOut: () {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+      },
     );
-    await context.read<AuthProvider>().logout();
-    SnackBarHelper.hideLoading();
-    if (!context.mounted) return;
-    SnackBarHelper.showInfo(context, 'You have been signed out.');
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
   }
 
   @override

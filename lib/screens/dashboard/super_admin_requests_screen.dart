@@ -5,8 +5,13 @@ import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/clock_request.dart';
+import '../../models/company_model.dart';
 import '../../models/leave_request.dart';
+import '../../models/staff_assignment.dart';
 import '../../models/time_card_change_request.dart';
+import '../../models/time_entry.dart';
+import '../../models/user_role.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../services/clock_request_repository.dart';
 import '../../services/leave_request_repository.dart';
@@ -14,6 +19,7 @@ import '../../services/time_card_change_request_repository.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
+import '../../widgets/lazy_list_pager.dart';
 
 class SuperAdminRequestsScreen extends StatefulWidget {
   const SuperAdminRequestsScreen({
@@ -37,10 +43,12 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   final _clockRepo = ClockRequestRepository();
   final _searchController = TextEditingController();
   final _focusKey = GlobalKey();
+  late final LazyListPager _pager;
 
   List<LeaveRequest> _leaveRequests = [];
   List<TimeCardChangeRequest> _timeRequests = [];
   List<ClockRequest> _clockRequests = [];
+  final Map<String, int> _clockDeclines = {};
   bool _loading = true;
   String? _error;
   String _companyFilter = 'All';
@@ -56,6 +64,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   @override
   void initState() {
     super.initState();
+    _pager = LazyListPager(onChanged: () {
+      if (mounted) setState(() {});
+    });
     _focusType = widget.focusRequestType?.trim().toLowerCase();
     _focusId = widget.focusRequestId?.trim();
     if (_focusId != null && _focusId!.isNotEmpty) {
@@ -92,6 +103,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
           } else if (_focusType == 'clock') {
             _typeFilter = 'Time in/out';
           }
+          _pager.reset();
         });
         _scrollToFocus();
       }
@@ -100,14 +112,23 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
 
   @override
   void dispose() {
+    _pager.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  String _declineKey(String companyId, String userId) => '$companyId|$userId';
+
+  bool _isClockLocked(ClockRequest request) {
+    final count = _clockDeclines[_declineKey(request.companyId, request.userId)];
+    return (count ?? 0) >= StaffAssignment.clockDeclineLimit;
   }
 
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
+      _pager.reset();
     });
     try {
       final results = await Future.wait([
@@ -116,10 +137,31 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
         _clockRepo.listAll(),
       ]);
       if (!mounted) return;
+      final clocks = results[2] as List<ClockRequest>;
+      final declines = <String, int>{};
+      final pairs = <({String companyId, String userId})>{};
+      for (final clock in clocks) {
+        pairs.add((companyId: clock.companyId, userId: clock.userId));
+      }
+      final companyProvider = context.read<CompanyProvider>();
+      await Future.wait([
+        for (final pair in pairs)
+          () async {
+            final count = await companyProvider.clockDeclineCountFor(
+              companyId: pair.companyId,
+              userId: pair.userId,
+            );
+            declines[_declineKey(pair.companyId, pair.userId)] = count;
+          }(),
+      ]);
+      if (!mounted) return;
       setState(() {
         _leaveRequests = results[0] as List<LeaveRequest>;
         _timeRequests = results[1] as List<TimeCardChangeRequest>;
-        _clockRequests = results[2] as List<ClockRequest>;
+        _clockRequests = clocks;
+        _clockDeclines
+          ..clear()
+          ..addAll(declines);
         _loading = false;
       });
       _scrollToFocus();
@@ -129,6 +171,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
         _leaveRequests = [];
         _timeRequests = [];
         _clockRequests = [];
+        _clockDeclines.clear();
         _loading = false;
         _error = 'Unable to load requests.';
       });
@@ -202,7 +245,11 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
     _UnifiedRequest item,
     CompanyProvider companies, {
     required String companyFilter,
+    CompanyModel? lockedCompany,
   }) {
+    if (lockedCompany != null) {
+      return _matchesLockedCompany(item, lockedCompany);
+    }
     if (companyFilter == _allCompanies) return true;
 
     final selected = companyFilter.trim().toLowerCase();
@@ -210,19 +257,26 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
 
     for (final company in companies.companies) {
       if (company.name.trim().toLowerCase() != selected) continue;
-      if (item.companyId == company.id ||
-          item.companyDocumentId == company.firestoreId ||
-          item.companyId == company.firestoreId ||
-          item.companyDocumentId == company.id) {
-        return true;
-      }
+      if (_matchesLockedCompany(item, company)) return true;
     }
     return false;
+  }
+
+  bool _matchesLockedCompany(_UnifiedRequest item, CompanyModel company) {
+    if (item.companyId == company.id ||
+        item.companyDocumentId == company.firestoreId ||
+        item.companyId == company.firestoreId ||
+        item.companyDocumentId == company.id) {
+      return true;
+    }
+    return item.companyName.trim().toLowerCase() ==
+        company.name.trim().toLowerCase();
   }
 
   List<_UnifiedRequest> _filtered(
     CompanyProvider companies, {
     required String companyFilter,
+    CompanyModel? lockedCompany,
   }) {
     final query = _search.trim().toLowerCase();
     final items = <_UnifiedRequest>[
@@ -246,6 +300,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
         item,
         companies,
         companyFilter: companyFilter,
+        lockedCompany: lockedCompany,
       )) {
         return false;
       }
@@ -259,8 +314,14 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   }
 
   Future<void> _updateLeaveStatus(LeaveRequest request, String status) async {
+    final reviewer = _reviewer();
     try {
-      await _leaveRepo.updateStatus(requestId: request.id, status: status);
+      await _leaveRepo.updateStatus(
+        requestId: request.id,
+        status: status,
+        reviewerId: reviewer.$1,
+        reviewerName: reviewer.$2,
+      );
       if (!mounted) return;
       SnackBarHelper.showSuccess(
         context,
@@ -276,8 +337,21 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   }
 
   Future<void> _approveTimeChange(TimeCardChangeRequest request) async {
+    final reviewer = _reviewer();
     try {
-      await _timeChangeRepo.approve(request);
+      await _timeChangeRepo.approve(
+        request,
+        reviewerId: reviewer.$1,
+        reviewerName: reviewer.$2,
+      );
+      if (!mounted) return;
+      // Approving a time-card edit unlocks clock requests after 3 declines.
+      await context.read<CompanyProvider>().unlockEmployeeClockRequests(
+            companyId: request.companyDocumentId.isNotEmpty
+                ? request.companyDocumentId
+                : request.companyId,
+            userId: request.employeeId,
+          );
       if (!mounted) return;
       SnackBarHelper.showSuccess(
         context,
@@ -294,8 +368,13 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   }
 
   Future<void> _rejectTimeChange(TimeCardChangeRequest request) async {
+    final reviewer = _reviewer();
     try {
-      await _timeChangeRepo.reject(request.id);
+      await _timeChangeRepo.reject(
+        request.id,
+        reviewerId: reviewer.$1,
+        reviewerName: reviewer.$2,
+      );
       if (!mounted) return;
       SnackBarHelper.showSuccess(
         context,
@@ -309,13 +388,19 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   }
 
   Future<void> _approveClock(ClockRequest request) async {
+    final reviewer = _reviewer();
     try {
-      await _clockRepo.approve(request);
+      await _clockRepo.approve(
+        request,
+        reviewerId: reviewer.$1,
+        reviewerName: reviewer.$2,
+      );
       if (!mounted) return;
       SnackBarHelper.showSuccess(
         context,
         request.isClockIn
             ? 'Time in approved and saved.'
+                '${_hasPendingClockOutFor(request) ? ' Approve time out next for that day.' : ''}'
             : 'Time out approved and saved.',
       );
       await _load();
@@ -329,29 +414,116 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   }
 
   Future<void> _rejectClock(ClockRequest request) async {
+    final reviewer = _reviewer();
+    final alsoDeclineOut =
+        request.isClockIn && _hasPendingClockOutFor(request);
     try {
-      await _clockRepo.reject(request.id);
+      await _clockRepo.reject(
+        request,
+        reviewerId: reviewer.$1,
+        reviewerName: reviewer.$2,
+      );
       if (!mounted) return;
+      final companyProvider = context.read<CompanyProvider>();
+      final declines = await companyProvider.clockDeclineCountFor(
+            companyId: request.companyId,
+            userId: request.userId,
+          );
+      if (!mounted) return;
+      final locked = declines >= StaffAssignment.clockDeclineLimit;
+      setState(() {
+        _clockDeclines[_declineKey(request.companyId, request.userId)] =
+            declines;
+      });
+      final base = request.isClockIn
+          ? (alsoDeclineOut
+              ? 'Time in declined. Matching time out for that day was also declined.'
+              : 'Time in declined. No time card changes were made.')
+          : 'Time out declined. No time card changes were made.';
+      final suffix = locked
+          ? ' Employee is now locked after $declines declines — unlock or edit their time card settings.'
+          : declines > 0
+              ? ' Declines: $declines/${StaffAssignment.clockDeclineLimit}.'
+              : '';
+      SnackBarHelper.showSuccess(context, '$base$suffix');
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarHelper.showError(
+        context,
+        e is StateError ? e.message : 'Could not reject clock request.',
+      );
+    }
+  }
+
+  Future<void> _unlockClockRequests(ClockRequest request) async {
+    final ok = await context.read<CompanyProvider>().unlockEmployeeClockRequests(
+          companyId: request.companyId,
+          userId: request.userId,
+        );
+    if (!mounted) return;
+    if (ok) {
       SnackBarHelper.showSuccess(
         context,
-        'Clock request rejected. No time card changes were made.',
+        'Clock requests unlocked for this employee.',
       );
       await _load();
-    } catch (_) {
-      if (!mounted) return;
-      SnackBarHelper.showError(context, 'Could not reject clock request.');
+    } else {
+      SnackBarHelper.showError(
+        context,
+        context.read<CompanyProvider>().errorMessage ??
+            'Could not unlock clock requests.',
+      );
     }
+  }
+
+  bool _hasPendingClockOutFor(ClockRequest clockIn) {
+    if (!clockIn.isClockIn) return false;
+    return _clockRequests.any(
+      (item) =>
+          item.isPending &&
+          item.isClockOut &&
+          item.userId == clockIn.userId &&
+          item.companyId == clockIn.companyId &&
+          item.workDate == clockIn.workDate,
+    );
+  }
+
+  bool _hasPendingClockInForOut(ClockRequest clockOut) {
+    if (!clockOut.isClockOut) return false;
+    return _clockRequests.any(
+      (item) =>
+          item.isPending &&
+          item.isClockIn &&
+          item.userId == clockOut.userId &&
+          item.companyId == clockOut.companyId &&
+          item.workDate == clockOut.workDate,
+    );
+  }
+
+  (String, String) _reviewer() {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return ('', 'Unknown');
+    final name = user.username.trim().isNotEmpty ? user.username.trim() : user.email;
+    return (user.id, name.isEmpty ? 'Admin' : name);
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     final companies = context.watch<CompanyProvider>();
+    final authUser = context.watch<AuthProvider>().user;
+    final isAdminOnly = authUser?.role == UserRole.admin;
+    final lockedCompany = isAdminOnly ? companies.selectedCompany : null;
+
     final companyOptions = _companyOptions(companies);
-    final companyFilter = companyOptions.contains(_companyFilter)
-        ? _companyFilter
-        : _allCompanies;
-    if (companyFilter != _companyFilter) {
+    final companyFilter = lockedCompany != null
+        ? lockedCompany.name
+        : (companyOptions.contains(_companyFilter)
+            ? _companyFilter
+            : _allCompanies);
+    if (!isAdminOnly && companyFilter != _companyFilter) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() => _companyFilter = companyFilter);
@@ -360,153 +532,250 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
     final filtered = _filtered(
       companies,
       companyFilter: companyFilter,
+      lockedCompany: lockedCompany,
     );
+    final visible = _pager.takeVisible(filtered);
+    final hasMore = _pager.hasMore(filtered.length);
+
+    bool inScope(_UnifiedRequest item) => _matchesCompany(
+          item,
+          companies,
+          companyFilter: companyFilter,
+          lockedCompany: lockedCompany,
+        );
+
+    final scopedLeaves = lockedCompany == null
+        ? _leaveRequests
+        : _leaveRequests
+            .where((r) => inScope(_UnifiedRequest.leave(r)))
+            .toList();
+    final scopedTime = lockedCompany == null
+        ? _timeRequests
+        : _timeRequests
+            .where((r) => inScope(_UnifiedRequest.timeEdit(r)))
+            .toList();
+    final scopedClock = lockedCompany == null
+        ? _clockRequests
+        : _clockRequests
+            .where((r) => inScope(_UnifiedRequest.clock(r)))
+            .toList();
+
     final pendingCount = filtered
         .where((item) => item.status.toLowerCase() == 'pending')
         .length;
     final totalPending = [
-      ..._leaveRequests.where((r) => r.status.toLowerCase() == 'pending'),
-      ..._timeRequests.where((r) => r.isPending),
-      ..._clockRequests.where((r) => r.isPending),
+      ...scopedLeaves.where((r) => r.status.toLowerCase() == 'pending'),
+      ...scopedTime.where((r) => r.isPending),
+      ...scopedClock.where((r) => r.isPending),
     ].length;
 
     return DashboardScaffold(
       title: 'Requests',
       currentRoute: AppRoutes.superAdminRequests,
       child: ListView(
-        padding: CompactPageStyle.of(context).pagePadding,
+        controller: _pager.scrollController,
+        padding: density.pagePadding,
         children: [
-          const CompactPageHeader(
+          CompactPageHeader(
             title: 'Requests',
-            subtitle:
-                'Review leave, employee time in/out, and admin time-card change requests.',
+            subtitle: isAdminOnly
+                ? (lockedCompany == null
+                    ? 'Select a company to review requests for your workplace.'
+                    : 'Review leave, time in/out, and time-card change requests for ${lockedCompany.name}.')
+                : 'Review leave, employee time in/out, and admin time-card change requests.',
           ),
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          CompactSummaryStrip(
-            items: [
-              CompactSummaryItem(
-                label: 'Total',
-                value:
-                    '${_leaveRequests.length + _timeRequests.length + _clockRequests.length}',
-              ),
-              CompactSummaryItem(label: 'Pending', value: '$totalPending'),
-              CompactSummaryItem(label: 'Showing', value: '${filtered.length}'),
-            ],
-          ),
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          CompactFilterDropdown(
-            value: companyFilter,
-            items: companyOptions,
-            hint: 'Company',
-            onChanged: (value) => setState(() => _companyFilter = value),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: CompactFilterDropdown(
-                  value: _typeFilter,
-                  items: const ['All', 'Leave', 'Time in/out', 'Time edit'],
-                  hint: 'Type',
-                  onChanged: (value) => setState(() => _typeFilter = value),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: CompactFilterDropdown(
-                  value: _statusFilter,
-                  items: const ['All', 'Pending', 'Approved', 'Rejected'],
-                  hint: 'Status',
-                  onChanged: (value) => setState(() => _statusFilter = value),
-                ),
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Refresh',
-                onPressed: _loading ? null : _load,
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                color: AppColors.primaryDark,
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          CompactSearchField(
-            controller: _searchController,
-            onChanged: (value) => setState(() => _search = value),
-            hintText: 'Search employee, company, admin, or reason',
-          ),
-          if (companyFilter != _allCompanies) ...[
-            const SizedBox(height: 6),
-            Text(
-              'Showing requests for $companyFilter'
-              '${pendingCount > 0 ? ' · $pendingCount pending' : ''}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ],
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          if (_loading)
-            const AppLoadingView(
-              title: 'Loading requests',
-              message: 'Fetching pending requests…',
-            )
-          else if (_error != null)
-            _MessageCard(icon: Icons.error_outline, message: _error!)
-          else if (filtered.isEmpty)
+          SizedBox(height: density.sectionGap),
+          if (isAdminOnly && lockedCompany == null)
             const _MessageCard(
-              icon: Icons.inbox_outlined,
-              message: 'No requests match the current filters.',
+              icon: Icons.business_outlined,
+              message: 'Select a company to view requests.',
             )
-          else
-            for (final item in filtered)
-              if (item.leave != null)
-                KeyedSubtree(
-                  key: _isFocused(item) ? _focusKey : ValueKey('leave-${item.leave!.id}'),
-                  child: _LeaveRequestCard(
-                    request: item.leave!,
-                    highlighted: _isFocused(item),
-                    onApprove: item.leave!.status.toLowerCase() == 'pending'
-                        ? () => _updateLeaveStatus(item.leave!, 'approved')
-                        : null,
-                    onReject: item.leave!.status.toLowerCase() == 'pending'
-                        ? () => _updateLeaveStatus(item.leave!, 'rejected')
-                        : null,
-                  ),
-                )
-              else if (item.timeEdit != null)
-                KeyedSubtree(
-                  key: _isFocused(item)
-                      ? _focusKey
-                      : ValueKey('time-${item.timeEdit!.id}'),
-                  child: _TimeEditRequestCard(
-                    request: item.timeEdit!,
-                    highlighted: _isFocused(item),
-                    onApprove: item.timeEdit!.isPending
-                        ? () => _approveTimeChange(item.timeEdit!)
-                        : null,
-                    onReject: item.timeEdit!.isPending
-                        ? () => _rejectTimeChange(item.timeEdit!)
-                        : null,
-                  ),
-                )
-              else if (item.clock != null)
-                KeyedSubtree(
-                  key: _isFocused(item)
-                      ? _focusKey
-                      : ValueKey('clock-${item.clock!.id}'),
-                  child: _ClockRequestCard(
-                    request: item.clock!,
-                    highlighted: _isFocused(item),
-                    onApprove: item.clock!.isPending
-                        ? () => _approveClock(item.clock!)
-                        : null,
-                    onReject: item.clock!.isPending
-                        ? () => _rejectClock(item.clock!)
-                        : null,
+          else ...[
+            CompactSummaryStrip(
+              items: [
+                CompactSummaryItem(
+                  label: 'Total',
+                  value:
+                      '${scopedLeaves.length + scopedTime.length + scopedClock.length}',
+                ),
+                CompactSummaryItem(label: 'Pending', value: '$totalPending'),
+                CompactSummaryItem(
+                  label: 'Showing',
+                  value: '${visible.length}',
+                ),
+              ],
+            ),
+            SizedBox(height: density.sectionGap),
+            if (!isAdminOnly) ...[
+              CompactFilterDropdown(
+                value: companyFilter,
+                items: companyOptions,
+                hint: 'Company',
+                onChanged: (value) => setState(() {
+                  _companyFilter = value;
+                  _pager.reset();
+                }),
+              ),
+              SizedBox(height: density.cardGap),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: CompactFilterDropdown(
+                    value: _typeFilter,
+                    items: const ['All', 'Leave', 'Time in/out', 'Time edit'],
+                    hint: 'Type',
+                    onChanged: (value) => setState(() {
+                      _typeFilter = value;
+                      _pager.reset();
+                    }),
                   ),
                 ),
+                SizedBox(width: density.cardGap),
+                Expanded(
+                  child: CompactFilterDropdown(
+                    value: _statusFilter,
+                    items: const ['All', 'Pending', 'Approved', 'Rejected'],
+                    hint: 'Status',
+                    onChanged: (value) => setState(() {
+                      _statusFilter = value;
+                      _pager.reset();
+                    }),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: density.compact
+                      ? VisualDensity.compact
+                      : VisualDensity.standard,
+                  tooltip: 'Refresh',
+                  onPressed: _loading ? null : _load,
+                  icon: Icon(
+                    Icons.refresh_rounded,
+                    size: density.compact ? 20 : 24,
+                  ),
+                  color: AppColors.primaryDark,
+                ),
+              ],
+            ),
+            SizedBox(height: density.cardGap),
+            CompactSearchField(
+              controller: _searchController,
+              onChanged: (value) => setState(() {
+                _search = value;
+                _pager.reset();
+              }),
+              hintText: isAdminOnly
+                  ? 'Search employee, admin, or reason'
+                  : 'Search employee, company, admin, or reason',
+            ),
+            if (!isAdminOnly && companyFilter != _allCompanies) ...[
+              SizedBox(height: density.cardGap),
+              Text(
+                'Showing requests for $companyFilter'
+                '${pendingCount > 0 ? ' · $pendingCount pending' : ''}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+            if (isAdminOnly && lockedCompany != null) ...[
+              SizedBox(height: density.cardGap),
+              Text(
+                'Company: ${lockedCompany.name}'
+                '${pendingCount > 0 ? ' · $pendingCount pending' : ''}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+            SizedBox(height: density.sectionGap),
+            if (_loading)
+              const AppLoadingView(
+                title: 'Loading requests',
+                message: 'Fetching pending requests…',
+              )
+            else if (_error != null)
+              _MessageCard(icon: Icons.error_outline, message: _error!)
+            else if (filtered.isEmpty)
+              const _MessageCard(
+                icon: Icons.inbox_outlined,
+                message: 'No requests match the current filters.',
+              )
+            else ...[
+              for (final item in visible)
+                if (item.leave != null)
+                  KeyedSubtree(
+                    key: _isFocused(item)
+                        ? _focusKey
+                        : ValueKey('leave-${item.leave!.id}'),
+                    child: _LeaveRequestCard(
+                      request: item.leave!,
+                      highlighted: _isFocused(item),
+                      onApprove: item.leave!.status.toLowerCase() == 'pending'
+                          ? () => _updateLeaveStatus(item.leave!, 'approved')
+                          : null,
+                      onReject: item.leave!.status.toLowerCase() == 'pending'
+                          ? () => _updateLeaveStatus(item.leave!, 'rejected')
+                          : null,
+                    ),
+                  )
+                else if (item.timeEdit != null)
+                  KeyedSubtree(
+                    key: _isFocused(item)
+                        ? _focusKey
+                        : ValueKey('time-${item.timeEdit!.id}'),
+                    child: _TimeEditRequestCard(
+                      request: item.timeEdit!,
+                      highlighted: _isFocused(item),
+                      onApprove: item.timeEdit!.isPending
+                          ? () => _approveTimeChange(item.timeEdit!)
+                          : null,
+                      onReject: item.timeEdit!.isPending
+                          ? () => _rejectTimeChange(item.timeEdit!)
+                          : null,
+                    ),
+                  )
+                else if (item.clock != null)
+                  KeyedSubtree(
+                    key: _isFocused(item)
+                        ? _focusKey
+                        : ValueKey('clock-${item.clock!.id}'),
+                    child: Builder(
+                      builder: (context) {
+                        final clock = item.clock!;
+                        final locked = _isClockLocked(clock);
+                        return _ClockRequestCard(
+                          request: clock,
+                          highlighted: _isFocused(item),
+                          awaitingTimeInApproval: clock.isClockOut &&
+                              clock.isPending &&
+                              _hasPendingClockInForOut(clock),
+                          showUnlock: locked,
+                          onUnlock: locked
+                              ? () => _unlockClockRequests(clock)
+                              : null,
+                          onApprove: clock.isPending &&
+                                  !(clock.isClockOut &&
+                                      _hasPendingClockInForOut(clock))
+                              ? () => _approveClock(clock)
+                              : null,
+                          onReject: clock.isPending
+                              ? () => _rejectClock(clock)
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+              LazyListFooter(
+                hasMore: hasMore,
+                remaining: filtered.length - visible.length,
+                loadingMore: _pager.loadingMore,
+                onLoadMore: () => _pager.loadMore(filtered.length),
+              ),
+            ],
+          ],
         ],
       ),
     );
@@ -625,8 +894,12 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(status);
+    final density = CompactPageStyle.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: EdgeInsets.symmetric(
+        horizontal: density.compact ? 8 : 10,
+        vertical: density.compact ? 3 : 5,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(99),
@@ -636,7 +909,7 @@ class _StatusChip extends StatelessWidget {
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: color,
               fontWeight: FontWeight.w800,
-              fontSize: 10,
+              fontSize: density.chipLabelSize,
             ),
       ),
     );
@@ -657,8 +930,9 @@ class _RequestActions extends StatelessWidget {
     if (onApprove == null && onReject == null) {
       return const SizedBox.shrink();
     }
+    final density = CompactPageStyle.of(context);
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: EdgeInsets.only(top: density.cardGap + 2),
       child: Row(
         children: [
           if (onReject != null)
@@ -666,24 +940,41 @@ class _RequestActions extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: onReject,
                 style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
+                  visualDensity: density.compact
+                      ? VisualDensity.compact
+                      : VisualDensity.standard,
                   foregroundColor: AppColors.error,
                   side: const BorderSide(color: AppColors.error),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: EdgeInsets.symmetric(
+                    vertical: density.compact ? 8 : 12,
+                  ),
+                  textStyle: TextStyle(
+                    fontSize: density.bodySize,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 child: const Text('Reject'),
               ),
             ),
-          if (onReject != null && onApprove != null) const SizedBox(width: 8),
+          if (onReject != null && onApprove != null)
+            SizedBox(width: density.cardGap + 2),
           if (onApprove != null)
             Expanded(
               child: FilledButton(
                 onPressed: onApprove,
                 style: FilledButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
+                  visualDensity: density.compact
+                      ? VisualDensity.compact
+                      : VisualDensity.standard,
                   backgroundColor: AppColors.primaryDark,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: EdgeInsets.symmetric(
+                    vertical: density.compact ? 8 : 12,
+                  ),
+                  textStyle: TextStyle(
+                    fontSize: density.bodySize,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 child: const Text('Approve'),
               ),
@@ -700,12 +991,18 @@ class _ClockRequestCard extends StatelessWidget {
     required this.onApprove,
     required this.onReject,
     this.highlighted = false,
+    this.awaitingTimeInApproval = false,
+    this.showUnlock = false,
+    this.onUnlock,
   });
 
   final ClockRequest request;
   final VoidCallback? onApprove;
   final VoidCallback? onReject;
   final bool highlighted;
+  final bool awaitingTimeInApproval;
+  final bool showUnlock;
+  final VoidCallback? onUnlock;
 
   @override
   Widget build(BuildContext context) {
@@ -716,9 +1013,7 @@ class _ClockRequestCard extends StatelessWidget {
     final company =
         request.companyName.isEmpty ? 'Unknown company' : request.companyName;
     final when = request.requestedAt.toLocal();
-    final stamp =
-        '${when.year}-${when.month.toString().padLeft(2, '0')}-${when.day.toString().padLeft(2, '0')} '
-        '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
+    final stamp = formatDateTime12h(when);
 
     return Container(
       margin: EdgeInsets.only(bottom: density.cardGap),
@@ -766,13 +1061,14 @@ class _ClockRequestCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: AppColors.primaryDark,
                             fontWeight: FontWeight.w800,
-                            fontSize: 10,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       name,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: density.cardTitleSize,
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -780,7 +1076,7 @@ class _ClockRequestCard extends StatelessWidget {
                       email,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: colors.textSecondary,
-                            fontSize: 10,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
                   ],
@@ -789,10 +1085,11 @@ class _ClockRequestCard extends StatelessWidget {
               _StatusChip(status: request.status),
             ],
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: density.cardGap),
           Text(
             company,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.bodySize,
                   fontWeight: FontWeight.w600,
                 ),
           ),
@@ -802,7 +1099,7 @@ class _ClockRequestCard extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: colors.textSecondary,
                   fontWeight: FontWeight.w600,
-                  fontSize: 10,
+                  fontSize: density.chipLabelSize,
                 ),
           ),
           Text(
@@ -810,9 +1107,41 @@ class _ClockRequestCard extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: AppColors.primaryDark,
                   fontWeight: FontWeight.w700,
-                  fontSize: 11,
+                  fontSize: density.captionSize,
                 ),
           ),
+          if (request.note.trim().isNotEmpty) ...[
+            SizedBox(height: density.cardGap),
+            Text(
+              'Note: ${request.note.trim()}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: density.captionSize,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+          if (awaitingTimeInApproval) ...[
+            SizedBox(height: density.cardGap),
+            Text(
+              'Approve time in for this day first, then approve time out.',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: density.captionSize,
+                  ),
+            ),
+          ],
+          if (showUnlock && onUnlock != null) ...[
+            SizedBox(height: density.cardGap),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onUnlock,
+                icon: const Icon(Icons.lock_open_rounded, size: 18),
+                label: const Text('Unlock clock requests'),
+              ),
+            ),
+          ],
           _RequestActions(onApprove: onApprove, onReject: onReject),
         ],
       ),
@@ -890,13 +1219,14 @@ class _LeaveRequestCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: AppColors.primaryDark,
                             fontWeight: FontWeight.w800,
-                            fontSize: 10,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       name,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: density.cardTitleSize,
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -904,7 +1234,7 @@ class _LeaveRequestCard extends StatelessWidget {
                       email,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: colors.textSecondary,
-                            fontSize: 10,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
                   ],
@@ -913,10 +1243,11 @@ class _LeaveRequestCard extends StatelessWidget {
               _StatusChip(status: request.status),
             ],
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: density.cardGap),
           Text(
             company,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.bodySize,
                   fontWeight: FontWeight.w600,
                 ),
           ),
@@ -926,7 +1257,7 @@ class _LeaveRequestCard extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: colors.textSecondary,
                   fontWeight: FontWeight.w600,
-                  fontSize: 10,
+                  fontSize: density.chipLabelSize,
                 ),
           ),
           if (request.createdAt != null) ...[
@@ -935,7 +1266,7 @@ class _LeaveRequestCard extends StatelessWidget {
               'Requested ${_formatRequestWhen(request.createdAt!)}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: colors.textSecondary,
-                    fontSize: 10,
+                    fontSize: density.chipLabelSize,
                   ),
             ),
           ],
@@ -952,15 +1283,7 @@ class _LeaveRequestCard extends StatelessWidget {
     );
   }
 
-  String _formatRequestWhen(DateTime value) {
-    final local = value.toLocal();
-    final y = local.year;
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final h = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    return '$y-$m-$d $h:$min';
-  }
+  String _formatRequestWhen(DateTime value) => formatDateTime12h(value);
 }
 
 class _TimeEditRequestCard extends StatelessWidget {
@@ -1033,13 +1356,14 @@ class _TimeEditRequestCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: AppColors.primaryDark,
                             fontWeight: FontWeight.w800,
-                            fontSize: 10,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       employee,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: density.cardTitleSize,
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -1049,7 +1373,7 @@ class _TimeEditRequestCard extends StatelessWidget {
                           : request.employeeEmail,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: colors.textSecondary,
-                            fontSize: 10,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
                   ],
@@ -1058,10 +1382,11 @@ class _TimeEditRequestCard extends StatelessWidget {
               _StatusChip(status: request.status),
             ],
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: density.cardGap),
           Text(
             company,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.bodySize,
                   fontWeight: FontWeight.w600,
                 ),
           ),
@@ -1070,7 +1395,7 @@ class _TimeEditRequestCard extends StatelessWidget {
             'Requested by $requester',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: colors.textSecondary,
-                  fontSize: 10,
+                  fontSize: density.chipLabelSize,
                 ),
           ),
           const SizedBox(height: 4),
@@ -1085,7 +1410,7 @@ class _TimeEditRequestCard extends StatelessWidget {
             'Current: ${request.hasPriorRecord ? '${request.currentTimeInLabel} → ${request.currentTimeOutLabel}' : 'No prior record'}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: colors.textSecondary,
-                  fontSize: 10,
+                  fontSize: density.chipLabelSize,
                 ),
           ),
           Text(
@@ -1095,6 +1420,16 @@ class _TimeEditRequestCard extends StatelessWidget {
                   color: AppColors.primaryDark,
                 ),
           ),
+          if (request.note.trim().isNotEmpty) ...[
+            SizedBox(height: density.cardGap),
+            Text(
+              'Note: ${request.note.trim()}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: density.captionSize,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
           _RequestActions(onApprove: onApprove, onReject: onReject),
         ],
       ),
@@ -1111,17 +1446,26 @@ class _MessageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
+      padding: EdgeInsets.symmetric(
+        vertical: density.compact ? 22 : 26,
+        horizontal: density.compact ? 12 : 16,
+      ),
       decoration: compactCardDecoration(context),
       child: Column(
         children: [
-          Icon(icon, size: 28, color: colors.textSecondary),
-          const SizedBox(height: 8),
+          Icon(
+            icon,
+            size: density.compact ? 26 : 30,
+            color: colors.textSecondary,
+          ),
+          SizedBox(height: density.cardGap + 2),
           Text(
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: density.bodySize,
                   color: colors.textSecondary,
                 ),
           ),

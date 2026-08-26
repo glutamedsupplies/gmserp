@@ -1,3 +1,5 @@
+import 'time_entry.dart';
+
 enum AttendanceStatus {
   present,
   late,
@@ -95,6 +97,10 @@ enum WorkWeekPattern {
 class TimeCardSchedule {
   final int workdayHours;
   final int breakMinutes;
+  /// Lunch / unpaid break start hour (0–23). Default noon.
+  final int breakStartHour;
+  /// Lunch / unpaid break start minute (0–59).
+  final int breakStartMinute;
   final int overtimeAfterHours;
   final WorkWeekPattern workWeek;
   /// Scheduled shift start hour (0–23).
@@ -107,6 +113,8 @@ class TimeCardSchedule {
   const TimeCardSchedule({
     this.workdayHours = 8,
     this.breakMinutes = 60,
+    this.breakStartHour = 12,
+    this.breakStartMinute = 0,
     this.overtimeAfterHours = 8,
     this.workWeek = WorkWeekPattern.monFri,
     this.shiftStartHour = 9,
@@ -115,6 +123,12 @@ class TimeCardSchedule {
   });
 
   static const TimeCardSchedule defaults = TimeCardSchedule();
+
+  /// Paid work minutes used for minute-rate payroll (excludes unpaid break).
+  int get paidWorkMinutes {
+    final minutes = workdayHours * 60;
+    return minutes > 0 ? minutes : 8 * 60;
+  }
 
   DateTime shiftStartOn(DateTime date) {
     return DateTime(
@@ -126,24 +140,35 @@ class TimeCardSchedule {
     );
   }
 
+  DateTime breakStartOn(DateTime date) {
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+      breakStartHour.clamp(0, 23),
+      breakStartMinute.clamp(0, 59),
+    );
+  }
+
+  DateTime breakEndOn(DateTime date) {
+    final minutes = breakMinutes < 0 ? 0 : breakMinutes;
+    return breakStartOn(date).add(Duration(minutes: minutes));
+  }
+
   DateTime lateThresholdOn(DateTime date) {
     return shiftStartOn(date).add(Duration(minutes: lateGraceMinutes));
   }
 
-  String get shiftStartLabel {
-    final hour24 = shiftStartHour;
-    final period = hour24 >= 12 ? 'PM' : 'AM';
-    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
-    final h = hour12.toString().padLeft(2, '0');
-    final m = shiftStartMinute.toString().padLeft(2, '0');
-    return '$h:$m $period';
-  }
+  String get shiftStartLabel =>
+      formatHourMinute12h(shiftStartHour, shiftStartMinute);
 
   factory TimeCardSchedule.fromFirestore(Map<String, dynamic>? data) {
     if (data == null) return defaults;
     return TimeCardSchedule(
       workdayHours: _int(data['workdayHours'], 8),
       breakMinutes: _int(data['breakMinutes'], 60),
+      breakStartHour: _int(data['breakStartHour'], 12).clamp(0, 23),
+      breakStartMinute: _int(data['breakStartMinute'], 0).clamp(0, 59),
       overtimeAfterHours: _int(data['overtimeAfterHours'], 8),
       workWeek: WorkWeekPattern.fromStorage(data['workWeek']?.toString()),
       shiftStartHour: _int(data['shiftStartHour'], 9).clamp(0, 23),
@@ -156,6 +181,8 @@ class TimeCardSchedule {
     return {
       'workdayHours': workdayHours,
       'breakMinutes': breakMinutes,
+      'breakStartHour': breakStartHour,
+      'breakStartMinute': breakStartMinute,
       'overtimeAfterHours': overtimeAfterHours,
       'workWeek': workWeek.storageValue,
       'shiftStartHour': shiftStartHour,

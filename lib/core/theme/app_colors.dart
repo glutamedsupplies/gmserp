@@ -27,6 +27,8 @@ class AppColors extends ThemeExtension<AppColors> {
   static const Color borderFocused = primary;
   static const Color error = Color(0xFFDC2626);
   static const Color success = Color(0xFF16A34A);
+  /// Notices / neutral notifiers (info toasts, confirmations).
+  static const Color warning = Color(0xFFEA580C);
   static const Color onPrimary = Color(0xFF111827);
   static const Color cropBackdrop = Color(0xFF111827);
 

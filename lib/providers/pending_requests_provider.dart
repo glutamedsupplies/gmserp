@@ -46,6 +46,8 @@ class PendingRequestsProvider extends ChangeNotifier {
   bool _listening = false;
   bool _seeded = false;
   bool _includeTimeEdits = false;
+  bool _companyUnlocked = true;
+  String? _userId;
 
   int _timePending = 0;
   int _leavePending = 0;
@@ -65,10 +67,14 @@ class PendingRequestsProvider extends ChangeNotifier {
     return '$pendingCount';
   }
 
-  void syncUser(UserModel? user) {
+  void syncUser(UserModel? user, {bool companyUnlocked = true}) {
     final role = user?.role;
     final allowed = role == UserRole.superAdmin || role == UserRole.admin;
-    if (user == null || !allowed) {
+    final needsCompanyGate = role == UserRole.admin;
+    final canListen =
+        user != null && allowed && (!needsCompanyGate || companyUnlocked);
+
+    if (!canListen) {
       final wasActive = _listening ||
           pendingCount != 0 ||
           _latestLeave != null ||
@@ -89,6 +95,8 @@ class PendingRequestsProvider extends ChangeNotifier {
       _latestTime = null;
       _latestClock = null;
       _lastAnnounced = null;
+      _userId = null;
+      _companyUnlocked = false;
       if (user == null) {
         unawaited(_notifications.clearAll());
       } else if (wasActive) {
@@ -103,9 +111,15 @@ class PendingRequestsProvider extends ChangeNotifier {
       return;
     }
 
-    if (_listening) {
+    if (_listening &&
+        _userId == user.id &&
+        _companyUnlocked == companyUnlocked) {
       return;
     }
+
+    _stop();
+    _userId = user.id;
+    _companyUnlocked = companyUnlocked;
     _listening = true;
     _seeded = false;
     _includeTimeEdits = role == UserRole.superAdmin;
@@ -297,9 +311,9 @@ class PendingRequestsProvider extends ChangeNotifier {
 
   _PendingHint? _pickNewest() {
     final candidates = <_PendingHint>[
-      if (_latestLeave != null) _latestLeave!,
-      if (_latestTime != null) _latestTime!,
-      if (_latestClock != null) _latestClock!,
+      ?_latestLeave,
+      ?_latestTime,
+      ?_latestClock,
     ];
     if (candidates.isEmpty) return null;
     candidates.sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -329,6 +343,8 @@ class PendingRequestsProvider extends ChangeNotifier {
     _listening = false;
     _seeded = false;
     _includeTimeEdits = false;
+    _userId = null;
+    _companyUnlocked = false;
   }
 
   @override

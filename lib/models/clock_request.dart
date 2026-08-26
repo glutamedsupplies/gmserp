@@ -15,8 +15,12 @@ class ClockRequest {
     required this.workDate,
     required this.requestedAt,
     this.entryId,
+    this.relatedClockInId,
+    this.note = '',
     this.createdAt,
     this.updatedAt,
+    this.reviewedById = '',
+    this.reviewedByName = '',
   });
 
   static const typeClockIn = 'clockIn';
@@ -35,10 +39,16 @@ class ClockRequest {
   final String workDate;
   /// Exact time the employee pressed time in / time out.
   final DateTime requestedAt;
-  /// Open entry to close when [type] is [typeClockOut].
+  /// Open entry to close when [type] is [typeClockOut] (set after time-in approval).
   final String? entryId;
+  /// Pending time-in request this time-out belongs to (when time-in is not approved yet).
+  final String? relatedClockInId;
+  /// Employee note required with the request.
+  final String note;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String reviewedById;
+  final String reviewedByName;
 
   bool get isPending => status.toLowerCase() == 'pending';
   bool get isClockIn => type == typeClockIn;
@@ -65,8 +75,12 @@ class ClockRequest {
       workDate: data['workDate']?.toString() ?? '',
       requestedAt: _parseDate(data['requestedAt']) ?? DateTime.now(),
       entryId: data['entryId']?.toString(),
+      relatedClockInId: data['relatedClockInId']?.toString(),
+      note: data['note']?.toString() ?? '',
       createdAt: _parseDate(data['createdAt']),
       updatedAt: _parseDate(data['updatedAt']),
+      reviewedById: data['reviewedById']?.toString() ?? '',
+      reviewedByName: data['reviewedByName']?.toString() ?? '',
     );
   }
 

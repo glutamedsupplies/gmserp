@@ -6,10 +6,12 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
+import '../../models/staff_assignment.dart';
 import '../../models/time_entry.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/time_entry_provider.dart';
+import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
 
@@ -25,6 +27,10 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
   Timer? _clockTimer;
   DateTime _now = DateTime.now();
   String? _loadedKey;
+  int _clockDeclineCount = 0;
+
+  bool get _clockRequestsLocked =>
+      _clockDeclineCount >= StaffAssignment.clockDeclineLimit;
 
   @override
   void initState() {
@@ -42,7 +48,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     super.dispose();
   }
 
-  void _loadIfReady() {
+  Future<void> _loadIfReady() async {
     final user = context.read<AuthProvider>().user;
     final company = context.read<CompanyProvider>().selectedCompany;
     if (user == null || company == null) return;
@@ -54,30 +60,60 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
           user: user,
           company: company,
         );
+    final declines = await context.read<CompanyProvider>().clockDeclineCountFor(
+          companyId: company.id,
+          userId: user.id,
+        );
+    if (!mounted) return;
+    setState(() => _clockDeclineCount = declines);
   }
 
-  Future<bool> _confirmAction({
+  Future<String?> _promptNote({
     required String title,
     required String message,
     required String confirmLabel,
   }) async {
     final colors = AppColors.of(context);
-    final confirmed = await showDialog<bool>(
+    final controller = TextEditingController();
+    final note = await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: Text(title),
-          content: Text(message),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(message),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 4,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: 'Note',
+                  hintText: 'Required — reason or details for this request',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(
                 'Cancel',
                 style: TextStyle(color: colors.textSecondary),
               ),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isEmpty) return;
+                Navigator.of(dialogContext).pop(value);
+              },
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primaryDark,
                 foregroundColor: AppColors.onPrimary,
@@ -88,13 +124,24 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
         );
       },
     );
-    return confirmed == true;
+    controller.dispose();
+    return note;
   }
 
   Future<void> _clockIn() async {
     final user = context.read<AuthProvider>().user;
     final company = context.read<CompanyProvider>().selectedCompany;
     if (user == null || company == null) return;
+
+    if (_clockRequestsLocked) {
+      SnackBarHelper.showError(
+        context,
+        'Time in/out requests are locked after '
+        '${StaffAssignment.clockDeclineLimit} declines. '
+        'Ask an admin or super admin to edit your time card settings to unlock.',
+      );
+      return;
+    }
 
     final timeEntries = context.read<TimeEntryProvider>();
     if (!timeEntries.canClockInToday) {
@@ -109,19 +156,21 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       return;
     }
 
-    final confirmed = await _confirmAction(
-      title: 'Confirm time in',
+    final note = await _promptNote(
+      title: 'Request time in',
       message:
-          'Submit a time-in request for ${company.name} now?\n\n'
-          'An admin or super admin must approve it before it is saved.\n'
-          'Only one time in / time out is allowed per day.',
+          'Submit a time-in request for ${company.name}.\n\n'
+          'Add a note (required). An admin or super admin must approve it '
+          'before it is saved. After 3 declines, new requests are locked '
+          'until an admin edits your time card settings.',
       confirmLabel: 'Request time in',
     );
-    if (!confirmed || !mounted) return;
+    if (note == null || !mounted) return;
 
     final ok = await context.read<TimeEntryProvider>().requestClockIn(
           user: user,
           company: company,
+          note: note,
         );
     if (!mounted) return;
     if (ok) {
@@ -146,35 +195,51 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final company = context.read<CompanyProvider>().selectedCompany;
     if (user == null || company == null) return;
 
+    if (_clockRequestsLocked) {
+      SnackBarHelper.showError(
+        context,
+        'Time in/out requests are locked after '
+        '${StaffAssignment.clockDeclineLimit} declines. '
+        'Ask an admin or super admin to edit your time card settings to unlock.',
+      );
+      return;
+    }
+
     final timeEntries = context.read<TimeEntryProvider>();
     if (!timeEntries.canClockOutToday) {
       SnackBarHelper.showError(
         context,
         timeEntries.pendingClockOut != null
             ? 'Your time-out request is already pending approval.'
-            : 'No approved time-in yet. Wait for approval before timing out.',
+            : 'Submit a time-in request for today before timing out.',
       );
       return;
     }
 
     final active = timeEntries.activeEntry;
-    final started = active == null
-        ? ''
-        : '\nStarted at ${formatClockTime(active.timeIn)}.';
+    final pendingIn = timeEntries.pendingClockIn;
+    final started = active != null
+        ? '\nStarted at ${formatClockTime(active.timeIn)}.'
+        : pendingIn != null
+            ? '\nPending time in at ${pendingIn.requestedAtLabel} '
+                '(still waiting for approval).'
+            : '';
 
-    final confirmed = await _confirmAction(
-      title: 'Confirm time out',
+    final note = await _promptNote(
+      title: 'Request time out',
       message:
-          'Submit a time-out request for ${company.name} now?$started\n\n'
-          'An admin or super admin must approve it before it is saved.\n'
-          'You will not be able to time in again today after approval.',
+          'Submit a time-out request for ${company.name}.$started\n\n'
+          'Add a note (required). Time in and time out each need their own '
+          'approval. After 3 declines, new requests are locked until an admin '
+          'edits your time card settings.',
       confirmLabel: 'Request time out',
     );
-    if (!confirmed || !mounted) return;
+    if (note == null || !mounted) return;
 
     final ok = await context.read<TimeEntryProvider>().requestClockOut(
           user: user,
           company: company,
+          note: note,
         );
     if (!mounted) return;
     if (ok) {
@@ -234,6 +299,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final company = context.watch<CompanyProvider>().selectedCompany;
     final timeEntries = context.watch<TimeEntryProvider>();
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     if (user != null && company != null) {
       final key = '${user.id}:${company.id}';
@@ -242,6 +308,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       }
     } else {
       _loadedKey = null;
+      _clockDeclineCount = 0;
     }
 
     final active = timeEntries.activeEntry;
@@ -255,15 +322,17 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final todayRecord = timeEntries.todayEntries.isEmpty
         ? null
         : timeEntries.todayEntries.first;
-    final statusLabel = pendingOut != null
-        ? 'Time out pending approval'
-        : clockedIn
-            ? 'Clocked in'
-            : pendingIn != null
-                ? 'Time in pending approval'
-                : completedToday
-                    ? 'Completed for today'
-                    : 'Not clocked in';
+    final statusLabel = pendingOut != null && pendingIn != null
+        ? 'In & out pending approval'
+        : pendingOut != null
+            ? 'Time out pending approval'
+            : clockedIn
+                ? 'Clocked in'
+                : pendingIn != null
+                    ? 'Time in pending approval'
+                    : completedToday
+                        ? 'Completed for today'
+                        : 'Not clocked in';
     final displayTimeIn =
         active?.timeIn ?? pendingIn?.requestedAt ?? todayRecord?.timeIn;
     final displayTimeOut =
@@ -273,21 +342,53 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       title: 'Time in / Time out',
       currentRoute: AppRoutes.employeeTimeInOut,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        padding: density.pagePadding,
         children: [
-          Text(
-            'Time in / Time out',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            company == null
+          CompactPageHeader(
+            title: 'Time in / Time out',
+            subtitle: company == null
                 ? 'Select a company to record your attendance.'
                 : 'Submit time in / out for ${company.name}. '
-                    'Admin or super admin must approve before it is saved.',
-            style: Theme.of(context).textTheme.bodyMedium,
+                    'A note is required. Admin or super admin must approve '
+                    'before it is saved.',
           ),
-          const SizedBox(height: 20),
+          if (_clockRequestsLocked) ...[
+            SizedBox(height: density.cardGap),
+            Container(
+              width: double.infinity,
+              padding: density.cardPadding,
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(density.radius),
+                border: Border.all(
+                  color: AppColors.error.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Text(
+                'Requests locked after $_clockDeclineCount/'
+                '${StaffAssignment.clockDeclineLimit} declines. '
+                'Ask an admin or super admin to edit your time card settings '
+                'or unlock your clock requests.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w600,
+                      fontSize: density.captionSize,
+                    ),
+              ),
+            ),
+          ] else if (_clockDeclineCount > 0) ...[
+            SizedBox(height: density.cardGap),
+            Text(
+              'Declines: $_clockDeclineCount/'
+              '${StaffAssignment.clockDeclineLimit}. '
+              'After ${StaffAssignment.clockDeclineLimit}, new requests are locked.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                    fontSize: density.captionSize,
+                  ),
+            ),
+          ],
+          SizedBox(height: density.sectionGap + 4),
           _LiveClockCard(
             now: _now,
             dateLabel: _formatDate(_now),
@@ -295,7 +396,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             sessionElapsed: sessionElapsed,
             timeIn: active?.timeIn,
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: density.cardGap + 4),
           Row(
             children: [
               Expanded(
@@ -305,25 +406,27 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                   value: formatDurationShort(timeEntries.todayWorked),
                 ),
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: density.cardGap + 4),
               Expanded(
                 child: _StatTile(
                   icon: Icons.event_available_outlined,
                   label: 'Today status',
-                  value: pendingOut != null
-                      ? 'Out pending'
-                      : clockedIn
-                          ? 'On shift'
-                          : pendingIn != null
-                              ? 'In pending'
-                              : completedToday
-                                  ? 'Done'
-                                  : 'Open',
+                  value: pendingOut != null && pendingIn != null
+                      ? 'Both pending'
+                      : pendingOut != null
+                          ? 'Out pending'
+                          : clockedIn
+                              ? 'On shift'
+                              : pendingIn != null
+                                  ? 'In pending'
+                                  : completedToday
+                                      ? 'Done'
+                                      : 'Open',
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: density.cardGap + 4),
           _DetailPanel(
             user: user?.username ?? '—',
             email: user?.email ?? '—',
@@ -334,25 +437,29 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             timeIn: displayTimeIn,
             timeOut: displayTimeOut,
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: density.sectionGap + 4),
           if (timeEntries.isLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Center(child: CircularProgressIndicator()),
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: density.sectionGap),
+              child: const Center(child: CircularProgressIndicator()),
             )
           else ...[
             PrimaryButton(
-              label: pendingOut != null
-                  ? 'Time out pending'
-                  : canClockOut
-                      ? 'Request time out'
-                      : pendingIn != null
-                          ? 'Time in pending'
-                          : completedToday
-                              ? 'Completed for today'
-                              : 'Request time in',
+              label: _clockRequestsLocked
+                  ? 'Requests locked'
+                  : pendingOut != null
+                      ? 'Time out pending'
+                      : canClockOut
+                          ? 'Request time out'
+                          : pendingIn != null
+                              ? 'Time in pending'
+                              : completedToday
+                                  ? 'Completed for today'
+                                  : 'Request time in',
               isLoading: timeEntries.isSaving,
-              onPressed: company == null || timeEntries.isSaving
+              onPressed: company == null ||
+                      timeEntries.isSaving ||
+                      _clockRequestsLocked
                   ? null
                   : canClockOut
                       ? _clockOut
@@ -360,37 +467,46 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                           ? _clockIn
                           : null,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: density.cardGap + 2),
             Text(
               company == null
                   ? 'Open a company from Switch company before clocking in.'
-                  : pendingOut != null
-                      ? 'Time-out request at ${pendingOut.requestedAtLabel} is waiting for approval.'
-                      : canClockOut
-                          ? 'Submit time out when your shift ends. It saves only after approval.'
-                          : pendingIn != null
-                              ? 'Time-in request at ${pendingIn.requestedAtLabel} is waiting for approval.'
-                              : completedToday
-                                  ? 'You already finished attendance for today.'
-                                  : 'Submit time in to start. It saves only after admin or super admin approval.',
+                  : _clockRequestsLocked
+                      ? 'New time in/out requests are locked until an admin '
+                          'or super admin edits your time card settings.'
+                      : pendingOut != null
+                          ? pendingIn != null
+                              ? 'Time in (${pendingIn.requestedAtLabel}) and time out (${pendingOut.requestedAtLabel}) are waiting for approval.'
+                              : 'Time-out request at ${pendingOut.requestedAtLabel} is waiting for approval.'
+                          : canClockOut
+                              ? pendingIn != null
+                                  ? 'Time in is still pending — you can still request time out now for continuous flow.'
+                                  : 'Submit time out when your shift ends. It saves only after approval.'
+                              : pendingIn != null
+                                  ? 'Time-in request at ${pendingIn.requestedAtLabel} is waiting for approval.'
+                                  : completedToday
+                                      ? 'You already finished attendance for today.'
+                                      : 'Submit time in with a required note. It saves only after approval.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: density.captionSize,
                     color: colors.textSecondary,
                   ),
             ),
           ],
           if (timeEntries.recentEntries.isNotEmpty) ...[
-            const SizedBox(height: 28),
+            SizedBox(height: density.sectionGap + 12),
             Text(
               'Recent records',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontSize: density.sectionTitleSize,
                     fontWeight: FontWeight.w700,
                   ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: density.cardGap + 2),
             ...timeEntries.recentEntries.map(
               (entry) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: EdgeInsets.only(bottom: density.cardGap),
                 child: _HistoryTile(entry: entry),
               ),
             ),
@@ -419,9 +535,12 @@ class _LiveClockCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+      padding: density.cardPadding.add(
+        EdgeInsets.all(density.compact ? 6 : 8),
+      ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -436,7 +555,7 @@ class _LiveClockCard extends StatelessWidget {
                   colors.inputFill,
                 ],
         ),
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(density.compact ? 16 : 22),
         border: Border.all(
           color: clockedIn
               ? AppColors.primary.withValues(alpha: 0.55)
@@ -479,7 +598,8 @@ class _LiveClockCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             formatClockTime(now),
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(
+            style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  fontSize: density.compact ? 36 : 44,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 1.5,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -496,10 +616,13 @@ class _LiveClockCard extends StatelessWidget {
             const SizedBox(height: 18),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: EdgeInsets.symmetric(
+                horizontal: density.compact ? 12 : 14,
+                vertical: density.compact ? 10 : 12,
+              ),
               decoration: BoxDecoration(
                 color: colors.card.withValues(alpha: 0.72),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(density.radius),
               ),
               child: Column(
                 children: [
@@ -548,18 +671,23 @@ class _StatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      padding: density.cardPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: AppColors.primaryDark),
-          const SizedBox(width: 10),
+          Icon(
+            icon,
+            size: density.compact ? 18 : 22,
+            color: AppColors.primaryDark,
+          ),
+          SizedBox(width: density.compact ? 8 : 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,12 +695,14 @@ class _StatTile extends StatelessWidget {
                 Text(
                   label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: density.captionSize,
                         color: colors.textSecondary,
                       ),
                 ),
                 Text(
                   value,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontSize: density.cardTitleSize,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -609,12 +739,15 @@ class _DetailPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      padding: density.cardPadding.add(
+        EdgeInsets.all(density.compact ? 2 : 4),
+      ),
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -623,10 +756,11 @@ class _DetailPanel extends StatelessWidget {
           Text(
             'Record details',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontSize: density.cardTitleSize,
                   fontWeight: FontWeight.w700,
                 ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: density.cardGap + 2),
           _DetailRow(label: 'Employee', value: user),
           _DetailRow(label: 'Email', value: email),
           _DetailRow(label: 'Company', value: company),
@@ -702,45 +836,49 @@ class _HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     final closed = !entry.isOpen;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      padding: density.cardPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: density.compact ? 32 : 40,
+            height: density.compact ? 32 : 40,
             decoration: BoxDecoration(
               color: (closed ? AppColors.success : AppColors.primary)
                   .withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(density.radius),
             ),
             child: Icon(
               closed ? Icons.logout_rounded : Icons.login_rounded,
-              size: 18,
+              size: density.compact ? 16 : 20,
               color: closed ? AppColors.success : AppColors.primaryDark,
             ),
           ),
-          const SizedBox(width: 10),
+          SizedBox(width: density.compact ? 8 : 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   entry.workDate,
-                  style: Theme.of(context).textTheme.titleSmall,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontSize: density.cardTitleSize,
+                      ),
                 ),
-                const SizedBox(height: 2),
+                SizedBox(height: density.compact ? 2 : 4),
                 Text(
                   '${formatClockTime(entry.timeIn)} → '
                   '${entry.timeOut == null ? 'Active' : formatClockTime(entry.timeOut!)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: density.captionSize,
                         color: colors.textSecondary,
                       ),
                 ),
@@ -750,6 +888,7 @@ class _HistoryTile extends StatelessWidget {
           Text(
             formatDurationShort(entry.duration),
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontSize: density.cardTitleSize,
                   fontWeight: FontWeight.w700,
                 ),
           ),

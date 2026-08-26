@@ -152,9 +152,16 @@ class TimeCardChangeRequestRepository {
     DateTime? currentTimeIn,
     DateTime? currentTimeOut,
     String? existingEntryId,
+    String note = '',
   }) async {
     if (proposedTimeOut != null && !proposedTimeOut.isAfter(proposedTimeIn)) {
       throw StateError('Time out must be after time in.');
+    }
+
+    final noteText = note.trim();
+    final isSelfRequest = requester.id == employeeId;
+    if (isSelfRequest && noteText.isEmpty) {
+      throw StateError('A note is required for this request.');
     }
 
     final existingPending = await findPendingForWorkDate(
@@ -215,6 +222,7 @@ class TimeCardChangeRequestRepository {
       'currentTimeInLabel': currentInLabel,
       'currentTimeOutLabel': currentOutLabel,
       'existingEntryId': resolvedEntryId,
+      'note': noteText,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -227,15 +235,26 @@ class TimeCardChangeRequestRepository {
     );
   }
 
-  Future<void> reject(String requestId) async {
+  Future<void> reject(
+    String requestId, {
+    String reviewerId = '',
+    String reviewerName = '',
+  }) async {
     await _requests.doc(requestId).update({
       'status': 'rejected',
       'updatedAt': FieldValue.serverTimestamp(),
+      if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
+      if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
+      'reviewedAt': FieldValue.serverTimestamp(),
     });
   }
 
   /// Applies the proposed time entry, then marks the request approved.
-  Future<void> approve(TimeCardChangeRequest request) async {
+  Future<void> approve(
+    TimeCardChangeRequest request, {
+    String reviewerId = '',
+    String reviewerName = '',
+  }) async {
     if (!request.isPending) {
       throw StateError('Only pending requests can be approved.');
     }
@@ -263,6 +282,9 @@ class TimeCardChangeRequestRepository {
     await _requests.doc(request.id).update({
       'status': 'approved',
       'updatedAt': FieldValue.serverTimestamp(),
+      if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
+      if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
+      'reviewedAt': FieldValue.serverTimestamp(),
     });
   }
 }

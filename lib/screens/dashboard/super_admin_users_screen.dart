@@ -16,6 +16,7 @@ import '../../providers/company_provider.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
+import '../../widgets/lazy_list_pager.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/user_avatar.dart';
 
@@ -28,6 +29,7 @@ class SuperAdminUsersScreen extends StatefulWidget {
 
 class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
   final _search = TextEditingController();
+  late final LazyListPager _pager;
   /// Selected company key — matches [CompanyModel.id] (same as other list screens).
   String? _companyFilter;
   UserRole? _levelFilter;
@@ -37,6 +39,11 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
   @override
   void initState() {
     super.initState();
+    _pager = LazyListPager(
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await context.read<CompanyProvider>().loadUsersPage();
       if (!mounted || _companyFilter == null) return;
@@ -46,6 +53,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
 
   @override
   void dispose() {
+    _pager.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -156,6 +164,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       _companyFilter = companyId;
       _companyStaff = [];
       _loadingCompanyStaff = companyId != null;
+      _pager.reset();
     });
     if (companyId == null) return;
     await _reloadStaffForFilter();
@@ -294,6 +303,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       _loadingCompanyStaff = false;
       _levelFilter = null;
       _search.clear();
+      _pager.reset();
     });
   }
 
@@ -462,6 +472,8 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
     final companies = context.watch<CompanyProvider>();
     final superAdmins = _superAdmins(companies.users);
     final filteredUsers = _filteredUsers(companies);
+    final visible = _pager.takeVisible(filteredUsers);
+    final hasMore = _pager.hasMore(filteredUsers.length);
     final regularTotal = _regularUserTotal(companies);
     final hasSearch = _search.text.trim().isNotEmpty;
     final hasFilters =
@@ -473,6 +485,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       title: 'User levels',
       currentRoute: AppRoutes.superAdminUsers,
       child: CustomScrollView(
+        controller: _pager.scrollController,
         slivers: [
           SliverPadding(
             padding: CompactPageStyle.of(context).pagePaddingTopOnly,
@@ -531,8 +544,10 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                       Expanded(
                         child: _AccountLevelFilterDropdown(
                           selected: _levelFilter,
-                          onSelected: (level) =>
-                              setState(() => _levelFilter = level),
+                          onSelected: (level) => setState(() {
+                            _levelFilter = level;
+                            _pager.reset();
+                          }),
                         ),
                       ),
                     ],
@@ -540,7 +555,9 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                   SizedBox(height: CompactPageStyle.of(context).cardGap),
                   CompactSearchField(
                     controller: _search,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() {
+                      _pager.reset();
+                    }),
                     hintText: 'Search name, email, or level',
                   ),
                   SizedBox(height: CompactPageStyle.of(context).sectionGap),
@@ -602,9 +619,17 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
             SliverPadding(
               padding: CompactPageStyle.of(context).listPadding,
               sliver: SliverList.builder(
-                itemCount: filteredUsers.length,
+                itemCount: visible.length + (hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  final user = filteredUsers[index];
+                  if (index >= visible.length) {
+                    return LazyListFooter(
+                      hasMore: hasMore,
+                      remaining: filteredUsers.length - visible.length,
+                      loadingMore: _pager.loadingMore,
+                      onLoadMore: () => _pager.loadMore(filteredUsers.length),
+                    );
+                  }
+                  final user = visible[index];
                   return _UserLevelTile(
                     user: user,
                     subtitle: '${user.email} • ${user.role.label}',

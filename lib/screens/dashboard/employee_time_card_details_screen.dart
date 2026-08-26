@@ -17,7 +17,7 @@ import '../../providers/company_provider.dart';
 import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
 import '../../services/leave_request_repository.dart';
-import '../../services/time_entry_repository.dart';
+import '../../services/time_card_change_request_repository.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
@@ -47,7 +47,7 @@ class _EmployeeTimeCardDetailsScreenState
   );
   List<LeaveRequest> _leaves = [];
   final _leaveRepository = LeaveRequestRepository();
-  final _timeEntryRepository = TimeEntryRepository();
+  final _changeRequestRepo = TimeCardChangeRequestRepository();
 
   @override
   void initState() {
@@ -65,9 +65,33 @@ class _EmployeeTimeCardDetailsScreenState
     super.dispose();
   }
 
+  /// Prefer [myAssignment], then staff list — same profile admin/super admin use.
+  ({double dailyRate, EmployeeWeeklySchedule? weeklySchedule}) _payProfileFor(
+    UserModel user,
+    CompanyProvider companies,
+  ) {
+    final mine = companies.myAssignment;
+    if (mine != null && mine.userId == user.id) {
+      return (
+        dailyRate: mine.timeCardProfile.dailyRate,
+        weeklySchedule: mine.timeCardProfile.weeklySchedule,
+      );
+    }
+    for (final member in companies.staff) {
+      if (member.userId == user.id) {
+        return (
+          dailyRate: member.timeCardProfile.dailyRate,
+          weeklySchedule: member.timeCardProfile.weeklySchedule,
+        );
+      }
+    }
+    return (dailyRate: 0.0, weeklySchedule: null);
+  }
+
   Future<void> _loadIfReady() async {
     final user = context.read<AuthProvider>().user;
-    final company = context.read<CompanyProvider>().selectedCompany;
+    final companies = context.read<CompanyProvider>();
+    final company = companies.selectedCompany;
     if (user == null || company == null) return;
 
     final key = '${user.id}:${company.id}';
@@ -75,6 +99,14 @@ class _EmployeeTimeCardDetailsScreenState
     _loadedKey = key;
 
     context.read<TimeCardSettingsProvider>().ensureLoaded();
+    // Load pay profile + attendance so PNG salary matches admin/super admin.
+    await companies.loadMyAssignment(companyId: company.id, userId: user.id);
+    if (!mounted || _loadedKey != key) return;
+    if (companies.staff.isEmpty) {
+      await companies.loadStaff(company.id);
+      if (!mounted || _loadedKey != key) return;
+    }
+
     context.read<TimeEntryProvider>().loadDetailsForCompany(
           user: user,
           company: company,
@@ -93,28 +125,46 @@ class _EmployeeTimeCardDetailsScreenState
     }
   }
 
-  void _openPngPreview({
+  Future<void> _openPngPreview({
     required UserModel user,
     required CompanyModel company,
     required List<TimeCardTableRow> rows,
     required String totalHours,
-    required double dailyRate,
     required List<TimeEntry> entries,
-    EmployeeWeeklySchedule? weeklySchedule,
     required TimeCardSchedule globalSchedule,
-  }) {
+  }) async {
+    final companies = context.read<CompanyProvider>();
+    // Refresh assignment so daily rate / schedule are current for salary math.
+    await companies.loadMyAssignment(companyId: company.id, userId: user.id);
+    if (!mounted) return;
+
+    final profile = _payProfileFor(user, companies);
+    final workDates = <String>{
+      for (final row in rows)
+        if (row.status == 'Present' ||
+            row.status == 'Late' ||
+            row.status == 'Absent' ||
+            row.status == 'On Leave' ||
+            row.hasData)
+          row.workDate,
+    };
+    final periodEntries = workDates.isEmpty
+        ? entries
+        : entries.where((e) => workDates.contains(e.workDate)).toList();
+
     final salaryBreakdowns = [
       computeEmployeeSalaryBreakdown(
         employeeId: user.id,
         employeeName: user.username,
-        dailyRate: dailyRate,
+        dailyRate: profile.dailyRate,
         rows: rows,
-        entries: entries,
-        weeklySchedule: weeklySchedule,
+        entries: periodEntries,
+        weeklySchedule: profile.weeklySchedule,
         globalSchedule: globalSchedule,
       ),
     ];
 
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => TimeCardPngPreviewScreen(
@@ -133,7 +183,7 @@ class _EmployeeTimeCardDetailsScreenState
     );
   }
 
-  Future<void> _openEditEntryModal({
+  Future<void> _openRequestChangeModal({
     required UserModel user,
     required CompanyModel company,
     required TimeCardTableRow row,
@@ -144,144 +194,238 @@ class _EmployeeTimeCardDetailsScreenState
         ? null
         : entryCandidates.reduce((a, b) => a.timeIn.isBefore(b.timeIn) ? a : b);
 
-    // Initialize form values from existing entry.
+    final pending = await _changeRequestRepo.findPendingForWorkDate(
+      employeeId: user.id,
+      companyId: company.id,
+      companyDocumentId: company.firestoreId,
+      workDate: row.workDate,
+    );
+    if (!mounted) return;
+    if (pending != null) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Request already pending'),
+            content: Text(
+              'A time-change request for ${row.workDate} is already waiting '
+              'for admin or super admin review.\n\n'
+              'You can submit again only after it is approved or rejected.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
+
     final workDate = parseWorkDateString(row.workDate) ?? _viewDate;
-    TimeOfDay timeIn = TimeOfDay(
-      hour: existing?.timeIn.hour ?? 9,
-      minute: existing?.timeIn.minute ?? 0,
-    );
-    var isActive = existing?.timeOut == null;
-    TimeOfDay timeOut = TimeOfDay(
-      hour: (existing?.timeOut ?? existing?.timeIn ?? DateTime(workDate.year, workDate.month, workDate.day, 18)).hour,
-      minute: (existing?.timeOut ?? existing?.timeIn ?? DateTime(workDate.year, workDate.month, workDate.day, 18)).minute,
-    );
+    final baselineTimeIn =
+        existing?.timeIn ?? parseClockTimeOnDate(workDate, row.timeIn);
+    final baselineTimeOut = existing != null
+        ? existing.timeOut
+        : parseClockTimeOnDate(workDate, row.timeOut);
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        var saving = false;
+    TimeOfDay timeIn = baselineTimeIn == null
+        ? const TimeOfDay(hour: 9, minute: 0)
+        : TimeOfDay(hour: baselineTimeIn.hour, minute: baselineTimeIn.minute);
+    var isActive = baselineTimeIn != null && baselineTimeOut == null;
+    TimeOfDay timeOut = baselineTimeOut == null
+        ? const TimeOfDay(hour: 18, minute: 0)
+        : TimeOfDay(
+            hour: baselineTimeOut.hour,
+            minute: baselineTimeOut.minute,
+          );
 
-        return StatefulBuilder(
-          builder: (dialogContext, setStateDialog) {
-            Future<void> _pickTimeIn() async {
-              final picked = await showTimePicker(
-                context: dialogContext,
-                initialTime: timeIn,
-              );
-              if (picked == null) return;
-              setStateDialog(() => timeIn = picked);
-            }
+    final currentSummary = baselineTimeIn == null
+        ? 'No prior record on file'
+        : '${formatClockTime(baselineTimeIn)} → '
+            '${baselineTimeOut == null ? 'Open' : formatClockTime(baselineTimeOut)}';
 
-            Future<void> _pickTimeOut() async {
-              final picked = await showTimePicker(
-                context: dialogContext,
-                initialTime: timeOut,
-              );
-              if (picked == null) return;
-              setStateDialog(() => timeOut = picked);
-            }
+    final noteController = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          var saving = false;
 
-            return AlertDialog(
-              title: const Text('Edit time in / time out'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Time in'),
-                      trailing: Text(timeIn.format(context)),
-                      onTap: saving ? null : _pickTimeIn,
-                    ),
-                    SwitchListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Still on shift (no time out)'),
-                      value: isActive,
-                      onChanged: saving
-                          ? null
-                          : (v) => setStateDialog(() => isActive = v),
-                    ),
-                    if (!isActive)
+          return StatefulBuilder(
+            builder: (dialogContext, setStateDialog) {
+              Future<void> pickTimeIn() async {
+                final picked = await showTimePicker(
+                  context: dialogContext,
+                  initialTime: timeIn,
+                );
+                if (picked == null) return;
+                setStateDialog(() => timeIn = picked);
+              }
+
+              Future<void> pickTimeOut() async {
+                final picked = await showTimePicker(
+                  context: dialogContext,
+                  initialTime: timeOut,
+                );
+                if (picked == null) return;
+                setStateDialog(() => timeOut = picked);
+              }
+
+              return AlertDialog(
+                title: const Text('Request time change'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'You cannot edit time records directly. Proposed '
+                          'changes are sent to an admin or super admin for '
+                          'approval before they are saved. A note is required.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'Current: $currentSummary',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ),
                       ListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Time out'),
-                        trailing: Text(timeOut.format(context)),
-                        onTap: saving ? null : _pickTimeOut,
+                        title: const Text('Proposed time in'),
+                        trailing: Text(
+                          formatHourMinute12h(timeIn.hour, timeIn.minute),
+                        ),
+                        onTap: saving ? null : pickTimeIn,
                       ),
-                  ],
+                      SwitchListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Still on shift (no time out)'),
+                        value: isActive,
+                        onChanged: saving
+                            ? null
+                            : (v) => setStateDialog(() => isActive = v),
+                      ),
+                      if (!isActive)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Proposed time out'),
+                          trailing: Text(
+                            formatHourMinute12h(timeOut.hour, timeOut.minute),
+                          ),
+                          onTap: saving ? null : pickTimeOut,
+                        ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: noteController,
+                        enabled: !saving,
+                        minLines: 2,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Note',
+                          hintText: 'Required — reason for this change',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          setStateDialog(() => saving = true);
-                          try {
-                            final newTimeIn = DateTime(
-                              workDate.year,
-                              workDate.month,
-                              workDate.day,
-                              timeIn.hour,
-                              timeIn.minute,
-                            );
-                            final newTimeOut = isActive
-                                ? null
-                                : DateTime(
-                                    workDate.year,
-                                    workDate.month,
-                                    workDate.day,
-                                    timeOut.hour,
-                                    timeOut.minute,
-                                  );
+                actions: [
+                  TextButton(
+                    onPressed: saving
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final note = noteController.text.trim();
+                            if (note.isEmpty) {
+                              SnackBarHelper.showError(
+                                context,
+                                'A note is required for this request.',
+                              );
+                              return;
+                            }
+                            setStateDialog(() => saving = true);
+                            try {
+                              final newTimeIn = DateTime(
+                                workDate.year,
+                                workDate.month,
+                                workDate.day,
+                                timeIn.hour,
+                                timeIn.minute,
+                              );
+                              final newTimeOut = isActive
+                                  ? null
+                                  : DateTime(
+                                      workDate.year,
+                                      workDate.month,
+                                      workDate.day,
+                                      timeOut.hour,
+                                      timeOut.minute,
+                                    );
 
-                            await _timeEntryRepository.adminSaveEntry(
-                              entryId: existing?.id,
-                              userId: user.id,
-                              userEmail: user.email,
-                              username: user.username,
-                              company: company,
-                              timeIn: newTimeIn,
-                              timeOut: newTimeOut,
-                            );
+                              await _changeRequestRepo.submit(
+                                requester: user,
+                                company: company,
+                                employeeId: user.id,
+                                employeeName: user.username,
+                                employeeEmail: user.email,
+                                workDate: row.workDate,
+                                proposedTimeIn: newTimeIn,
+                                proposedTimeOut: newTimeOut,
+                                currentTimeIn: baselineTimeIn,
+                                currentTimeOut: baselineTimeOut,
+                                existingEntryId: existing?.id,
+                                note: note,
+                              );
 
-                            if (!mounted) return;
-                            Navigator.of(dialogContext).pop();
-                            await context.read<TimeEntryProvider>().loadDetailsForCompany(
-                                  user: user,
-                                  company: company,
-                                );
-                            if (!mounted) return;
-                            SnackBarHelper.showSuccess(
-                              context,
-                              'Time entry updated.',
-                            );
-                          } catch (e) {
-                            if (!mounted) return;
-                            setStateDialog(() => saving = false);
-                            SnackBarHelper.showError(
-                              context,
-                              e is StateError
-                                  ? e.message
-                                  : 'Could not update time entry.',
-                            );
-                          }
-                        },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+                              if (!mounted || !dialogContext.mounted) return;
+                              Navigator.of(dialogContext).pop();
+                              SnackBarHelper.showSuccess(
+                                context,
+                                'Change request sent for approval. Your time '
+                                'card will update only after an admin approves it.',
+                              );
+                            } catch (e) {
+                              if (!mounted) return;
+                              setStateDialog(() => saving = false);
+                              SnackBarHelper.showError(
+                                context,
+                                e is StateError
+                                    ? e.message
+                                    : 'Could not submit time-change request.',
+                              );
+                            }
+                          },
+                    child: const Text('Submit request'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      noteController.dispose();
+    }
   }
 
   @override
@@ -304,15 +448,8 @@ class _EmployeeTimeCardDetailsScreenState
     }
 
     EmployeeWeeklySchedule? employeeSchedule;
-    var dailyRate = 0.0;
     if (user != null) {
-      for (final member in companies.staff) {
-        if (member.userId == user.id) {
-          employeeSchedule = member.timeCardProfile.weeklySchedule;
-          dailyRate = member.timeCardProfile.dailyRate;
-          break;
-        }
-      }
+      employeeSchedule = _payProfileFor(user, companies).weeklySchedule;
     }
 
     final tableRows = buildTimeCardTableRows(
@@ -361,7 +498,8 @@ class _EmployeeTimeCardDetailsScreenState
           Text(
             company == null
                 ? 'Select a company to view records.'
-                : '${company.name} · ${timeEntries.allEntries.length} entries',
+                : '${company.name} · ${timeEntries.allEntries.length} entries · '
+                    'Request changes only — edits need admin approval',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: colors.textSecondary,
                 ),
@@ -429,9 +567,7 @@ class _EmployeeTimeCardDetailsScreenState
                         company: company,
                         rows: tableRows,
                         totalHours: periodTotal,
-                        dailyRate: dailyRate,
                         entries: timeEntries.allEntries,
-                        weeklySchedule: employeeSchedule,
                         globalSchedule: schedule,
                       ),
             ),
@@ -439,8 +575,9 @@ class _EmployeeTimeCardDetailsScreenState
             TimeCardReportTable(
               rows: tableRows,
               compact: true,
+              rowActionIcon: Icons.rate_review_outlined,
               onEditRow: (row) {
-                _openEditEntryModal(
+                _openRequestChangeModal(
                   user: user!,
                   company: company,
                   row: row,

@@ -1,6 +1,6 @@
 import '../models/time_entry.dart';
 
-/// Admin-submitted request to create/update an employee time in / time out.
+/// Admin- or employee-submitted request to create/update time in / time out.
 class TimeCardChangeRequest {
   const TimeCardChangeRequest({
     required this.id,
@@ -22,8 +22,11 @@ class TimeCardChangeRequest {
     this.currentTimeInText = '',
     this.currentTimeOutText = '',
     this.existingEntryId,
+    this.note = '',
     this.createdAt,
     this.updatedAt,
+    this.reviewedById = '',
+    this.reviewedByName = '',
   });
 
   final String id;
@@ -45,8 +48,12 @@ class TimeCardChangeRequest {
   final String currentTimeInText;
   final String currentTimeOutText;
   final String? existingEntryId;
+  /// Reason / note from the requester (required for employee self-requests).
+  final String note;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String reviewedById;
+  final String reviewedByName;
 
   bool get isPending => status.toLowerCase() == 'pending';
 
@@ -80,6 +87,9 @@ class TimeCardChangeRequest {
     DateTime? currentTimeOut,
     String? currentTimeInText,
     String? currentTimeOutText,
+    String? note,
+    String? reviewedById,
+    String? reviewedByName,
   }) {
     return TimeCardChangeRequest(
       id: id,
@@ -101,8 +111,11 @@ class TimeCardChangeRequest {
       currentTimeInText: currentTimeInText ?? this.currentTimeInText,
       currentTimeOutText: currentTimeOutText ?? this.currentTimeOutText,
       existingEntryId: existingEntryId,
+      note: note ?? this.note,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      reviewedById: reviewedById ?? this.reviewedById,
+      reviewedByName: reviewedByName ?? this.reviewedByName,
     );
   }
 
@@ -134,8 +147,11 @@ class TimeCardChangeRequest {
           data['currentTimeOutText']?.toString() ??
           '',
       existingEntryId: data['existingEntryId']?.toString(),
+      note: data['note']?.toString() ?? '',
       createdAt: _parseDate(data['createdAt']),
       updatedAt: _parseDate(data['updatedAt']),
+      reviewedById: data['reviewedById']?.toString() ?? '',
+      reviewedByName: data['reviewedByName']?.toString() ?? '',
     );
   }
 

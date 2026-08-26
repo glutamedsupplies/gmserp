@@ -46,8 +46,10 @@ class TimeEntryProvider extends ChangeNotifier {
       pendingClockIn == null;
 
   /// True when the employee may submit a time-out request.
+  /// Allowed with an approved open session, or a pending time-in for today.
   bool get canClockOutToday =>
-      activeEntry != null && pendingClockOut == null;
+      pendingClockOut == null &&
+      (activeEntry != null || pendingClockIn != null);
 
   Future<void> loadForCompany({
     required UserModel user,
@@ -171,6 +173,7 @@ class TimeEntryProvider extends ChangeNotifier {
   Future<bool> requestClockIn({
     required UserModel user,
     required CompanyModel company,
+    required String note,
   }) async {
     isSaving = true;
     errorMessage = null;
@@ -180,6 +183,7 @@ class TimeEntryProvider extends ChangeNotifier {
       pendingClockIn = await _clockRequests.submitClockIn(
         user: user,
         company: company,
+        note: note,
       );
       await _reloadLists(user: user, company: company);
       return true;
@@ -198,11 +202,12 @@ class TimeEntryProvider extends ChangeNotifier {
   Future<bool> requestClockOut({
     required UserModel user,
     required CompanyModel company,
+    required String note,
   }) async {
-    final entry = activeEntry;
-    if (entry == null) {
-      errorMessage =
-          'No approved time-in yet. Wait for admin approval before timing out.';
+    if (!canClockOutToday) {
+      errorMessage = pendingClockOut != null
+          ? 'Your time-out request is already pending approval.'
+          : 'Submit a time-in request for today before timing out.';
       notifyListeners();
       return false;
     }
@@ -215,7 +220,8 @@ class TimeEntryProvider extends ChangeNotifier {
       pendingClockOut = await _clockRequests.submitClockOut(
         user: user,
         company: company,
-        entryId: entry.id,
+        note: note,
+        entryId: activeEntry?.id,
       );
       await _reloadLists(user: user, company: company);
       return true;

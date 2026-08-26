@@ -14,6 +14,8 @@ class LeaveRequest {
   final String status;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String reviewedById;
+  final String reviewedByName;
 
   const LeaveRequest({
     required this.id,
@@ -29,6 +31,8 @@ class LeaveRequest {
     required this.status,
     this.createdAt,
     this.updatedAt,
+    this.reviewedById = '',
+    this.reviewedByName = '',
   });
 
   bool get isActiveLeave =>
@@ -58,6 +62,8 @@ class LeaveRequest {
       createdAt:
           _parseDate(data['createdAt']) ?? _parseDate(data['requestedAt']),
       updatedAt: _parseDate(data['updatedAt']),
+      reviewedById: data['reviewedById']?.toString() ?? '',
+      reviewedByName: data['reviewedByName']?.toString() ?? '',
     );
   }
 

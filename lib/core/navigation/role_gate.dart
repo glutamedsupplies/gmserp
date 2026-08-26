@@ -64,3 +64,32 @@ class AdminOrSuperAdminGate extends StatelessWidget {
     );
   }
 }
+
+class EmployeeGate extends StatelessWidget {
+  const EmployeeGate({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final role = context.watch<AuthProvider>().user?.role;
+    if (role == UserRole.employee) {
+      return child;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      if (context.read<AuthProvider>().user?.role == UserRole.employee) {
+        return;
+      }
+      AppNavigator.popToRoot(context);
+    });
+
+    return const Scaffold(
+      body: AppLoadingView(
+        title: 'Checking access',
+        message: 'Verifying employee permissions…',
+      ),
+    );
+  }
+}

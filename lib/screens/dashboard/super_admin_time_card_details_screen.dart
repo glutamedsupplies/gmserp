@@ -437,7 +437,9 @@ class _SuperAdminTimeCardDetailsScreenState
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Time in'),
-                      trailing: Text(timeIn.format(context)),
+                      trailing: Text(
+                        formatHourMinute12h(timeIn.hour, timeIn.minute),
+                      ),
                       onTap: saving ? null : pickTimeIn,
                     ),
                     SwitchListTile(
@@ -454,7 +456,9 @@ class _SuperAdminTimeCardDetailsScreenState
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Time out'),
-                        trailing: Text(timeOut.format(context)),
+                        trailing: Text(
+                          formatHourMinute12h(timeOut.hour, timeOut.minute),
+                        ),
                         onTap: saving ? null : pickTimeOut,
                       ),
                   ],
@@ -504,6 +508,12 @@ class _SuperAdminTimeCardDetailsScreenState
                                 timeIn: newTimeIn,
                                 timeOut: newTimeOut,
                               );
+                              await context
+                                  .read<CompanyProvider>()
+                                  .unlockEmployeeClockRequests(
+                                    companyId: company.id,
+                                    userId: selectedMember.userId,
+                                  );
                             } else {
                               if (authUser == null) {
                                 throw StateError('Sign in to submit a request.');

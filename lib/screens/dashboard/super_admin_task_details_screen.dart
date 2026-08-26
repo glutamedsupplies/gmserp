@@ -5,6 +5,7 @@ import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_task.dart';
+import '../../models/time_entry.dart';
 import '../../providers/company_provider.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/custom_text_field.dart';
@@ -256,10 +257,8 @@ String _formatTaskDate(DateTime? date) {
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
-  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
-  final minute = local.minute.toString().padLeft(2, '0');
-  final period = local.hour >= 12 ? 'PM' : 'AM';
-  return '${months[local.month - 1]} ${local.day}, ${local.year}  $hour:$minute $period';
+  return '${months[local.month - 1]} ${local.day}, ${local.year}  '
+      '${formatHourMinute12h(local.hour, local.minute)}';
 }
 
 class _DateCard extends StatelessWidget {

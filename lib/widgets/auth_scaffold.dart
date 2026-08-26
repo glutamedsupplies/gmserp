@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/constants/app_constants.dart';
 import '../core/theme/app_colors.dart';
 import '../core/utils/responsive.dart';
+import '../providers/settings_provider.dart';
 
 /// Open auth layout: white background, no card, centered form.
 class AuthScaffold extends StatelessWidget {
@@ -15,6 +17,8 @@ class AuthScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild auth chrome when compact/normal density changes.
+    context.watch<SettingsProvider>();
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final horizontal = Responsive.horizontalPadding(context);
     final topPadding = Responsive.isMobile(context) ? 36.0 : 56.0;

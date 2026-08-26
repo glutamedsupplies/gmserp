@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../core/constants/app_constants.dart';
 import '../core/constants/app_routes.dart';
 import '../core/navigation/app_navigator.dart';
+import '../core/navigation/notification_sync.dart';
 import '../core/navigation/sidebar_destinations.dart';
 import '../core/theme/app_colors.dart';
 import '../core/utils/snackbar_helper.dart';
@@ -55,16 +56,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   bool _redirectScheduled = false;
 
   Future<void> _logout() async {
-    SnackBarHelper.showLoading(
-      context,
-      title: 'Signing out',
-      message: 'Ending your session…',
-    );
-    context.read<CompanyProvider>().clearSelection();
-    await context.read<AuthProvider>().logout();
-    SnackBarHelper.hideLoading();
-    if (!mounted) return;
-    SnackBarHelper.showInfo(context, 'You have been signed out.');
+    await SnackBarHelper.confirmLogout(context);
   }
 
   void _goTo(String route) {
@@ -80,7 +72,8 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
     }
     if (route == widget.currentRoute) return;
     final user = context.read<AuthProvider>().user;
-    if (!_canOpenRoute(user?.role, route)) return;
+    final role = context.read<CompanyProvider>().effectiveRoleFor(user);
+    if (!_canOpenRoute(role, route)) return;
     if (widget.currentRoute.startsWith('$route/')) {
       Navigator.of(context).pop();
       return;
@@ -99,7 +92,10 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       return;
     }
     if (widget.currentRoute == AppRoutes.selectCompany) return;
-    if (context.read<CompanyProvider>().selectedCompany != null) return;
+    final companies = context.read<CompanyProvider>();
+    if (companies.hasActiveCompanySession) return;
+    // Drop nested routes; AuthGate shows SelectCompany when unlock is inactive.
+    companies.beginCompanyPick();
     AppNavigator.popToRoot(context);
   }
 
@@ -117,6 +113,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       AppRoutes.superAdminUsers,
       AppRoutes.superAdminRequests,
       AppRoutes.superAdminLogs,
+      AppRoutes.superAdminAnnouncements,
     };
     if (superAdminOnly.contains(route)) {
       if (route == AppRoutes.superAdminRequests) {
@@ -125,24 +122,30 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       return role == UserRole.superAdmin;
     }
     if (route == AppRoutes.adminDashboard ||
-        route == AppRoutes.adminSubmittedRequests ||
         route == AppRoutes.superAdminTimeCardDetails ||
         route == AppRoutes.superAdminTimeCardSettings) {
       return role == UserRole.admin || role == UserRole.superAdmin;
     }
-    if (route == AppRoutes.timeCardCalendar ||
-        route == AppRoutes.notifications) {
-      return role == UserRole.employee || role == UserRole.admin;
+    if (route == AppRoutes.timeCardCalendar) {
+      return role == UserRole.employee ||
+          role == UserRole.admin ||
+          role == UserRole.superAdmin;
     }
-    const employeeTimeCardRoutes = {
+    if (route == AppRoutes.notifications) {
+      return role == UserRole.employee ||
+          role == UserRole.admin ||
+          role == UserRole.superAdmin;
+    }
+    const employeeOnlyRoutes = {
       AppRoutes.employeeTimeInOut,
       AppRoutes.employeeTimeCardDetails,
+      AppRoutes.employeeRequestLeave,
     };
-    if (employeeTimeCardRoutes.contains(route)) {
+    if (employeeOnlyRoutes.contains(route)) {
       return role == UserRole.employee;
     }
-    if (route == AppRoutes.employeeRequestLeave) {
-      return role == UserRole.employee || role == UserRole.admin;
+    if (route == AppRoutes.adminSubmittedRequests) {
+      return false;
     }
     return true;
   }
@@ -166,15 +169,14 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= AppConstants.tabletBreakpoint;
     final user = context.watch<AuthProvider>().user;
-    final selectedCompany = context.watch<CompanyProvider>().selectedCompany;
-    final destinations = destinationsForRole(user?.role);
+    final companies = context.watch<CompanyProvider>();
+    final destinations =
+        destinationsForRole(companies.effectiveRoleFor(user));
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<PendingRequestsProvider>().syncUser(
-            context.read<AuthProvider>().user,
-          );
+      syncUserNotificationProviders(context);
     });
     // Rebuild chrome when appearance/notification prefs change.
     context.watch<SettingsProvider>();
@@ -182,7 +184,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
         context.watch<PendingRequestsProvider>().pendingCount;
     final needsCompany = (user?.role == UserRole.employee ||
             user?.role == UserRole.admin) &&
-        selectedCompany == null &&
+        !companies.hasActiveCompanySession &&
         widget.currentRoute != AppRoutes.selectCompany;
     if (needsCompany && !_redirectScheduled) {
       _redirectScheduled = true;
@@ -369,21 +371,47 @@ class _DashboardHeader extends StatelessWidget {
                 ),
               ),
               ...?actions,
-              if (user?.role == UserRole.superAdmin)
+              if (user?.role == UserRole.superAdmin) ...[
                 IconButton(
-                  tooltip: 'Logs',
-                  onPressed: () => onSelect(AppRoutes.superAdminLogs),
+                  tooltip: 'Create announcement',
+                  onPressed: () =>
+                      onSelect(AppRoutes.superAdminAnnouncements),
                   icon: Icon(
-                    Icons.history_rounded,
+                    Icons.campaign_rounded,
                     size: density.compact ? 22 : 24,
                     color: colors.textPrimary,
                   ),
                   color: colors.textPrimary,
                   style: IconButton.styleFrom(
-                    highlightColor: colors.textPrimary.withValues(alpha: 0.08),
+                    highlightColor:
+                        colors.textPrimary.withValues(alpha: 0.08),
                   ),
-                )
-              else if (user?.role == UserRole.admin ||
+                ),
+                Builder(
+                  builder: (context) {
+                    final unseen = context
+                        .watch<UserOutcomeNotificationsProvider>()
+                        .unseenCount;
+                    return IconButton(
+                      tooltip: unseen > 0
+                          ? 'Activity · ${PendingCountBadge.labelFor(unseen)} new'
+                          : 'Activity',
+                      onPressed: () => onSelect(AppRoutes.notifications),
+                      icon: BadgedIcon(
+                        icon: Icons.notifications_rounded,
+                        count: unseen,
+                        iconSize: density.compact ? 22 : 24,
+                        color: colors.textPrimary,
+                      ),
+                      color: colors.textPrimary,
+                      style: IconButton.styleFrom(
+                        highlightColor:
+                            colors.textPrimary.withValues(alpha: 0.08),
+                      ),
+                    );
+                  },
+                ),
+              ] else if (user?.role == UserRole.admin ||
                   user?.role == UserRole.employee)
                 Builder(
                   builder: (context) {

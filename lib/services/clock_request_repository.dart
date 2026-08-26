@@ -2,24 +2,54 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/clock_request.dart';
 import '../models/company_model.dart';
+import '../models/staff_assignment.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
+import 'company_repository.dart';
 import 'time_entry_repository.dart';
 
 class ClockRequestRepository {
   ClockRequestRepository({
     FirebaseFirestore? firestore,
     TimeEntryRepository? timeEntries,
+    CompanyRepository? companies,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _timeEntries = timeEntries ?? TimeEntryRepository();
+        _timeEntries = timeEntries ?? TimeEntryRepository(),
+        _companies = companies ?? CompanyRepository();
 
   final FirebaseFirestore _firestore;
   final TimeEntryRepository _timeEntries;
+  final CompanyRepository _companies;
 
   static const String collectionName = 'clockRequests';
 
   CollectionReference<Map<String, dynamic>> get _requests =>
       _firestore.collection(collectionName);
+
+  Future<void> _ensureNotLocked({
+    required String userId,
+    required String companyId,
+  }) async {
+    final count = await _companies.getClockDeclineCount(
+      companyId: companyId,
+      userId: userId,
+    );
+    if (count >= StaffAssignment.clockDeclineLimit) {
+      throw StateError(
+        'Time in/out requests are locked after '
+        '${StaffAssignment.clockDeclineLimit} declines. '
+        'Ask an admin or super admin to edit your time card settings to unlock.',
+      );
+    }
+  }
+
+  String _requireNote(String? note) {
+    final trimmed = note?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      throw StateError('A note is required for this request.');
+    }
+    return trimmed;
+  }
 
   Future<List<ClockRequest>> listAll() async {
     final snapshot = await _requests.get();
@@ -46,6 +76,11 @@ class ClockRequestRepository {
       items = items.where((r) => r.workDate == workDate).toList();
     }
     return items;
+  }
+
+  Future<List<ClockRequest>> listForUser(String userId) async {
+    final snapshot = await _requests.where('userId', isEqualTo: userId).get();
+    return _sorted(snapshot.docs);
   }
 
   Future<ClockRequest?> findPendingClockIn({
@@ -83,10 +118,13 @@ class ClockRequestRepository {
   Future<ClockRequest> submitClockIn({
     required UserModel user,
     required CompanyModel company,
+    required String note,
     DateTime? requestedAt,
   }) async {
     final at = requestedAt ?? DateTime.now();
     final workDate = formatWorkDate(at);
+    final noteText = _requireNote(note);
+    await _ensureNotLocked(userId: user.id, companyId: company.id);
 
     final open = await _timeEntries.getOpenEntry(
       userId: user.id,
@@ -132,6 +170,7 @@ class ClockRequestRepository {
       'workDate': workDate,
       'requestedAt': Timestamp.fromDate(at),
       'entryId': null,
+      'note': noteText,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -147,21 +186,14 @@ class ClockRequestRepository {
   Future<ClockRequest> submitClockOut({
     required UserModel user,
     required CompanyModel company,
-    required String entryId,
+    required String note,
+    String? entryId,
     DateTime? requestedAt,
   }) async {
     final at = requestedAt ?? DateTime.now();
     final workDate = formatWorkDate(at);
-
-    final entry = await _timeEntries.getById(entryId);
-    if (entry == null || !entry.isOpen) {
-      throw StateError(
-        'No open time entry to clock out. Wait for your time-in to be approved.',
-      );
-    }
-    if (entry.userId != user.id) {
-      throw StateError('This time entry does not belong to you.');
-    }
+    final noteText = _requireNote(note);
+    await _ensureNotLocked(userId: user.id, companyId: company.id);
 
     final pendingOut = await findPendingClockOut(
       userId: user.id,
@@ -175,6 +207,55 @@ class ClockRequestRepository {
       );
     }
 
+    String? resolvedEntryId = entryId?.trim();
+    String? relatedClockInId;
+
+    if (resolvedEntryId != null && resolvedEntryId.isNotEmpty) {
+      final entry = await _timeEntries.getById(resolvedEntryId);
+      if (entry == null || !entry.isOpen) {
+        throw StateError(
+          'No open time entry to clock out. '
+          'Submit time-in first, or wait if it was already closed.',
+        );
+      }
+      if (entry.userId != user.id) {
+        throw StateError('This time entry does not belong to you.');
+      }
+      if (!at.isAfter(entry.timeIn)) {
+        throw StateError('Time out must be after your time in.');
+      }
+    } else {
+      final open = await _timeEntries.getOpenEntry(
+        userId: user.id,
+        companyId: company.id,
+      );
+      if (open != null && open.workDate == workDate) {
+        if (!at.isAfter(open.timeIn)) {
+          throw StateError('Time out must be after your time in.');
+        }
+        resolvedEntryId = open.id;
+      } else {
+        final pendingIn = await findPendingClockIn(
+          userId: user.id,
+          companyId: company.id,
+          workDate: workDate,
+        );
+        if (pendingIn == null) {
+          throw StateError(
+            'Submit a time-in request for today before timing out.',
+          );
+        }
+        if (!at.isAfter(pendingIn.requestedAt)) {
+          throw StateError(
+            'Time out must be after your pending time in '
+            '(${pendingIn.requestedAtLabel}).',
+          );
+        }
+        relatedClockInId = pendingIn.id;
+        resolvedEntryId = null;
+      }
+    }
+
     final data = <String, dynamic>{
       'type': ClockRequest.typeClockOut,
       'status': 'pending',
@@ -186,7 +267,9 @@ class ClockRequestRepository {
       'companyName': company.name,
       'workDate': workDate,
       'requestedAt': Timestamp.fromDate(at),
-      'entryId': entryId,
+      'entryId': resolvedEntryId,
+      'relatedClockInId': relatedClockInId,
+      'note': noteText,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -199,20 +282,98 @@ class ClockRequestRepository {
     );
   }
 
-  Future<void> reject(String requestId) async {
-    await _requests.doc(requestId).update({
-      'status': 'rejected',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> approve(ClockRequest request) async {
+  Future<void> reject(
+    ClockRequest request, {
+    String reviewerId = '',
+    String reviewerName = '',
+  }) async {
     if (!request.isPending) {
       throw StateError('This request is no longer pending.');
     }
 
+    final rejectFields = <String, dynamic>{
+      'status': 'rejected',
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
+      if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
+      'reviewedAt': FieldValue.serverTimestamp(),
+    };
+
+    await _requests.doc(request.id).update(rejectFields);
+
+    // One strike per admin decline decision (cascaded time-out does not add another).
+    await recordDeclineStrike(
+      companyId: request.companyId,
+      userId: request.userId,
+    );
+
+    // Declining time in also declines that day's pending time out.
+    if (!request.isClockIn) return;
+
+    final pendingOut = await findPendingClockOut(
+      userId: request.userId,
+      companyId: request.companyId,
+      workDate: request.workDate,
+    );
+    if (pendingOut == null) return;
+
+    await _requests.doc(pendingOut.id).update({
+      ...rejectFields,
+      'relatedClockInId': request.id,
+      'rejectedWithClockInId': request.id,
+    });
+  }
+
+  /// Records one decline toward the 3-decline lock for this employee/company.
+  Future<void> recordDeclineStrike({
+    required String companyId,
+    required String userId,
+  }) {
+    return _companies.incrementClockDeclineCount(
+      companyId: companyId,
+      userId: userId,
+    );
+  }
+
+  Future<void> unlockClockRequests({
+    required String companyId,
+    required String userId,
+  }) {
+    return _companies.resetClockDeclineCount(
+      companyId: companyId,
+      userId: userId,
+    );
+  }
+
+  Map<String, dynamic> _reviewerUpdate({
+    required String reviewerId,
+    required String reviewerName,
+  }) {
+    return {
+      'status': 'approved',
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
+      if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
+      'reviewedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  Future<void> approve(
+    ClockRequest request, {
+    String reviewerId = '',
+    String reviewerName = '',
+  }) async {
+    if (!request.isPending) {
+      throw StateError('This request is no longer pending.');
+    }
+
+    final reviewFields = _reviewerUpdate(
+      reviewerId: reviewerId,
+      reviewerName: reviewerName,
+    );
+
     if (request.isClockIn) {
-      await _timeEntries.applyApprovedClockIn(
+      final entry = await _timeEntries.applyApprovedClockIn(
         userId: request.userId,
         userEmail: request.userEmail,
         username: request.username,
@@ -222,20 +383,62 @@ class ClockRequestRepository {
         workDate: request.workDate,
         timeIn: request.requestedAt,
       );
-    } else {
-      final entryId = request.entryId?.trim() ?? '';
-      if (entryId.isEmpty) {
-        throw StateError('Time-out request is missing the open entry id.');
+      await _requests.doc(request.id).update(reviewFields);
+
+      // Link any pending time-out for this day to the new open entry.
+      final pendingOut = await findPendingClockOut(
+        userId: request.userId,
+        companyId: request.companyId,
+        workDate: request.workDate,
+      );
+      if (pendingOut != null) {
+        await _requests.doc(pendingOut.id).update({
+          'entryId': entry.id,
+          'relatedClockInId': request.id,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       }
-      await _timeEntries.applyApprovedClockOut(
-        entryId: entryId,
-        timeOut: request.requestedAt,
+      return;
+    }
+
+    // Time out requires an approved time-in (open entry) for that day first.
+    final pendingIn = await findPendingClockIn(
+      userId: request.userId,
+      companyId: request.companyId,
+      workDate: request.workDate,
+    );
+    if (pendingIn != null) {
+      throw StateError(
+        'Approve the time-in request for ${request.workDate} first, '
+        'then approve this time-out.',
       );
     }
 
+    var entryId = request.entryId?.trim() ?? '';
+    if (entryId.isEmpty) {
+      final open = await _timeEntries.getOpenEntry(
+        userId: request.userId,
+        companyId: request.companyId,
+      );
+      if (open != null && open.workDate == request.workDate) {
+        entryId = open.id;
+      }
+    }
+
+    if (entryId.isEmpty) {
+      throw StateError(
+        'Time in for ${request.workDate} is not approved yet. '
+        'Approve time in before approving time out.',
+      );
+    }
+
+    await _timeEntries.applyApprovedClockOut(
+      entryId: entryId,
+      timeOut: request.requestedAt,
+    );
     await _requests.doc(request.id).update({
-      'status': 'approved',
-      'updatedAt': FieldValue.serverTimestamp(),
+      ...reviewFields,
+      'entryId': entryId,
     });
   }
 

@@ -603,8 +603,10 @@ class _SalaryBreakdownPanel extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           const Text(
-            'Pay: daily rate ÷ 8 hours × hours worked (max 8 hours/day)\n'
-            'Late shown from clock-in; absent & on leave: ₱0',
+            'Basic Pay = Daily Rate × Payable Days\n'
+            'Late / Early Out Deduction = Minutes × (Daily Rate ÷ paid work minutes)\n'
+            'Net Pay = Basic Pay − Late − Early Out (− other + additions). '
+            'Lunch break is not counted as late or early-out time.',
             style: TextStyle(
               fontSize: 14,
               height: 1.35,
@@ -759,21 +761,64 @@ class _SalaryBreakdownCard extends StatelessWidget {
 
     final lines = <_SalaryLine>[
       _SalaryLine(
-        'Daily rate',
+        'Daily Rate',
         EmployeeSalaryBreakdown.formatMoney(breakdown.dailyRate),
         valueColor: _SalaryValueColor.green,
       ),
-      if (breakdown.totalWorkedMinutes > 0)
+      _SalaryLine(
+        'Payable Days',
+        '${breakdown.payableDays}',
+        valueColor: _SalaryValueColor.neutral,
+      ),
+      _SalaryLine(
+        'Basic Pay',
+        EmployeeSalaryBreakdown.formatMoney(breakdown.basicPay),
+        valueColor: _SalaryValueColor.green,
+      ),
+      if (breakdown.totalLateMinutes > 0 || breakdown.lateDays > 0)
         _SalaryLine(
-          breakdown.formattedWorkedLabel,
-          EmployeeSalaryBreakdown.formatMoney(breakdown.grossPay),
-          valueColor: _SalaryValueColor.green,
-        ),
-      if (breakdown.lateDays > 0 || breakdown.totalLateMinutes > 0)
-        _SalaryLine(
-          breakdown.formattedLateLabel,
-          EmployeeSalaryBreakdown.formatMoney(breakdown.lateDeduction),
+          'Total Late',
+          '${breakdown.totalLateMinutes} minute${breakdown.totalLateMinutes == 1 ? '' : 's'}',
           valueColor: _SalaryValueColor.orange,
+        ),
+      if (breakdown.lateDeduction > 0 || breakdown.totalLateMinutes > 0)
+        _SalaryLine(
+          'Late Deduction',
+          EmployeeSalaryBreakdown.formatMoney(
+            breakdown.lateDeduction,
+            showMinus: true,
+          ),
+          valueColor: _SalaryValueColor.orange,
+        ),
+      if (breakdown.totalEarlyOutMinutes > 0)
+        _SalaryLine(
+          'Total Early Out',
+          '${breakdown.totalEarlyOutMinutes} minute${breakdown.totalEarlyOutMinutes == 1 ? '' : 's'}',
+          valueColor: _SalaryValueColor.orange,
+        ),
+      if (breakdown.earlyOutDeduction > 0 || breakdown.totalEarlyOutMinutes > 0)
+        _SalaryLine(
+          'Early Out Deduction',
+          EmployeeSalaryBreakdown.formatMoney(
+            breakdown.earlyOutDeduction,
+            showMinus: true,
+          ),
+          valueColor: _SalaryValueColor.orange,
+        ),
+      if (breakdown.otherDeductions > 0)
+        _SalaryLine(
+          'Other Deductions',
+          EmployeeSalaryBreakdown.formatMoney(
+            breakdown.otherDeductions,
+            showMinus: true,
+          ),
+          valueColor: _SalaryValueColor.red,
+        ),
+      if (breakdown.additions > 0)
+        _SalaryLine(
+          'Additions',
+          EmployeeSalaryBreakdown.formatMoney(breakdown.additions),
+          valueColor: _SalaryValueColor.green,
         ),
       if (breakdown.absentDays > 0)
         _SalaryLine(
@@ -787,6 +832,11 @@ class _SalaryBreakdownCard extends StatelessWidget {
           EmployeeSalaryBreakdown.formatMoney(0),
           valueColor: _SalaryValueColor.red,
         ),
+      _SalaryLine(
+        'Net Pay',
+        EmployeeSalaryBreakdown.formatMoney(breakdown.netPay),
+        valueColor: _SalaryValueColor.green,
+      ),
     ];
 
     return Column(

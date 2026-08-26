@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/constants/app_routes.dart';
 import 'core/navigation/app_navigator.dart';
+import 'core/navigation/notification_sync.dart';
 import 'core/navigation/post_login.dart';
 import 'core/navigation/role_gate.dart';
 import 'core/theme/app_colors.dart';
@@ -24,7 +25,6 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/company/select_company_screen.dart';
 import 'screens/dashboard/admin_dashboard_screen.dart';
-import 'screens/dashboard/admin_submitted_requests_screen.dart';
 import 'screens/dashboard/attendance_calendar_screen.dart';
 import 'screens/dashboard/employee_request_leave_screen.dart';
 import 'screens/dashboard/employee_time_card_details_screen.dart';
@@ -33,12 +33,12 @@ import 'screens/dashboard/notifications_screen.dart';
 import 'screens/dashboard/profile_screen.dart';
 import 'screens/dashboard/role_dashboard_screen.dart';
 import 'screens/dashboard/settings_screen.dart';
+import 'screens/dashboard/super_admin_announcements_screen.dart';
 import 'screens/dashboard/super_admin_company_users_screen.dart';
 import 'screens/dashboard/super_admin_dashboard_screen.dart';
 import 'screens/dashboard/super_admin_employee_lists_screen.dart';
 import 'screens/dashboard/super_admin_role_details_screen.dart';
 import 'screens/dashboard/super_admin_role_lists_screen.dart';
-import 'screens/dashboard/super_admin_logs_screen.dart';
 import 'screens/dashboard/super_admin_requests_screen.dart';
 import 'screens/dashboard/super_admin_task_details_screen.dart';
 import 'screens/dashboard/super_admin_task_lists_screen.dart';
@@ -57,7 +57,7 @@ class App extends StatefulWidget {
   State<App> createState() => _AppState();
 }
 
-class _AppState extends State<App> {
+class _AppState extends State<App> with WidgetsBindingObserver {
   final _timeEntries = TimeEntryProvider();
   final _timeCardSettings = TimeCardSettingsProvider();
   late final PendingRequestsProvider _pendingRequests;
@@ -65,6 +65,7 @@ class _AppState extends State<App> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timeEntries.dispose();
     _timeCardSettings.dispose();
     _pendingRequests.dispose();
@@ -75,6 +76,7 @@ class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pendingRequests = PendingRequestsProvider(
       notificationsEnabled: () =>
           context.read<SettingsProvider>().notificationsEnabled,
@@ -101,11 +103,12 @@ class _AppState extends State<App> {
         );
         if (!member && mounted) {
           companies.clearSelection();
+        } else if (mounted) {
+          await companies.ensureCompanySessionValid();
         }
       }
       if (!mounted) return;
-      _pendingRequests.syncUser(auth.user);
-      _userOutcomes.syncUser(auth.user);
+      syncUserNotificationProviders(context);
       await _syncLeaveRemindersForUser();
 
       final launchPayload =
@@ -113,6 +116,27 @@ class _AppState extends State<App> {
       if (!mounted) return;
       if (launchPayload != null) {
         _handleNotificationTap(launchPayload);
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      final user = auth.user;
+      if (user == null) return;
+      if (user.role != UserRole.employee && user.role != UserRole.admin) {
+        return;
+      }
+      final companies = context.read<CompanyProvider>();
+      final stillValid = await companies.ensureCompanySessionValid();
+      if (!mounted) return;
+      syncUserNotificationProviders(context);
+      if (!stillValid && companies.selectedCompany != null) {
+        // AuthGate rebuilds to SelectCompanyScreen when unlock is cleared.
       }
     });
   }
@@ -159,8 +183,10 @@ class _AppState extends State<App> {
   Future<void> _syncLeaveRemindersForUser() async {
     final auth = context.read<AuthProvider>();
     final user = auth.user;
-    final company = context.read<CompanyProvider>().selectedCompany;
+    final companies = context.read<CompanyProvider>();
+    final company = companies.selectedCompany;
     if (user == null || company == null) return;
+    if (!companies.notificationsAllowedFor(user.role)) return;
     if (user.role != UserRole.employee && user.role != UserRole.admin) {
       return;
     }
@@ -196,11 +222,18 @@ class _AppState extends State<App> {
       child: MaterialApp(
         title: AppConstants.appName,
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
+        theme: AppTheme.light(compact: settings.isCompactMode),
+        darkTheme: AppTheme.dark(compact: settings.isCompactMode),
         themeMode: settings.themeMode,
         themeAnimationDuration: const Duration(milliseconds: 280),
         themeAnimationCurve: Curves.easeOutCubic,
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(alwaysUse24HourFormat: false),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: const _AuthGate(),
         routes: {
           AppRoutes.register: (_) => const RegisterScreen(),
@@ -217,12 +250,12 @@ class _AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    context.watch<CompanyProvider>();
 
-    // Keep Super Admin + employee/admin notification listeners in sync.
+    // Keep notification listeners in sync with auth + company unlock.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
-      context.read<PendingRequestsProvider>().syncUser(auth.user);
-      context.read<UserOutcomeNotificationsProvider>().syncUser(auth.user);
+      syncUserNotificationProviders(context);
     });
 
     if (auth.isInitializing) {
@@ -239,7 +272,8 @@ class _AuthGate extends StatelessWidget {
       switch (PostLoginNavigation.routeFor(auth.user!)) {
         case AppRoutes.selectCompany:
           final companies = context.watch<CompanyProvider>();
-          if (companies.selectedCompany != null && !companies.isPickingCompany) {
+          // Company-code unlock is required; expired/locked sessions return here.
+          if (companies.hasActiveCompanySession) {
             return const _SignedInNavigator();
           }
           return const SelectCompanyScreen();
@@ -289,15 +323,14 @@ Widget _signedInPage(RouteSettings settings) {
     case AppRoutes.adminDashboard:
       return const AdminDashboardScreen();
     case AppRoutes.adminSubmittedRequests:
-      return const AdminOrSuperAdminGate(
-        child: AdminSubmittedRequestsScreen(),
-      );
+      // Submitted requests is retired for Admin; keep route redirect via scaffold.
+      return const RoleDashboardScreen();
     case AppRoutes.employeeTimeInOut:
-      return const EmployeeTimeInOutScreen();
+      return const EmployeeGate(child: EmployeeTimeInOutScreen());
     case AppRoutes.employeeTimeCardDetails:
-      return const EmployeeTimeCardDetailsScreen();
+      return const EmployeeGate(child: EmployeeTimeCardDetailsScreen());
     case AppRoutes.employeeRequestLeave:
-      return const EmployeeRequestLeaveScreen();
+      return const EmployeeGate(child: EmployeeRequestLeaveScreen());
     case AppRoutes.timeCardCalendar:
       return const AttendanceCalendarScreen();
     case AppRoutes.notifications:
@@ -379,7 +412,11 @@ Widget _signedInPage(RouteSettings settings) {
       );
     case AppRoutes.superAdminLogs:
       return const SuperAdminGate(
-        child: SuperAdminLogsScreen(),
+        child: NotificationsScreen(),
+      );
+    case AppRoutes.superAdminAnnouncements:
+      return const SuperAdminGate(
+        child: SuperAdminAnnouncementsScreen(),
       );
     case AppRoutes.superAdminTimeCardDetails:
       return const AdminOrSuperAdminGate(

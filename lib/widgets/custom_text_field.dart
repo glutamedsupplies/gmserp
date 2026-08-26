@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'compact_page.dart';
+
 class CustomTextField extends StatelessWidget {
   const CustomTextField({
     super.key,
@@ -37,17 +39,18 @@ class CustomTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontSize: 14,
+                fontSize: density.cardTitleSize,
                 fontWeight: FontWeight.w600,
               ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: density.compact ? 6 : 8),
         TextFormField(
           controller: controller,
           validator: validator,
@@ -60,14 +63,13 @@ class CustomTextField extends StatelessWidget {
           autofillHints: autofillHints,
           onChanged: onChanged,
           autovalidateMode: autovalidateMode,
-          style: TextStyle(
-            fontSize: 15,
-            color: Theme.of(context).textTheme.bodyLarge?.color,
-          ),
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                fontSize: density.bodySize + 1,
+              ),
           decoration: InputDecoration(
             hintText: hint ?? label,
             prefixIcon: prefixIcon != null
-                ? Icon(prefixIcon, size: 20)
+                ? Icon(prefixIcon, size: density.compact ? 18 : 22)
                 : null,
           ),
         ),

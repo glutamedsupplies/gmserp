@@ -1,9 +1,12 @@
 enum ActivityLogKind {
   timeEdit,
+  clock,
   leave,
+  salaryRate,
+  announcement,
 }
 
-/// Super Admin audit log built from resolved leave / time-card requests.
+/// Super Admin audit log / Notifications inbox entry.
 class ActivityLogEntry {
   const ActivityLogEntry({
     required this.id,
@@ -18,6 +21,7 @@ class ActivityLogEntry {
     required this.detail,
     required this.occurredAt,
     this.actorName = '',
+    this.reviewerName = '',
     this.workDate = '',
     this.leaveRange = '',
   });
@@ -33,31 +37,56 @@ class ActivityLogEntry {
   final String summary;
   final String detail;
   final DateTime occurredAt;
+  /// Requester / sender / salary updater.
   final String actorName;
+  /// Who approved or declined the request.
+  final String reviewerName;
   final String workDate;
   final String leaveRange;
 
   bool get isApproved => status.toLowerCase() == 'approved';
   bool get isRejected => status.toLowerCase() == 'rejected';
+  bool get isSalaryUpdate => kind == ActivityLogKind.salaryRate;
+  bool get isAnnouncement => kind == ActivityLogKind.announcement;
 
-  String get kindLabel =>
-      kind == ActivityLogKind.timeEdit ? 'Time card' : 'Leave';
+  String get kindLabel {
+    switch (kind) {
+      case ActivityLogKind.timeEdit:
+        return 'Time card';
+      case ActivityLogKind.clock:
+        return 'Time in / out';
+      case ActivityLogKind.leave:
+        return 'Leave';
+      case ActivityLogKind.salaryRate:
+        return 'Salary';
+      case ActivityLogKind.announcement:
+        return 'Announcement';
+    }
+  }
 
   String get statusLabel {
     if (status.isEmpty) return status;
     return '${status[0].toUpperCase()}${status.substring(1)}';
   }
 
+  String get decisionLabel {
+    if (reviewerName.trim().isEmpty) return '';
+    if (isApproved) return 'Approved by $reviewerName';
+    if (isRejected) return 'Declined by $reviewerName';
+    return 'Reviewed by $reviewerName';
+  }
+
   String get searchText => [
-    kindLabel,
-    status,
-    companyName,
-    subjectName,
-    subjectEmail,
-    actorName,
-    summary,
-    detail,
-    workDate,
-    leaveRange,
-  ].join(' ').toLowerCase();
+        kindLabel,
+        status,
+        companyName,
+        subjectName,
+        subjectEmail,
+        actorName,
+        reviewerName,
+        summary,
+        detail,
+        workDate,
+        leaveRange,
+      ].join(' ').toLowerCase();
 }

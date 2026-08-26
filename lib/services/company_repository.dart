@@ -8,6 +8,7 @@ import '../models/company_task.dart';
 import '../models/employee_time_card_profile.dart';
 import '../models/staff_assignment.dart';
 import '../models/user_model.dart';
+import '../models/user_role.dart';
 
 class CompanyRepository {
   CompanyRepository({FirebaseFirestore? firestore})
@@ -287,14 +288,55 @@ class CompanyRepository {
     }, SetOptions(merge: true));
   }
 
+  Future<int> getClockDeclineCount({
+    required String companyId,
+    required String userId,
+  }) async {
+    final assignment = await getAssignment(companyId: companyId, userId: userId);
+    return assignment?.clockDeclineCount ?? 0;
+  }
+
+  Future<void> incrementClockDeclineCount({
+    required String companyId,
+    required String userId,
+  }) async {
+    final docId = await _resolveCompanyDocId(companyId);
+    await _staff(docId).doc(userId).set({
+      'clockDeclineCount': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Clears the 3-decline lock so the employee can submit clock requests again.
+  Future<void> resetClockDeclineCount({
+    required String companyId,
+    required String userId,
+  }) async {
+    final docId = await _resolveCompanyDocId(companyId);
+    await _staff(docId).doc(userId).set({
+      'clockDeclineCount': 0,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> ensureStaffMember({
     required String companyId,
     required UserModel user,
+    UserRole accessLevel = UserRole.employee,
+    bool overwriteAccessLevel = false,
   }) async {
     final existing = await getAssignment(
       companyId: companyId,
       userId: user.id,
     );
+    final level = accessLevel == UserRole.admin
+        ? UserRole.admin
+        : UserRole.employee;
+    final resolvedAccess = (!overwriteAccessLevel &&
+            existing != null &&
+            existing.accessLevel.trim().isNotEmpty)
+        ? existing.accessLevel
+        : level.storageValue;
     await assignStaff(
       companyId: companyId,
       assignment: StaffAssignment(
@@ -304,7 +346,26 @@ class CompanyRepository {
         roleId: existing?.roleId ?? '',
         jobRole: existing?.jobRole ?? '',
         tasks: existing?.tasks ?? const [],
+        accessLevel: resolvedAccess,
+        clockDeclineCount: existing?.clockDeclineCount ?? 0,
+        timeCardProfile: existing?.timeCardProfile,
       ),
+    );
+  }
+
+  Future<void> setStaffAccessLevel({
+    required String companyId,
+    required String userId,
+    required UserRole accessLevel,
+  }) async {
+    final existing = await getAssignment(companyId: companyId, userId: userId);
+    if (existing == null) return;
+    final level = accessLevel == UserRole.admin
+        ? UserRole.admin
+        : UserRole.employee;
+    await assignStaff(
+      companyId: companyId,
+      assignment: existing.copyWith(accessLevel: level.storageValue),
     );
   }
 
@@ -454,7 +515,7 @@ class CompanyRepository {
         final members = await listStaff(docId);
         for (final member in members) {
           if (member.roleId != role.id) continue;
-          await assignStaff(
+              await assignStaff(
             companyId: docId,
             assignment: StaffAssignment(
               userId: member.userId,
@@ -463,6 +524,8 @@ class CompanyRepository {
               roleId: member.roleId,
               jobRole: updated.name,
               tasks: member.tasks,
+              accessLevel: member.accessLevel,
+              timeCardProfile: member.timeCardProfile,
             ),
           );
         }

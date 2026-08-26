@@ -10,12 +10,14 @@ class TimeCardReportTable extends StatelessWidget {
     this.compact = false,
     this.forExport = false,
     this.onEditRow,
+    this.rowActionIcon = Icons.edit_rounded,
   });
 
   final List<TimeCardTableRow> rows;
   final bool compact;
   final bool forExport;
   final ValueChanged<TimeCardTableRow>? onEditRow;
+  final IconData rowActionIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +51,7 @@ class TimeCardReportTable extends StatelessWidget {
               textSecondary: colors.textSecondary,
               highlightColor: AppColors.primary.withValues(alpha: 0.12),
               onEditRow: onEditRow,
+              rowActionIcon: rowActionIcon,
             ),
           ),
         ),
@@ -89,6 +92,7 @@ class _TableBody extends StatelessWidget {
     required this.textSecondary,
     required this.highlightColor,
     required this.onEditRow,
+    this.rowActionIcon = Icons.edit_rounded,
     this.forExport = false,
   });
 
@@ -98,6 +102,7 @@ class _TableBody extends StatelessWidget {
   final Color textSecondary;
   final Color highlightColor;
   final ValueChanged<TimeCardTableRow>? onEditRow;
+  final IconData rowActionIcon;
   final bool forExport;
 
   @override
@@ -195,7 +200,7 @@ class _TableBody extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     child: Center(
                       child: Icon(
-                        Icons.edit_rounded,
+                        rowActionIcon,
                         size: 18,
                         color: AppColors.primaryDark,
                       ),

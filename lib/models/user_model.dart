@@ -13,11 +13,11 @@ class UserModel {
     required this.id,
     required this.username,
     required this.email,
-    required String phoneNumber,
+    required String this._phoneNumber,
     this.role = UserRole.user,
     this.createdAt,
     this.updatedAt,
-  }) : _phoneNumber = phoneNumber;
+  });
 
   String get phoneNumber {
     try {

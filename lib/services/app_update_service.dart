@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants/app_constants.dart';
 import '../core/theme/app_colors.dart';
+import '../core/utils/snackbar_helper.dart';
 import '../models/app_release_config.dart';
 import 'app_release_repository.dart';
 
@@ -29,7 +30,11 @@ class AppUpdateService {
   /// Manual check from Settings.
   static Future<void> checkForUpdates(BuildContext context) async {
     if (!context.mounted) return;
-    await _showLoading(context);
+    SnackBarHelper.showLoading(
+      context,
+      title: 'Checking updates',
+      message: 'Looking for a newer build…',
+    );
 
     try {
       final info = await packageInfo();
@@ -46,7 +51,7 @@ class AppUpdateService {
 
       if (remote != null && remote.isNewerThanBuild(installedBuild)) {
         if (!context.mounted) return;
-        await _dismissLoading(context);
+        SnackBarHelper.hideLoading();
         if (!context.mounted) return;
         await _promptRemoteUpdate(
           context,
@@ -58,7 +63,7 @@ class AppUpdateService {
 
       final storeResult = await _checkPlayStore();
       if (!context.mounted) return;
-      await _dismissLoading(context);
+      SnackBarHelper.hideLoading();
       if (!context.mounted) return;
 
       if (storeResult.status == _StoreCheckStatus.updateAvailable &&
@@ -109,7 +114,7 @@ class AppUpdateService {
       );
     } catch (_) {
       if (!context.mounted) return;
-      await _dismissLoading(context);
+      SnackBarHelper.hideLoading();
       if (!context.mounted) return;
       await _showMessageDialog(
         context,
@@ -234,38 +239,6 @@ class AppUpdateService {
     } catch (_) {
       upgrader.dispose();
       return const _StoreCheckResult(_StoreCheckStatus.unavailable);
-    }
-  }
-
-  static Future<void> _showLoading(BuildContext context) {
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const PopScope(
-        canPop: false,
-        child: Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Checking for updates…'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  static Future<void> _dismissLoading(BuildContext context) async {
-    final navigator = Navigator.of(context, rootNavigator: true);
-    if (navigator.canPop()) {
-      navigator.pop();
     }
   }
 

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/constants/app_constants.dart';
 import '../models/company_job_role.dart';
 import '../models/company_model.dart';
 import '../models/company_task.dart';
@@ -13,6 +14,7 @@ import '../models/user_role.dart';
 import '../services/company_repository.dart';
 import '../services/local_avatar_factory.dart';
 import '../services/local_avatar_store.dart';
+import '../services/salary_rate_change_repository.dart';
 import '../services/user_repository.dart';
 
 class CompanyProvider extends ChangeNotifier {
@@ -20,13 +22,17 @@ class CompanyProvider extends ChangeNotifier {
     CompanyRepository? companyRepository,
     UserRepository? userRepository,
     LocalAvatarStore? logoStore,
+    SalaryRateChangeRepository? salaryRateChangeRepository,
   })  : _companies = companyRepository ?? CompanyRepository(),
         _users = userRepository ?? UserRepository(),
-        _logos = logoStore ?? createLocalAvatarStore();
+        _logos = logoStore ?? createLocalAvatarStore(),
+        _salaryRateChanges =
+            salaryRateChangeRepository ?? SalaryRateChangeRepository();
 
   final CompanyRepository _companies;
   final UserRepository _users;
   final LocalAvatarStore _logos;
+  final SalaryRateChangeRepository _salaryRateChanges;
 
   bool isLoading = false;
   String? errorMessage;
@@ -42,15 +48,39 @@ class CompanyProvider extends ChangeNotifier {
   final Map<String, List<StaffAssignment>> _staffByCompanyDoc = {};
   CompanyModel? selectedCompany;
   bool isPickingCompany = false;
+  /// True only after a successful company code entry that has not expired.
+  bool companyCodeUnlocked = false;
+  /// Snapshot used so canceling "Switch company" can restore a still-valid unlock.
+  bool _unlockedBeforePick = false;
   StaffAssignment? myAssignment;
   final Map<String, Uint8List> logos = {};
   int logoRevision = 0;
 
   static const _selectedCompanyKey = 'selected_company_id';
+  static const _unlockExpiresKey = 'company_unlock_expires_ms';
+
+  /// True when an employee/admin may cancel company pick and return to the dashboard.
+  bool get canCancelCompanyPick =>
+      _unlockedBeforePick && selectedCompany != null;
+
+  /// Employee/admin must have a non-expired company-code unlock to use company data.
+  bool get hasActiveCompanySession =>
+      selectedCompany != null && companyCodeUnlocked && !isPickingCompany;
 
   String _logoKey(String companyId) => 'company_$companyId';
 
   Uint8List? logoFor(String companyId) => logos[companyId];
+
+  /// Employee/admin notifications stay off until company code unlock succeeds.
+  bool notificationsAllowedFor(UserRole? role) {
+    if (role == UserRole.superAdmin) return true;
+    if (role == UserRole.employee || role == UserRole.admin) {
+      return companyCodeUnlocked &&
+          selectedCompany != null &&
+          !isPickingCompany;
+    }
+    return false;
+  }
 
   Future<void> loadCompaniesForMember(UserModel user) async {
     isLoading = true;
@@ -68,6 +98,7 @@ class CompanyProvider extends ChangeNotifier {
         selectedCompany = null;
         myAssignment = null;
         isPickingCompany = false;
+        companyCodeUnlocked = false;
         await _persistSelection(null);
       }
     } catch (_) {
@@ -524,7 +555,15 @@ class CompanyProvider extends ChangeNotifier {
     try {
       for (final companyId in targetIds) {
         if (!currentIds.contains(companyId)) {
-          await _companies.ensureStaffMember(companyId: companyId, user: user);
+          final level = user.role == UserRole.admin
+              ? UserRole.admin
+              : UserRole.employee;
+          await _companies.ensureStaffMember(
+            companyId: companyId,
+            user: user,
+            accessLevel: level,
+            overwriteAccessLevel: true,
+          );
         }
       }
       for (final companyId in currentIds) {
@@ -560,24 +599,144 @@ class CompanyProvider extends ChangeNotifier {
     }
   }
 
+  Future<int> clockDeclineCountFor({
+    required String companyId,
+    required String userId,
+  }) {
+    return _companies.getClockDeclineCount(
+      companyId: companyId,
+      userId: userId,
+    );
+  }
+
+  Future<bool> unlockEmployeeClockRequests({
+    required String companyId,
+    required String userId,
+  }) async {
+    errorMessage = null;
+    try {
+      await _companies.resetClockDeclineCount(
+        companyId: companyId,
+        userId: userId,
+      );
+      await loadStaff(companyId);
+      return true;
+    } catch (_) {
+      errorMessage = 'Could not unlock clock requests for this employee.';
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<bool> saveStaffTimeCardProfile({
     required String companyId,
     required String userId,
     required EmployeeTimeCardProfile profile,
+    CompanyModel? company,
+    StaffAssignment? member,
+    UserModel? actor,
   }) async {
     errorMessage = null;
     try {
+      final previousRate = member?.timeCardProfile.dailyRate ??
+          staff
+              .where((item) => item.userId == userId)
+              .map((item) => item.timeCardProfile.dailyRate)
+              .firstOrNull ??
+          0.0;
+
       await _companies.saveStaffTimeCardProfile(
         companyId: companyId,
         userId: userId,
         profile: profile,
       );
+
+      // Editing time card settings unlocks clock requests after 3 declines.
+      await _companies.resetClockDeclineCount(
+        companyId: companyId,
+        userId: userId,
+      );
+
+      if (actor != null &&
+          (previousRate - profile.dailyRate).abs() > 0.0001) {
+        await _notifyDailyRateChange(
+          companyId: companyId,
+          company: company,
+          userId: userId,
+          member: member,
+          actor: actor,
+          previousRate: previousRate,
+          newRate: profile.dailyRate,
+        );
+      }
+
       await loadStaff(companyId);
       return true;
     } catch (_) {
       errorMessage = 'Could not save employee time card settings.';
       notifyListeners();
       return false;
+    }
+  }
+
+  Future<void> _notifyDailyRateChange({
+    required String companyId,
+    required String userId,
+    required UserModel actor,
+    required double previousRate,
+    required double newRate,
+    CompanyModel? company,
+    StaffAssignment? member,
+  }) async {
+    try {
+      CompanyModel? resolvedCompany = company;
+      if (resolvedCompany == null) {
+        for (final item in companies) {
+          if (item.id == companyId || item.firestoreId == companyId) {
+            resolvedCompany = item;
+            break;
+          }
+        }
+      }
+      resolvedCompany ??= selectedCompany;
+      if (users.isEmpty) {
+        await loadUsers();
+      }
+
+      final employee = userById(userId);
+      final employeeName = member?.username.isNotEmpty == true
+          ? member!.username
+          : (employee?.username ?? member?.email ?? 'Employee');
+      final employeeEmail =
+          member?.email.isNotEmpty == true ? member!.email : (employee?.email ?? '');
+
+      final recipientIds = <String>{userId};
+      for (final staffMember in staff) {
+        if (memberAccessRole(staffMember) == UserRole.admin) {
+          recipientIds.add(staffMember.userId);
+        }
+      }
+      for (final user in users) {
+        if (user.role == UserRole.superAdmin) {
+          recipientIds.add(user.id);
+        }
+      }
+
+      await _salaryRateChanges.create(
+        companyId: resolvedCompany?.id ?? companyId,
+        companyDocumentId: resolvedCompany?.firestoreId ?? companyId,
+        companyName: resolvedCompany?.name ?? '',
+        employeeId: userId,
+        employeeName: employeeName,
+        employeeEmail: employeeEmail,
+        actorId: actor.id,
+        actorName: actor.username.isNotEmpty ? actor.username : actor.email,
+        previousRate: previousRate,
+        newRate: newRate,
+        recipientIds: recipientIds.toList(),
+      );
+    } catch (_) {
+      // Profile save already succeeded; skip notification failures.
     }
   }
 
@@ -590,25 +749,117 @@ class CompanyProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Access level inside [selectedCompany] for [user], if any.
+  UserRole? companyAccessFor(UserModel user) {
+    if (user.role == UserRole.superAdmin || user.role == UserRole.user) {
+      return user.role;
+    }
+    final company = selectedCompany;
+    if (company == null) return null;
+
+    StaffAssignment? assignment;
+    if (myAssignment?.userId == user.id) {
+      assignment = myAssignment;
+    } else {
+      for (final member in staff) {
+        if (member.userId == user.id) {
+          assignment = member;
+          break;
+        }
+      }
+    }
+    if (assignment == null) {
+      for (final item in allStaffMemberships) {
+        if (item.assignment.userId == user.id &&
+            (item.company.id == company.id ||
+                item.firestoreCompanyId == company.firestoreId)) {
+          assignment = item.assignment;
+          break;
+        }
+      }
+    }
+    return assignment?.accessRole(fallback: user.role);
+  }
+
+  /// Role used for navigation / features in the currently selected company.
+  UserRole effectiveRoleFor(UserModel? user) {
+    if (user == null) return UserRole.user;
+    if (user.role == UserRole.superAdmin || user.role == UserRole.user) {
+      return user.role;
+    }
+    return companyAccessFor(user) ?? user.role;
+  }
+
+  UserRole memberAccessRole(StaffAssignment member) {
+    final global = userById(member.userId)?.role;
+    return member.accessRole(fallback: global);
+  }
+
   Future<bool> addCompanyMember({
     required String companyId,
     required UserModel user,
+    UserRole accessLevel = UserRole.employee,
   }) async {
     errorMessage = null;
+    final level = accessLevel == UserRole.admin
+        ? UserRole.admin
+        : UserRole.employee;
     try {
-      await _companies.ensureStaffMember(companyId: companyId, user: user);
-      if (user.role == UserRole.user &&
-          !RolePolicy.isSuperAdminEmail(user.email)) {
-        await _users.updateUserRole(
-          userId: user.id,
-          role: UserRole.employee,
-        );
+      await _companies.ensureStaffMember(
+        companyId: companyId,
+        user: user,
+        accessLevel: level,
+        overwriteAccessLevel: true,
+      );
+
+      // Promote global account only when needed — never demote Admin → Employee
+      // just because they were added as employee to another company.
+      if (!RolePolicy.isSuperAdminEmail(user.email)) {
+        if (user.role == UserRole.user) {
+          await _users.updateUserRole(userId: user.id, role: level);
+        } else if (user.role == UserRole.employee && level == UserRole.admin) {
+          await _users.updateUserRole(userId: user.id, role: UserRole.admin);
+        }
       }
+
       await loadStaff(companyId);
       await loadUsers();
       return true;
     } catch (_) {
       errorMessage = 'Could not add the user to this company.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> setCompanyMemberAccess({
+    required String companyId,
+    required String userId,
+    required UserRole accessLevel,
+  }) async {
+    errorMessage = null;
+    final level = accessLevel == UserRole.admin
+        ? UserRole.admin
+        : UserRole.employee;
+    try {
+      await _companies.setStaffAccessLevel(
+        companyId: companyId,
+        userId: userId,
+        accessLevel: level,
+      );
+      if (level == UserRole.admin) {
+        final user = userById(userId);
+        if (user != null &&
+            user.role == UserRole.employee &&
+            !RolePolicy.isSuperAdminEmail(user.email)) {
+          await _users.updateUserRole(userId: userId, role: UserRole.admin);
+          await loadUsers();
+        }
+      }
+      await loadStaff(companyId);
+      return true;
+    } catch (_) {
+      errorMessage = 'Could not update company access level.';
       notifyListeners();
       return false;
     }
@@ -641,7 +892,10 @@ class CompanyProvider extends ChangeNotifier {
     if (ok) {
       selectedCompany = company;
       isPickingCompany = false;
+      _unlockedBeforePick = false;
+      companyCodeUnlocked = true;
       _persistSelection(company.id);
+      _persistUnlockExpiry();
       notifyListeners();
     }
     return ok;
@@ -675,7 +929,10 @@ class CompanyProvider extends ChangeNotifier {
       }
       selectedCompany = company;
       isPickingCompany = false;
+      _unlockedBeforePick = false;
+      companyCodeUnlocked = true;
       await _persistSelection(company.id);
+      await _persistUnlockExpiry();
       notifyListeners();
       return true;
     } catch (_) {
@@ -687,14 +944,58 @@ class CompanyProvider extends ChangeNotifier {
 
   void beginCompanyPick() {
     if (isPickingCompany) return;
+    _unlockedBeforePick = companyCodeUnlocked && selectedCompany != null;
     isPickingCompany = true;
+    companyCodeUnlocked = false;
     notifyListeners();
   }
 
   void endCompanyPick() {
     if (!isPickingCompany) return;
     isPickingCompany = false;
+    // Only restore unlock if the previous company session was still valid.
+    companyCodeUnlocked =
+        _unlockedBeforePick && selectedCompany != null;
+    _unlockedBeforePick = false;
     notifyListeners();
+  }
+
+  /// Locks company access so employee/admin must re-enter the company code.
+  /// Keeps [selectedCompany] as a hint for which company to open again.
+  Future<void> lockCompanySession({bool clearCompanyHint = false}) async {
+    companyCodeUnlocked = false;
+    isPickingCompany = false;
+    _unlockedBeforePick = false;
+    myAssignment = null;
+    staff = [];
+    tasks = [];
+    roles = [];
+    if (clearCompanyHint) {
+      selectedCompany = null;
+      await _persistSelection(null);
+    }
+    await _clearUnlockExpiry();
+    notifyListeners();
+  }
+
+  /// Returns `false` and locks the session when the company-code unlock TTL elapsed.
+  Future<bool> ensureCompanySessionValid() async {
+    if (!companyCodeUnlocked || selectedCompany == null) {
+      return companyCodeUnlocked;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final expiresMs = prefs.getInt(_unlockExpiresKey);
+    if (expiresMs == null) {
+      // Unlock existed in memory without persisted expiry (legacy) — keep for now
+      // but stamp a fresh expiry so future checks work.
+      await _persistUnlockExpiry();
+      return true;
+    }
+    if (DateTime.now().millisecondsSinceEpoch >= expiresMs) {
+      await lockCompanySession();
+      return false;
+    }
+    return true;
   }
 
   Future<void> restoreSelection() async {
@@ -705,6 +1006,17 @@ class CompanyProvider extends ChangeNotifier {
     try {
       selectedCompany = await _companies.getCompanyById(id);
       isPickingCompany = false;
+      final expiresMs = prefs.getInt(_unlockExpiresKey);
+      final stillValid = expiresMs != null &&
+          DateTime.now().millisecondsSinceEpoch < expiresMs;
+      companyCodeUnlocked = stillValid;
+      if (!stillValid) {
+        await prefs.remove(_unlockExpiresKey);
+        myAssignment = null;
+        staff = [];
+        tasks = [];
+        roles = [];
+      }
       notifyListeners();
     } catch (_) {}
   }
@@ -718,6 +1030,17 @@ class CompanyProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _persistUnlockExpiry() async {
+    final prefs = await SharedPreferences.getInstance();
+    final expires = DateTime.now().add(AppConstants.companyCodeSessionTtl);
+    await prefs.setInt(_unlockExpiresKey, expires.millisecondsSinceEpoch);
+  }
+
+  Future<void> _clearUnlockExpiry() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_unlockExpiresKey);
+  }
+
   void clearSelection() {
     selectedCompany = null;
     myAssignment = null;
@@ -729,7 +1052,10 @@ class CompanyProvider extends ChangeNotifier {
     companies = [];
     memberCompanies = [];
     isPickingCompany = false;
+    companyCodeUnlocked = false;
+    _unlockedBeforePick = false;
     _persistSelection(null);
+    _clearUnlockExpiry();
     notifyListeners();
   }
 

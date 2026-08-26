@@ -29,6 +29,7 @@ class AppRoutes {
   static const String superAdminUsers = '/super-admin/users';
   static const String superAdminRequests = '/super-admin/requests';
   static const String superAdminLogs = '/super-admin/logs';
+  static const String superAdminAnnouncements = '/super-admin/announcements';
   static const String superAdminTimeCardDetails = '/super-admin/time-card/details';
   static const String superAdminTimeCardSettings = '/super-admin/time-card/settings';
   static const String profile = '/profile';

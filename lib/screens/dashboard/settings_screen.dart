@@ -61,8 +61,8 @@ class SettingsScreen extends StatelessWidget {
                           : Icons.view_agenda_rounded,
                       title: 'Compact mode',
                       subtitle: settings.isCompactMode
-                          ? 'Denser sidebar, header, pages, and cards'
-                          : 'Roomier chrome, spacing, and titles',
+                          ? 'Smaller fonts, tighter cards, denser chrome'
+                          : 'Larger fonts, roomier cards, and spacing',
                       value: settings.isCompactMode,
                       onChanged: (value) async {
                         await settings.setCompactMode(value);
@@ -215,12 +215,12 @@ class _SectionLabel extends StatelessWidget {
       ),
       child: Text(
         label.toUpperCase(),
-        style: TextStyle(
-          fontSize: density.compact ? 11 : 12,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.7,
-          color: AppColors.of(context).textSecondary,
-        ),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontSize: density.chipLabelSize,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.7,
+              color: AppColors.of(context).textSecondary,
+            ),
       ),
     );
   }
@@ -273,20 +273,20 @@ class _SwitchRow extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: TextStyle(
-                    fontSize: density.compact ? 14 : 16,
-                    fontWeight: FontWeight.w800,
-                    color: colors.textPrimary,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontSize: density.cardTitleSize,
+                        fontWeight: FontWeight.w800,
+                        color: colors.textPrimary,
+                      ),
                 ),
                 SizedBox(height: density.titleSubtitleGap),
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    fontSize: density.compact ? 12 : 13,
-                    fontWeight: FontWeight.w600,
-                    color: colors.textSecondary,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: density.captionSize,
+                        fontWeight: FontWeight.w600,
+                        color: colors.textSecondary,
+                      ),
                 ),
               ],
             ),
@@ -335,20 +335,20 @@ class _NavRow extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: TextStyle(
-                      fontSize: density.compact ? 14 : 16,
-                      fontWeight: FontWeight.w800,
-                      color: colors.textPrimary,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontSize: density.cardTitleSize,
+                          fontWeight: FontWeight.w800,
+                          color: colors.textPrimary,
+                        ),
                   ),
                   SizedBox(height: density.titleSubtitleGap),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      fontSize: density.compact ? 12 : 13,
-                      fontWeight: FontWeight.w600,
-                      color: colors.textSecondary,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: density.captionSize,
+                          fontWeight: FontWeight.w600,
+                          color: colors.textSecondary,
+                        ),
                   ),
                 ],
               ),

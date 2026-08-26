@@ -1,5 +1,6 @@
 import 'company_model.dart';
 import 'employee_time_card_profile.dart';
+import 'user_role.dart';
 
 class StaffMembershipListing {
   final String? companyDocumentId;
@@ -30,6 +31,16 @@ class StaffAssignment {
   final List<String> tasks;
   final EmployeeTimeCardProfile? _timeCardProfile;
 
+  /// Company-only access: `admin` or `employee`. Independent of other companies.
+  final String accessLevel;
+
+  /// Declined time in/out requests for this company. Locked at 3 until admin resets.
+  final int clockDeclineCount;
+
+  static const int clockDeclineLimit = 3;
+
+  bool get isClockRequestLocked => clockDeclineCount >= clockDeclineLimit;
+
   String get roleId => _roleId ?? '';
 
   /// Per-employee rate + schedule. Falls back to defaults after hot reload or
@@ -40,22 +51,40 @@ class StaffAssignment {
   /// Legacy single-line summary for older screens and search.
   String get task => tasks.join(', ');
 
+  /// Access for this company only. [fallback] used for older records with no
+  /// stored access level (typically the account's global role).
+  UserRole accessRole({UserRole? fallback}) {
+    final stored = UserRole.fromStorage(accessLevel);
+    if (stored == UserRole.admin || stored == UserRole.employee) {
+      return stored;
+    }
+    if (fallback == UserRole.admin) return UserRole.admin;
+    if (fallback == UserRole.employee) return UserRole.employee;
+    return UserRole.employee;
+  }
+
+  bool get isCompanyAdmin => accessRole() == UserRole.admin;
+
   StaffAssignment({
     required this.userId,
     required this.username,
     required this.email,
-    String roleId = '',
+    String this._roleId = '',
     required this.jobRole,
     this.tasks = const [],
+    this.accessLevel = 'employee',
+    this.clockDeclineCount = 0,
     EmployeeTimeCardProfile? timeCardProfile,
-  }) : _roleId = roleId,
-       _timeCardProfile = timeCardProfile;
+  }) : _timeCardProfile = timeCardProfile;
 
   factory StaffAssignment.fromFirestore({
     required String id,
     required Map<String, dynamic> data,
   }) {
     final storedUserId = data['userId']?.toString().trim() ?? '';
+    final rawAccess = data['accessLevel']?.toString().trim() ??
+        data['memberLevel']?.toString().trim() ??
+        '';
     return StaffAssignment(
       userId: storedUserId.isNotEmpty ? storedUserId : id,
       username: data['username']?.toString().trim() ?? '',
@@ -63,8 +92,16 @@ class StaffAssignment {
       roleId: data['roleId']?.toString().trim() ?? '',
       jobRole: data['jobRole']?.toString().trim() ?? '',
       tasks: _tasksFromFirestore(data),
+      accessLevel: rawAccess,
+      clockDeclineCount: _intField(data['clockDeclineCount']),
       timeCardProfile: EmployeeTimeCardProfile.fromStaffData(data),
     );
+  }
+
+  static int _intField(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   static List<String> _tasksFromFirestore(Map<String, dynamic> data) {
@@ -81,12 +118,15 @@ class StaffAssignment {
   }
 
   Map<String, dynamic> toFirestore() {
+    final access = accessRole().storageValue;
     return {
       'username': username,
       'email': email,
       'roleId': roleId,
       'jobRole': jobRole,
       'tasks': tasks,
+      'accessLevel': access,
+      'clockDeclineCount': clockDeclineCount,
       if (tasks.length == 1) 'task': tasks.first,
     };
   }
@@ -97,6 +137,8 @@ class StaffAssignment {
     String? roleId,
     String? jobRole,
     List<String>? tasks,
+    String? accessLevel,
+    int? clockDeclineCount,
     EmployeeTimeCardProfile? timeCardProfile,
   }) {
     return StaffAssignment(
@@ -106,6 +148,8 @@ class StaffAssignment {
       roleId: roleId ?? this.roleId,
       jobRole: jobRole ?? this.jobRole,
       tasks: tasks ?? this.tasks,
+      accessLevel: accessLevel ?? this.accessLevel,
+      clockDeclineCount: clockDeclineCount ?? this.clockDeclineCount,
       timeCardProfile: timeCardProfile ?? this.timeCardProfile,
     );
   }

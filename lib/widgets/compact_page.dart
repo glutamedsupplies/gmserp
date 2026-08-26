@@ -5,97 +5,114 @@ import '../core/theme/app_colors.dart';
 import '../providers/settings_provider.dart';
 
 /// Density tokens for in-app chrome and pages (compact vs normal).
+///
+/// Normal mode uses larger fonts, padding, and card radii than compact.
+/// Toggle rebuilds the whole app via [SettingsProvider] + density-aware theme.
 class CompactPageStyle {
   const CompactPageStyle._(this.compact);
 
   final bool compact;
 
-  /// Density tokens for the current settings.
-  ///
-  /// Always non-listening so it is safe in build *and* in cancel/dismiss
-  /// callbacks (sheet/dialog openers). Rebuilds when density changes are
-  /// driven by ancestors that [watch] [SettingsProvider] (see [App] /
-  /// [DashboardScaffold]).
-  static CompactPageStyle of(BuildContext context) => read(context);
+  /// Listening lookup for build methods — rebuilds when density changes.
+  static CompactPageStyle of(BuildContext context) {
+    final compact = context.watch<SettingsProvider>().isCompactMode;
+    return CompactPageStyle._(compact);
+  }
 
-  /// Non-listening lookup for callbacks / one-shot reads.
+  /// Non-listening lookup for callbacks / one-shot reads (sheets, dismiss).
   static CompactPageStyle read(BuildContext context) {
     final compact = context.read<SettingsProvider>().isCompactMode;
     return CompactPageStyle._(compact);
   }
 
+  // —— Page layout ——
   EdgeInsets get pagePadding => compact
-      ? const EdgeInsets.fromLTRB(16, 16, 16, 20)
-      : const EdgeInsets.fromLTRB(20, 20, 20, 24);
+      ? const EdgeInsets.fromLTRB(14, 14, 14, 18)
+      : const EdgeInsets.fromLTRB(22, 22, 22, 28);
 
   EdgeInsets get pagePaddingTopOnly => compact
-      ? const EdgeInsets.fromLTRB(16, 16, 16, 0)
-      : const EdgeInsets.fromLTRB(20, 20, 20, 0);
+      ? const EdgeInsets.fromLTRB(14, 14, 14, 0)
+      : const EdgeInsets.fromLTRB(22, 22, 22, 0);
 
   EdgeInsets get listPadding => compact
-      ? const EdgeInsets.fromLTRB(16, 0, 16, 20)
-      : const EdgeInsets.fromLTRB(20, 0, 20, 24);
+      ? const EdgeInsets.fromLTRB(14, 0, 14, 18)
+      : const EdgeInsets.fromLTRB(22, 0, 22, 28);
 
-  double get radius => compact ? 8 : 12;
+  double get radius => compact ? 8 : 14;
 
-  double get filterHeight => compact ? 36 : 44;
+  double get filterHeight => compact ? 36 : 48;
 
   EdgeInsets get cardPadding => compact
       ? const EdgeInsets.fromLTRB(10, 8, 10, 8)
-      : const EdgeInsets.fromLTRB(14, 12, 14, 12);
+      : const EdgeInsets.fromLTRB(16, 14, 16, 14);
 
   EdgeInsets get summaryPadding => compact
       ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-      : const EdgeInsets.fromLTRB(12, 12, 12, 12);
+      : const EdgeInsets.fromLTRB(14, 14, 14, 14);
 
-  double get cardGap => compact ? 6 : 10;
+  double get cardGap => compact ? 6 : 12;
 
-  double get sectionGap => compact ? 8 : 14;
+  double get sectionGap => compact ? 8 : 16;
 
-  double get titleSubtitleGap => compact ? 4 : 6;
+  double get titleSubtitleGap => compact ? 4 : 8;
 
-  // App chrome (header + sidebar)
-  double get sidebarExpandedWidth => compact ? 248 : 268;
+  // —— Typography (use when Theme textTheme isn't enough) ——
+  double get pageTitleSize => compact ? 17 : 22;
 
-  double get sidebarCollapsedWidth => compact ? 72 : 84;
+  double get sectionTitleSize => compact ? 14 : 17;
+
+  double get cardTitleSize => compact ? 13 : 16;
+
+  double get bodySize => compact ? 12 : 15;
+
+  double get captionSize => compact ? 11 : 13;
+
+  double get chipLabelSize => compact ? 10 : 12;
+
+  // —— App chrome (header + sidebar) ——
+  double get sidebarExpandedWidth => compact ? 248 : 280;
+
+  double get sidebarCollapsedWidth => compact ? 72 : 88;
 
   EdgeInsets get headerPadding => compact
       ? const EdgeInsets.fromLTRB(4, 4, 12, 4)
-      : const EdgeInsets.fromLTRB(8, 8, 16, 8);
+      : const EdgeInsets.fromLTRB(10, 10, 18, 10);
 
-  double get headerTitleSize => compact ? 16 : 18;
+  double get headerTitleSize => compact ? 16 : 20;
 
-  double get headerLogoSize => compact ? 30 : 36;
+  double get headerLogoSize => compact ? 30 : 40;
 
-  double get sidebarAvatarSize => compact ? 36 : 44;
+  double get sidebarAvatarSize => compact ? 36 : 48;
 
-  double get sidebarCollapsedAvatarSize => compact ? 32 : 40;
+  double get sidebarCollapsedAvatarSize => compact ? 32 : 42;
 
   EdgeInsets get sidebarProfilePadding => compact
       ? const EdgeInsets.fromLTRB(8, 8, 8, 6)
-      : const EdgeInsets.fromLTRB(10, 12, 10, 8);
+      : const EdgeInsets.fromLTRB(12, 14, 12, 10);
 
   EdgeInsets get sidebarNavPadding => compact
       ? const EdgeInsets.symmetric(horizontal: 8)
-      : const EdgeInsets.symmetric(horizontal: 10);
+      : const EdgeInsets.symmetric(horizontal: 12);
 
   EdgeInsets get sidebarTilePadding => compact
       ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-      : const EdgeInsets.symmetric(horizontal: 14, vertical: 12);
+      : const EdgeInsets.symmetric(horizontal: 14, vertical: 14);
 
-  double get sidebarTileGap => compact ? 4 : 6;
+  double get sidebarTileGap => compact ? 4 : 8;
 
-  double get sidebarIconSize => compact ? 20 : 22;
+  double get sidebarIconSize => compact ? 20 : 24;
 
-  double get sidebarBrandSize => compact ? 14 : 16;
+  double get sidebarBrandSize => compact ? 14 : 17;
 
   double get settingsCardRadius => compact ? 10 : 18;
 
   EdgeInsets get settingsRowPadding => compact
       ? const EdgeInsets.fromLTRB(12, 10, 8, 10)
-      : const EdgeInsets.fromLTRB(16, 12, 10, 12);
+      : const EdgeInsets.fromLTRB(16, 14, 12, 14);
 
-  double get settingsIconSize => compact ? 36 : 44;
+  double get settingsIconSize => compact ? 36 : 48;
+
+  double get buttonHeight => compact ? 48 : 56;
 }
 
 /// Page title + optional subtitle that follows compact/normal density.
@@ -124,26 +141,26 @@ class CompactPageHeader extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: (density.compact
-                        ? Theme.of(context).textTheme.titleLarge
-                        : Theme.of(context).textTheme.headlineMedium)
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontSize: density.pageTitleSize,
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
               if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
                 SizedBox(height: density.titleSubtitleGap),
                 Text(
                   subtitle!,
-                  style: (density.compact
-                          ? Theme.of(context).textTheme.bodySmall
-                          : Theme.of(context).textTheme.bodyMedium)
-                      ?.copyWith(color: colors.textSecondary),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize: density.bodySize,
+                        color: colors.textSecondary,
+                      ),
                 ),
               ],
             ],
           ),
         ),
         if (trailing != null) ...[
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           trailing!,
         ],
       ],
@@ -173,7 +190,7 @@ class CompactFilterDropdown extends StatelessWidget {
     final display = items.contains(value) ? value : items.first;
     return Container(
       height: density.filterHeight,
-      padding: EdgeInsets.symmetric(horizontal: density.compact ? 10 : 12),
+      padding: EdgeInsets.symmetric(horizontal: density.compact ? 10 : 14),
       decoration: BoxDecoration(
         color: colors.card,
         borderRadius: BorderRadius.circular(density.radius),
@@ -184,18 +201,17 @@ class CompactFilterDropdown extends StatelessWidget {
           value: display,
           isExpanded: true,
           isDense: density.compact,
-          style: density.compact
-              ? Theme.of(context).textTheme.bodySmall
-              : Theme.of(context).textTheme.bodyMedium,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontSize: density.bodySize,
+                color: colors.textPrimary,
+              ),
           items: [
             for (final item in items)
               DropdownMenuItem(
                 value: item,
                 child: Text(
                   item == 'All' && hint != null
-                      ? (hint == 'Company'
-                          ? 'All companies'
-                          : 'All ${hint!.toLowerCase()}s')
+                      ? _allLabelForHint(hint!)
                       : item,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -207,6 +223,19 @@ class CompactFilterDropdown extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static String _allLabelForHint(String hint) {
+    switch (hint) {
+      case 'Company':
+        return 'All companies';
+      case 'Status':
+        return 'All Status';
+      default:
+        final lower = hint.toLowerCase();
+        if (lower.endsWith('s')) return 'All $lower';
+        return 'All ${lower}s';
+    }
   }
 }
 
@@ -237,20 +266,18 @@ class CompactSummaryStrip extends StatelessWidget {
                 children: [
                   Text(
                     item.value,
-                    style: (density.compact
-                            ? Theme.of(context).textTheme.labelLarge
-                            : Theme.of(context).textTheme.titleMedium)
-                        ?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: item.color ?? AppColors.primaryDark,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontSize: density.sectionTitleSize,
+                          fontWeight: FontWeight.w800,
+                          color: item.color ?? AppColors.primaryDark,
+                        ),
                   ),
-                  if (!density.compact) const SizedBox(height: 2),
+                  SizedBox(height: density.compact ? 2 : 4),
                   Text(
                     item.label,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: colors.textSecondary,
-                          fontSize: density.compact ? 10 : null,
+                          fontSize: density.chipLabelSize,
                         ),
                   ),
                 ],
@@ -294,27 +321,28 @@ class CompactSearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: density.compact
-          ? Theme.of(context).textTheme.bodySmall
-          : Theme.of(context).textTheme.bodyMedium,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontSize: density.bodySize,
+            color: colors.textPrimary,
+          ),
       decoration: InputDecoration(
         isDense: density.compact,
         contentPadding: density.compact
             ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-            : const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            : const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         hintText: hintText,
         hintStyle: TextStyle(
-          fontSize: density.compact ? 12 : 14,
+          fontSize: density.bodySize,
           color: colors.textHint,
         ),
         prefixIcon: Icon(
           Icons.search_rounded,
-          size: density.compact ? 18 : 20,
+          size: density.compact ? 18 : 22,
           color: colors.textHint,
         ),
         prefixIconConstraints: BoxConstraints(
-          minWidth: density.compact ? 36 : 40,
-          minHeight: density.compact ? 32 : 40,
+          minWidth: density.compact ? 36 : 44,
+          minHeight: density.compact ? 32 : 44,
         ),
         filled: true,
         fillColor: colors.card,

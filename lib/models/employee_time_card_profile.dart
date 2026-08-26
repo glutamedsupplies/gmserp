@@ -1,4 +1,5 @@
 import 'time_card_schedule.dart';
+import 'time_entry.dart';
 
 /// One day's scheduled time in / time out for an employee.
 class DayShiftSchedule {
@@ -108,13 +109,8 @@ class DayShiftSchedule {
     );
   }
 
-  static String _formatClock(int hour24, int minute) {
-    final period = hour24 >= 12 ? 'PM' : 'AM';
-    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
-    final h = hour12.toString().padLeft(2, '0');
-    final m = minute.toString().padLeft(2, '0');
-    return '$h:$m $period';
-  }
+  static String _formatClock(int hour24, int minute) =>
+      formatHourMinute12h(hour24, minute);
 
   static int _int(dynamic value, int fallback) {
     if (value is int) return value;

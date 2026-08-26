@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import 'compact_page.dart';
 
 class PasswordField extends StatefulWidget {
   const PasswordField({
@@ -41,17 +42,18 @@ class _PasswordFieldState extends State<PasswordField> {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           widget.label,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontSize: 14,
+                fontSize: density.cardTitleSize,
                 fontWeight: FontWeight.w600,
               ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: density.compact ? 6 : 8),
         TextFormField(
           controller: widget.controller,
           validator: widget.validator,
@@ -62,10 +64,9 @@ class _PasswordFieldState extends State<PasswordField> {
           enabled: widget.enabled,
           autofillHints: widget.autofillHints,
           autovalidateMode: widget.autovalidateMode,
-          style: TextStyle(
-            fontSize: 15,
-            color: Theme.of(context).textTheme.bodyLarge?.color,
-          ),
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                fontSize: density.bodySize + 1,
+              ),
           decoration: InputDecoration(
             hintText: widget.hint ?? widget.label,
             suffixIcon: IconButton(
@@ -75,7 +76,7 @@ class _PasswordFieldState extends State<PasswordField> {
                 _obscureText
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
-                size: 20,
+                size: density.compact ? 18 : 22,
                 color: AppColors.of(context).textSecondary,
               ),
             ),

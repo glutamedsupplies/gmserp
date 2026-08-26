@@ -16,6 +16,7 @@ import '../../providers/company_provider.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
+import '../../widgets/lazy_list_pager.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/user_avatar.dart';
 
@@ -32,12 +33,18 @@ enum _MemberRoleFilter { all, admin, employee }
 class _SuperAdminEmployeeListsScreenState
     extends State<SuperAdminEmployeeListsScreen> {
   final _search = TextEditingController();
+  late final LazyListPager _pager;
   String? _companyId;
   _MemberRoleFilter _roleFilter = _MemberRoleFilter.all;
 
   @override
   void initState() {
     super.initState();
+    _pager = LazyListPager(
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final companies = context.read<CompanyProvider>();
       await companies.loadCompanies();
@@ -50,6 +57,7 @@ class _SuperAdminEmployeeListsScreenState
 
   @override
   void dispose() {
+    _pager.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -59,6 +67,7 @@ class _SuperAdminEmployeeListsScreenState
       _companyId = companyId;
       _search.clear();
       _roleFilter = _MemberRoleFilter.all;
+      _pager.reset();
     });
     await context.read<CompanyProvider>().loadCompanyUsers(companyId);
   }
@@ -77,13 +86,12 @@ class _SuperAdminEmployeeListsScreenState
   bool _matchesRoleFilter(CompanyProvider companies, StaffAssignment member) {
     final filterRole = _roleFilterValue(_roleFilter);
     if (filterRole == null) return true;
-    final user = companies.userById(member.userId);
-    return user?.role == filterRole;
+    return companies.memberAccessRole(member) == filterRole;
   }
 
   int _countByRole(CompanyProvider companies, UserRole role) {
     return companies.staff
-        .where((member) => companies.userById(member.userId)?.role == role)
+        .where((member) => companies.memberAccessRole(member) == role)
         .length;
   }
 
@@ -105,8 +113,8 @@ class _SuperAdminEmployeeListsScreenState
     return staff.where((member) {
       if (!_matchesRoleFilter(companies, member)) return false;
       if (query.isEmpty) return true;
-      final user = companies.userById(member.userId);
-      final level = (user?.role ?? UserRole.user).label.toLowerCase();
+      final level =
+          companies.memberAccessRole(member).label.toLowerCase();
       return member.username.toLowerCase().contains(query) ||
           member.email.toLowerCase().contains(query) ||
           member.userId.toLowerCase().contains(query) ||
@@ -133,7 +141,7 @@ class _SuperAdminEmployeeListsScreenState
       return;
     }
 
-    final selected = await showModalBottomSheet<UserModel>(
+    final selected = await showModalBottomSheet<_AddMemberPick>(
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.of(context).background,
@@ -148,13 +156,14 @@ class _SuperAdminEmployeeListsScreenState
 
     final ok = await companies.addCompanyMember(
       companyId: company.id,
-      user: selected,
+      user: selected.user,
+      accessLevel: selected.accessLevel,
     );
     if (!mounted) return;
     if (ok) {
       SnackBarHelper.showSuccess(
         context,
-        '${selected.username} was added to ${company.name}.',
+        '${selected.user.username} was added to ${company.name} as ${selected.accessLevel.label}.',
       );
     } else {
       SnackBarHelper.showError(
@@ -206,6 +215,102 @@ class _SuperAdminEmployeeListsScreenState
     }
   }
 
+  Future<void> _changeAccess(StaffAssignment member) async {
+    final company = _selectedCompany(context.read<CompanyProvider>());
+    if (company == null) return;
+
+    final companies = context.read<CompanyProvider>();
+    final current = companies.memberAccessRole(member);
+    final selected = await showModalBottomSheet<UserRole>(
+      context: context,
+      backgroundColor: AppColors.of(context).background,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(CompactPageStyle.read(context).radius),
+        ),
+      ),
+      builder: (context) {
+        final colors = AppColors.of(context);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Access in ${company.name}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'This only affects ${member.username} in this company — not their access in other companies.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                ),
+                const SizedBox(height: 14),
+                for (final level in [UserRole.employee, UserRole.admin])
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Material(
+                      color: current == level
+                          ? AppColors.primary.withValues(alpha: 0.16)
+                          : colors.inputFill,
+                      borderRadius: BorderRadius.circular(
+                        CompactPageStyle.of(context).radius,
+                      ),
+                      child: ListTile(
+                        dense: true,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            CompactPageStyle.of(context).radius,
+                          ),
+                          side: BorderSide(
+                            color: current == level
+                                ? AppColors.primary
+                                : colors.border,
+                          ),
+                        ),
+                        title: Text(level.label),
+                        trailing: current == level
+                            ? const Icon(Icons.check_rounded)
+                            : null,
+                        onTap: () => Navigator.pop(context, level),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null || selected == current || !mounted) return;
+
+    final ok = await companies.setCompanyMemberAccess(
+      companyId: company.id,
+      userId: member.userId,
+      accessLevel: selected,
+    );
+    if (!mounted) return;
+    if (ok) {
+      SnackBarHelper.showSuccess(
+        context,
+        '${member.username} is now ${selected.label} in ${company.name}.',
+      );
+    } else {
+      SnackBarHelper.showError(
+        context,
+        companies.errorMessage ?? 'Could not update access.',
+      );
+    }
+  }
+
   Future<void> _assignRoleAndTasks(StaffAssignment member) async {
     final company = _selectedCompany(context.read<CompanyProvider>());
     if (company == null) return;
@@ -245,6 +350,8 @@ class _SuperAdminEmployeeListsScreenState
         roleId: selected.roleId,
         jobRole: selected.roleName,
         tasks: selected.tasks,
+        accessLevel: companies.memberAccessRole(member).storageValue,
+        timeCardProfile: member.timeCardProfile,
       ),
     );
     if (!mounted) return;
@@ -268,6 +375,8 @@ class _SuperAdminEmployeeListsScreenState
     final companies = context.watch<CompanyProvider>();
     final company = _selectedCompany(companies);
     final members = _filteredStaff(companies);
+    final visible = _pager.takeVisible(members);
+    final hasMore = _pager.hasMore(members.length);
     final total = companies.staff.length;
     final adminCount = _countByRole(companies, UserRole.admin);
     final employeeCount = _countByRole(companies, UserRole.employee);
@@ -281,6 +390,7 @@ class _SuperAdminEmployeeListsScreenState
       title: 'Employee lists',
       currentRoute: AppRoutes.superAdminEmployees,
       child: ListView(
+        controller: _pager.scrollController,
         padding: CompactPageStyle.of(context).pagePadding,
         children: [
           const CompactPageHeader(
@@ -328,22 +438,28 @@ class _SuperAdminEmployeeListsScreenState
                   _RoleFilterChip(
                     label: 'All',
                     selected: _roleFilter == _MemberRoleFilter.all,
-                    onSelected: () =>
-                        setState(() => _roleFilter = _MemberRoleFilter.all),
+                    onSelected: () => setState(() {
+                      _roleFilter = _MemberRoleFilter.all;
+                      _pager.reset();
+                    }),
                   ),
                   const SizedBox(width: 8),
                   _RoleFilterChip(
                     label: 'Admin',
                     selected: _roleFilter == _MemberRoleFilter.admin,
-                    onSelected: () =>
-                        setState(() => _roleFilter = _MemberRoleFilter.admin),
+                    onSelected: () => setState(() {
+                      _roleFilter = _MemberRoleFilter.admin;
+                      _pager.reset();
+                    }),
                   ),
                   const SizedBox(width: 8),
                   _RoleFilterChip(
                     label: 'Employee',
                     selected: _roleFilter == _MemberRoleFilter.employee,
-                    onSelected: () =>
-                        setState(() => _roleFilter = _MemberRoleFilter.employee),
+                    onSelected: () => setState(() {
+                      _roleFilter = _MemberRoleFilter.employee;
+                      _pager.reset();
+                    }),
                   ),
                 ],
               ),
@@ -354,7 +470,9 @@ class _SuperAdminEmployeeListsScreenState
                 Expanded(
                   child: CompactSearchField(
                     controller: _search,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() {
+                      _pager.reset();
+                    }),
                     hintText: 'Search name, email, role, or task',
                   ),
                 ),
@@ -389,20 +507,30 @@ class _SuperAdminEmployeeListsScreenState
                 actionLabel: 'Clear filters',
                 onAction: () {
                   _search.clear();
-                  setState(() => _roleFilter = _MemberRoleFilter.all);
+                  setState(() {
+                    _roleFilter = _MemberRoleFilter.all;
+                    _pager.reset();
+                  });
                 },
               )
-            else
-              ...members.map((member) {
-                final user = companies.userById(member.userId);
-                final level = user?.role ?? UserRole.user;
+            else ...[
+              ...visible.map((member) {
+                final level = companies.memberAccessRole(member);
                 return _EmployeeCard(
                   member: member,
                   levelLabel: level.label,
                   onTap: () => _assignRoleAndTasks(member),
+                  onChangeAccess: () => _changeAccess(member),
                   onRemove: () => _removeEmployee(member),
                 );
               }),
+              LazyListFooter(
+                hasMore: hasMore,
+                remaining: members.length - visible.length,
+                loadingMore: _pager.loadingMore,
+                onLoadMore: () => _pager.loadMore(members.length),
+              ),
+            ],
           ],
         ],
       ),
@@ -791,12 +919,14 @@ class _EmployeeCard extends StatelessWidget {
     required this.member,
     required this.levelLabel,
     required this.onTap,
+    required this.onChangeAccess,
     required this.onRemove,
   });
 
   final StaffAssignment member;
   final String levelLabel;
   final VoidCallback onTap;
+  final VoidCallback onChangeAccess;
   final VoidCallback onRemove;
 
   @override
@@ -905,6 +1035,16 @@ class _EmployeeCard extends StatelessWidget {
                   icon: Icon(
                     Icons.chevron_right_rounded,
                     color: colors.textPrimary,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Company access level',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onChangeAccess,
+                  icon: Icon(
+                    Icons.manage_accounts_outlined,
+                    color: colors.textPrimary,
+                    size: 20,
                   ),
                 ),
                 IconButton(
@@ -1046,17 +1186,33 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _AddEmployeeSheet extends StatelessWidget {
+class _AddMemberPick {
+  const _AddMemberPick({required this.user, required this.accessLevel});
+
+  final UserModel user;
+  final UserRole accessLevel;
+}
+
+class _AddEmployeeSheet extends StatefulWidget {
   const _AddEmployeeSheet({required this.users});
 
   final List<UserModel> users;
 
   @override
+  State<_AddEmployeeSheet> createState() => _AddEmployeeSheetState();
+}
+
+class _AddEmployeeSheetState extends State<_AddEmployeeSheet> {
+  UserModel? _selected;
+  UserRole _accessLevel = UserRole.employee;
+
+  @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final density = CompactPageStyle.of(context);
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1071,67 +1227,130 @@ class _AddEmployeeSheet extends StatelessWidget {
                 ),
               ),
             ),
-            SizedBox(height: CompactPageStyle.of(context).sectionGap),
+            SizedBox(height: density.sectionGap),
             Text(
-              'Add member',
+              _selected == null ? 'Add member' : 'Access for this company',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
             ),
-            SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
+            SizedBox(height: density.titleSubtitleGap),
             Text(
-              'Choose an admin or employee account to add to this company.',
+              _selected == null
+                  ? 'Choose an account, then set Admin or Employee for this company only.'
+                  : 'Account role elsewhere does not carry over — pick access for this company.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: colors.textSecondary,
                   ),
             ),
-            SizedBox(height: CompactPageStyle.of(context).sectionGap),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 380),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: users.length,
-                separatorBuilder: (context, index) =>
-                    SizedBox(height: CompactPageStyle.of(context).cardGap),
-                itemBuilder: (context, index) {
-                  final user = users[index];
-                  return Material(
-                    color: colors.inputFill,
-                    borderRadius:
-                        BorderRadius.circular(CompactPageStyle.of(context).radius),
+            SizedBox(height: density.sectionGap),
+            if (_selected == null)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 380),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: widget.users.length,
+                  separatorBuilder: (context, index) =>
+                      SizedBox(height: density.cardGap),
+                  itemBuilder: (context, index) {
+                    final user = widget.users[index];
+                    return Material(
+                      color: colors.inputFill,
+                      borderRadius: BorderRadius.circular(density.radius),
+                      child: ListTile(
+                        dense: true,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(density.radius),
+                        ),
+                        leading: UserAvatar(
+                          name: user.username,
+                          bytes: null,
+                          size: 32,
+                        ),
+                        title: Text(
+                          user.username,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        subtitle: Text(
+                          '${user.email} · account: ${user.role.label}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        onTap: () => setState(() {
+                          _selected = user;
+                          _accessLevel = UserRole.employee;
+                        }),
+                      ),
+                    );
+                  },
+                ),
+              )
+            else ...[
+              Material(
+                color: colors.inputFill,
+                borderRadius: BorderRadius.circular(density.radius),
+                child: ListTile(
+                  dense: true,
+                  leading: UserAvatar(
+                    name: _selected!.username,
+                    bytes: null,
+                    size: 32,
+                  ),
+                  title: Text(_selected!.username),
+                  subtitle: Text(_selected!.email),
+                  trailing: TextButton(
+                    onPressed: () => setState(() => _selected = null),
+                    child: const Text('Change'),
+                  ),
+                ),
+              ),
+              SizedBox(height: density.sectionGap),
+              for (final level in [UserRole.employee, UserRole.admin])
+                Padding(
+                  padding: EdgeInsets.only(bottom: density.cardGap),
+                  child: Material(
+                    color: _accessLevel == level
+                        ? AppColors.primary.withValues(alpha: 0.16)
+                        : colors.inputFill,
+                    borderRadius: BorderRadius.circular(density.radius),
                     child: ListTile(
                       dense: true,
                       shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(CompactPageStyle.of(context).radius),
+                        borderRadius: BorderRadius.circular(density.radius),
+                        side: BorderSide(
+                          color: _accessLevel == level
+                              ? AppColors.primary
+                              : colors.border,
+                        ),
                       ),
-                      leading: UserAvatar(
-                        name: user.username,
-                        bytes: null,
-                        size: 32,
-                      ),
-                      title: Text(
-                        user.username,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
+                      title: Text(level.label),
                       subtitle: Text(
-                        user.email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
+                        level == UserRole.admin
+                            ? 'Can manage this company'
+                            : 'Regular staff in this company',
                       ),
-                      trailing: _MiniChip(
-                        label: user.role.label,
-                        fill: colors.chip,
-                      ),
-                      onTap: () => Navigator.pop(context, user),
+                      trailing: _accessLevel == level
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                      onTap: () => setState(() => _accessLevel = level),
                     ),
-                  );
-                },
+                  ),
+                ),
+              SizedBox(height: density.sectionGap),
+              PrimaryButton(
+                label: 'Add as ${_accessLevel.label}',
+                onPressed: () => Navigator.pop(
+                  context,
+                  _AddMemberPick(
+                    user: _selected!,
+                    accessLevel: _accessLevel,
+                  ),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

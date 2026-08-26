@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_colors.dart';
+import 'feedback_card.dart';
 
-/// Interactive loading card used for page / gate spinners.
+/// Page / list loading card — same visual language as overlay spinners.
 class AppLoadingCard extends StatelessWidget {
   const AppLoadingCard({
     super.key,
@@ -17,59 +17,11 @@ class AppLoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = AppColors.of(context);
-    final pad = compact
-        ? const EdgeInsets.fromLTRB(16, 16, 16, 14)
-        : const EdgeInsets.fromLTRB(22, 22, 22, 20);
-    final spinner = compact ? 28.0 : 44.0;
-
-    return Material(
-      color: colors.card,
-      elevation: compact ? 0 : 6,
-      shadowColor: colors.shadow,
-      borderRadius: BorderRadius.circular(compact ? 12 : 18),
-      child: Container(
-        padding: pad,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(compact ? 12 : 18),
-          border: Border.all(
-            color: AppColors.primaryDark.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: spinner,
-              height: spinner,
-              child: CircularProgressIndicator(
-                strokeWidth: compact ? 2.6 : 3.2,
-                color: AppColors.primaryDark,
-              ),
-            ),
-            SizedBox(height: compact ? 12 : 16),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: compact ? 14 : 16,
-                fontWeight: FontWeight.w800,
-                color: colors.textPrimary,
-              ),
-            ),
-            SizedBox(height: compact ? 4 : 6),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: compact ? 12 : 13,
-                fontWeight: FontWeight.w600,
-                color: colors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return AppFeedbackCard(
+      kind: FeedbackKind.loading,
+      title: title,
+      message: message,
+      compact: compact,
     );
   }
 }

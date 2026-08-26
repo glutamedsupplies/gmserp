@@ -29,4 +29,7 @@ class AppConstants {
 
   // Mock auth delay to simulate network latency
   static const Duration mockNetworkDelay = Duration(milliseconds: 1200);
+
+  /// How long a successful company-code unlock stays valid (employee/admin).
+  static const Duration companyCodeSessionTtl = Duration(hours: 12);
 }

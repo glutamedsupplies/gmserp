@@ -146,17 +146,52 @@ service cloud.firestore {
         || resource.data.employeeId == request.auth.uid
       );
 
-      allow create: if isAdmin()
+      // Admins may request edits for staff; employees may request edits for themselves.
+      allow create: if isSignedIn()
         && request.resource.data.status == 'pending'
-        && request.resource.data.requesterId == request.auth.uid;
+        && request.resource.data.requesterId == request.auth.uid
+        && (
+          isAdmin()
+          || request.resource.data.employeeId == request.auth.uid
+        );
 
-      allow update, delete: if isSuperAdmin();
+      // Admins and super admins approve / reject.
+      allow update, delete: if isAdmin();
     }
 
     // OTA release info for in-app "Check for updates" (before Play Store listing).
     match /appConfig/{platform} {
       allow read: if isSignedIn();
       allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Daily salary rate changes — employee + company admins + super admins.
+    match /salaryRateChanges/{changeId} {
+      allow read: if isSignedIn() && (
+        isSuperAdmin()
+        || isAdmin()
+        || request.auth.uid in resource.data.recipientIds
+      );
+
+      allow create: if isAdmin()
+        && request.resource.data.type == 'salaryRate'
+        && request.resource.data.actorId == request.auth.uid;
+
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // Super Admin announcements to company members.
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn() && (
+        isSuperAdmin()
+        || request.auth.uid in resource.data.recipientIds
+      );
+
+      allow create: if isSuperAdmin()
+        && request.resource.data.type == 'announcement'
+        && request.resource.data.actorId == request.auth.uid;
+
+      allow update, delete: if isSuperAdmin();
     }
   }
 }

@@ -4,12 +4,14 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/time_card_change_request.dart';
+import '../../models/time_entry.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/time_card_change_request_repository.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
+/// Admin: leave requests they submitted for approval (read-only tracker).
 class AdminSubmittedRequestsScreen extends StatefulWidget {
   const AdminSubmittedRequestsScreen({super.key});
 
@@ -21,7 +23,6 @@ class AdminSubmittedRequestsScreen extends StatefulWidget {
 class _AdminSubmittedRequestsScreenState
     extends State<AdminSubmittedRequestsScreen> {
   final _repo = TimeCardChangeRequestRepository();
-
   List<TimeCardChangeRequest> _requests = [];
   bool _loading = true;
   String? _error;
@@ -30,14 +31,13 @@ class _AdminSubmittedRequestsScreenState
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {
     final user = context.read<AuthProvider>().user;
     if (user == null) {
       setState(() {
-        _requests = [];
         _loading = false;
         _error = 'Sign in to view submitted requests.';
       });
@@ -48,17 +48,17 @@ class _AdminSubmittedRequestsScreenState
       _loading = true;
       _error = null;
     });
+
     try {
-      final items = await _repo.listByRequester(user.id);
+      final list = await _repo.listByRequester(user.id);
       if (!mounted) return;
       setState(() {
-        _requests = items;
+        _requests = list;
         _loading = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _requests = [];
         _loading = false;
         _error = 'Unable to load submitted requests.';
       });
@@ -76,8 +76,7 @@ class _AdminSubmittedRequestsScreenState
   Widget build(BuildContext context) {
     final density = CompactPageStyle.of(context);
     final filtered = _filtered;
-    final pending =
-        _requests.where((r) => r.isPending).length;
+    final pending = _requests.where((r) => r.isPending).length;
 
     return DashboardScaffold(
       title: 'Submitted requests',
@@ -110,9 +109,15 @@ class _AdminSubmittedRequestsScreenState
                 ),
               ),
               IconButton(
+                visualDensity: density.compact
+                    ? VisualDensity.compact
+                    : VisualDensity.standard,
                 tooltip: 'Refresh',
                 onPressed: _loading ? null : _load,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: Icon(
+                  Icons.refresh_rounded,
+                  size: density.compact ? 20 : 22,
+                ),
                 color: AppColors.primaryDark,
               ),
             ],
@@ -172,6 +177,7 @@ class _SubmittedRequestCard extends StatelessWidget {
     final company =
         request.companyName.isEmpty ? 'Unknown company' : request.companyName;
 
+    // Match Requests page card scale (not oversized titleMedium).
     return Container(
       padding: density.cardPadding,
       decoration: BoxDecoration(
@@ -191,15 +197,17 @@ class _SubmittedRequestCard extends StatelessWidget {
                   children: [
                     Text(
                       'Time card change',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: AppColors.primaryDark,
                             fontWeight: FontWeight.w800,
+                            fontSize: density.chipLabelSize,
                           ),
                     ),
-                    const SizedBox(height: 4),
+                    SizedBox(height: density.compact ? 2 : 4),
                     Text(
                       employee,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: density.cardTitleSize,
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -207,7 +215,8 @@ class _SubmittedRequestCard extends StatelessWidget {
                       request.employeeEmail.isEmpty
                           ? '—'
                           : request.employeeEmail,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontSize: density.captionSize,
                             color: colors.textSecondary,
                           ),
                     ),
@@ -215,73 +224,84 @@ class _SubmittedRequestCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: EdgeInsets.symmetric(
+                  horizontal: density.compact ? 8 : 10,
+                  vertical: density.compact ? 3 : 5,
+                ),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(99),
                 ),
                 child: Text(
                   _statusLabel(request.status),
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: statusColor,
                         fontWeight: FontWeight.w800,
+                        fontSize: density.chipLabelSize,
                       ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: density.cardGap),
+          if (request.createdAt != null) ...[
+            Text(
+              'Date requested: ${formatDateTime12h(request.createdAt!)}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontSize: density.captionSize,
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            SizedBox(height: density.titleSubtitleGap),
+          ],
           Text(
             company,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.bodySize,
                   fontWeight: FontWeight.w600,
                 ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: density.titleSubtitleGap),
           Text(
             'Date: ${request.workDate}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.captionSize,
                   fontWeight: FontWeight.w700,
                 ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: density.compact ? 2 : 4),
           Text(
             'Current: ${request.hasPriorRecord ? '${request.currentTimeInLabel} → ${request.currentTimeOutLabel}' : 'No prior record'}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.captionSize,
                   color: colors.textSecondary,
                 ),
           ),
           Text(
             'Proposed: ${request.proposedTimeInLabel} → ${request.proposedTimeOutLabel}',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: density.bodySize,
                   fontWeight: FontWeight.w700,
                   color: AppColors.primaryDark,
                 ),
           ),
           if (request.status.toLowerCase() == 'rejected') ...[
-            const SizedBox(height: 8),
+            SizedBox(height: density.cardGap),
             Text(
               'Declined — no changes were applied.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontSize: density.captionSize,
                     color: AppColors.error,
                     fontWeight: FontWeight.w600,
                   ),
             ),
-          ] else if (request.status.toLowerCase() == 'approved') ...[
-            const SizedBox(height: 8),
-            Text(
-              'Approved — time card was updated.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
           ] else ...[
-            const SizedBox(height: 8),
+            SizedBox(height: density.cardGap),
             Text(
               'Waiting for Super Admin review.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontSize: density.captionSize,
                     color: colors.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
@@ -304,9 +324,10 @@ class _MessageCard extends StatelessWidget {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
     return Container(
-      padding: density.compact
-          ? const EdgeInsets.fromLTRB(14, 22, 14, 22)
-          : const EdgeInsets.fromLTRB(16, 28, 16, 28),
+      padding: EdgeInsets.symmetric(
+        vertical: density.compact ? 20 : 24,
+        horizontal: density.compact ? 12 : 14,
+      ),
       decoration: BoxDecoration(
         color: colors.card,
         borderRadius: BorderRadius.circular(density.radius),
@@ -316,14 +337,15 @@ class _MessageCard extends StatelessWidget {
         children: [
           Icon(
             icon,
-            size: density.compact ? 28 : 34,
+            size: density.compact ? 26 : 28,
             color: colors.textSecondary,
           ),
           SizedBox(height: density.cardGap),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: density.bodySize,
                   color: colors.textSecondary,
                 ),
           ),

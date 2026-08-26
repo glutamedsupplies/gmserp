@@ -14,6 +14,7 @@ import '../../providers/company_provider.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
+import '../../widgets/lazy_list_pager.dart';
 import '../../widgets/primary_button.dart';
 
 class SuperAdminTimeCardSettingsScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class SuperAdminTimeCardSettingsScreen extends StatefulWidget {
 
 class _SuperAdminTimeCardSettingsScreenState
     extends State<SuperAdminTimeCardSettingsScreen> {
+  late final LazyListPager _pager;
   String? _companyId;
   String? _employeeFilterId;
   String? _expandedUserId;
@@ -34,7 +36,18 @@ class _SuperAdminTimeCardSettingsScreenState
   @override
   void initState() {
     super.initState();
+    _pager = LazyListPager(
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void dispose() {
+    _pager.dispose();
+    super.dispose();
   }
 
   bool _isSuperAdmin(UserRole? role) => role == UserRole.superAdmin;
@@ -74,6 +87,7 @@ class _SuperAdminTimeCardSettingsScreenState
         _employeeFilterId = null;
         _expandedUserId = null;
       }
+      _pager.reset();
     });
     final companies = context.read<CompanyProvider>();
     companies.loadUsers();
@@ -98,7 +112,7 @@ class _SuperAdminTimeCardSettingsScreenState
         (a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()),
       );
     return members.where((member) {
-      final role = companies.userById(member.userId)?.role;
+      final role = companies.memberAccessRole(member);
       return role == UserRole.employee || role == UserRole.admin;
     }).toList();
   }
@@ -118,6 +132,9 @@ class _SuperAdminTimeCardSettingsScreenState
           companyId: company.id,
           userId: member.userId,
           profile: profile,
+          company: company,
+          member: member,
+          actor: context.read<AuthProvider>().user,
         );
     if (!mounted) return;
     if (ok) {
@@ -143,11 +160,14 @@ class _SuperAdminTimeCardSettingsScreenState
     final company = _activeCompany(companies, isSuperAdmin);
     final allStaff = company == null ? <StaffAssignment>[] : _allStaff(companies);
     final staff = company == null ? <StaffAssignment>[] : _visibleStaff(companies);
+    final visible = _pager.takeVisible(staff);
+    final hasMore = _pager.hasMore(staff.length);
 
     return DashboardScaffold(
       title: 'Time card settings',
       currentRoute: AppRoutes.superAdminTimeCardSettings,
       child: ListView(
+        controller: _pager.scrollController,
         padding: CompactPageStyle.of(context).pagePadding,
         children: [
           CompactPageHeader(
@@ -184,6 +204,7 @@ class _SuperAdminTimeCardSettingsScreenState
                 setState(() {
                   _employeeFilterId = userId;
                   _expandedUserId = userId;
+                  _pager.reset();
                 });
               },
             ),
@@ -208,8 +229,8 @@ class _SuperAdminTimeCardSettingsScreenState
                 icon: Icons.filter_alt_off_outlined,
                 message: 'No employee matches the selected filter.',
               )
-            else
-              for (final member in staff) ...[
+            else ...[
+              for (final member in visible) ...[
                 _EmployeeSettingsTile(
                   member: member,
                   expanded: _expandedUserId == member.userId,
@@ -228,6 +249,13 @@ class _SuperAdminTimeCardSettingsScreenState
                 ),
                 SizedBox(height: CompactPageStyle.of(context).cardGap),
               ],
+              LazyListFooter(
+                hasMore: hasMore,
+                remaining: staff.length - visible.length,
+                loadingMore: _pager.loadingMore,
+                onLoadMore: () => _pager.loadMore(staff.length),
+              ),
+            ],
           ],
         ],
       ),

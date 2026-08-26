@@ -107,19 +107,9 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
           ],
         ),
         SidebarDestination(
-          label: 'Submitted requests',
-          icon: Icons.outbox_outlined,
-          route: AppRoutes.adminSubmittedRequests,
-        ),
-        SidebarDestination(
           label: 'Requests',
           icon: Icons.inbox_outlined,
           route: AppRoutes.superAdminRequests,
-        ),
-        SidebarDestination(
-          label: 'Request leave',
-          icon: Icons.event_busy_outlined,
-          route: AppRoutes.employeeRequestLeave,
         ),
         SidebarDestination(
           label: 'Switch company',
@@ -175,6 +165,11 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
               label: 'Time card settings',
               icon: Icons.tune_rounded,
               route: AppRoutes.superAdminTimeCardSettings,
+            ),
+            SidebarDestination(
+              label: 'Calendar',
+              icon: Icons.calendar_month_rounded,
+              route: AppRoutes.timeCardCalendar,
             ),
           ],
         ),

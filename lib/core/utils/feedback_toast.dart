@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../../widgets/feedback_card.dart';
 
-enum FeedbackKind { success, danger, info, loading }
+export '../../widgets/feedback_card.dart' show FeedbackKind;
 
-/// Floating interactive feedback cards (success / danger / info / loading).
+/// Centered interactive feedback overlays (success / danger / info / loading).
 class FeedbackToast {
   FeedbackToast._();
 
@@ -57,11 +57,13 @@ class FeedbackToast {
     );
   }
 
-  /// Full-screen interactive loading card (login, logout, long actions).
+  /// Centered loading card (login, logout, long actions).
+  /// [kind] tints the spinner: success=green, danger=red, info/loading=orange.
   static void showLoading(
     BuildContext context, {
     String title = 'Please wait',
     String message = 'Working…',
+    FeedbackKind kind = FeedbackKind.loading,
   }) {
     hideLoading();
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
@@ -69,9 +71,14 @@ class FeedbackToast {
 
     _loadingEntry = OverlayEntry(
       builder: (ctx) {
-        return _FeedbackLoadingBarrier(
-          title: title,
-          message: message,
+        return _CenteredFeedbackBarrier(
+          absorbPointers: true,
+          child: AppFeedbackCard(
+            kind: kind,
+            title: title,
+            message: message,
+            showSpinner: true,
+          ),
         );
       },
     );
@@ -86,6 +93,56 @@ class FeedbackToast {
   static void hideToast() {
     _toastEntry?.remove();
     _toastEntry = null;
+  }
+
+  /// Centered confirm card. Returns `true` when the user confirms.
+  static Future<bool> confirm(
+    BuildContext context, {
+    required String title,
+    required String message,
+    String confirmLabel = 'Confirm',
+    String cancelLabel = 'Cancel',
+    FeedbackKind kind = FeedbackKind.info,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      builder: (ctx) {
+        final palette = FeedbackPalette.of(kind);
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340),
+              child: Material(
+                color: Colors.transparent,
+                child: AppFeedbackCard(
+                  kind: kind,
+                  title: title,
+                  message: message,
+                  actions: [
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: Text(cancelLabel),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: palette.accent,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Text(confirmLabel),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    return result == true;
   }
 
   static void _showToast(
@@ -105,31 +162,20 @@ class FeedbackToast {
     late OverlayEntry entry;
     entry = OverlayEntry(
       builder: (ctx) {
-        final bottom = MediaQuery.paddingOf(ctx).bottom;
-        return Positioned(
-          left: 16,
-          right: 16,
-          bottom: 20 + bottom,
-          child: SafeArea(
-            top: false,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: _InteractiveFeedbackCard(
-                  key: ValueKey('feedback-$id'),
-                  kind: kind,
-                  title: title,
-                  message: message,
-                  duration: duration,
-                  onClose: () {
-                    if (_toastEntry == entry) {
-                      hideToast();
-                    }
-                  },
-                ),
-              ),
-            ),
+        return _CenteredFeedbackBarrier(
+          absorbPointers: false,
+          onBarrierTap: () {
+            if (_toastEntry == entry) hideToast();
+          },
+          child: _TimedFeedbackCard(
+            key: ValueKey('feedback-$id'),
+            kind: kind,
+            title: title,
+            message: message,
+            duration: duration,
+            onClose: () {
+              if (_toastEntry == entry) hideToast();
+            },
           ),
         );
       },
@@ -139,8 +185,53 @@ class FeedbackToast {
   }
 }
 
-class _InteractiveFeedbackCard extends StatefulWidget {
-  const _InteractiveFeedbackCard({
+class _CenteredFeedbackBarrier extends StatelessWidget {
+  const _CenteredFeedbackBarrier({
+    required this.child,
+    required this.absorbPointers,
+    this.onBarrierTap,
+  });
+
+  final Widget child;
+  final bool absorbPointers;
+  final VoidCallback? onBarrierTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 340),
+          child: child,
+        ),
+      ),
+    );
+
+    final stacked = Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onBarrierTap,
+            child: ColoredBox(
+              color: Colors.black.withValues(alpha: 0.38),
+            ),
+          ),
+        ),
+        content,
+      ],
+    );
+
+    return Material(
+      type: MaterialType.transparency,
+      child: absorbPointers ? AbsorbPointer(child: stacked) : stacked,
+    );
+  }
+}
+
+class _TimedFeedbackCard extends StatefulWidget {
+  const _TimedFeedbackCard({
     super.key,
     required this.kind,
     required this.title,
@@ -156,16 +247,15 @@ class _InteractiveFeedbackCard extends StatefulWidget {
   final VoidCallback onClose;
 
   @override
-  State<_InteractiveFeedbackCard> createState() =>
-      _InteractiveFeedbackCardState();
+  State<_TimedFeedbackCard> createState() => _TimedFeedbackCardState();
 }
 
-class _InteractiveFeedbackCardState extends State<_InteractiveFeedbackCard>
+class _TimedFeedbackCardState extends State<_TimedFeedbackCard>
     with TickerProviderStateMixin {
   late final AnimationController _progress;
   late final AnimationController _appear;
-  late final Animation<Offset> _slide;
   late final Animation<double> _fade;
+  late final Animation<double> _scale;
 
   @override
   void initState() {
@@ -174,13 +264,12 @@ class _InteractiveFeedbackCardState extends State<_InteractiveFeedbackCard>
       ..forward();
     _appear = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 240),
     )..forward();
-    _slide = Tween<Offset>(
-      begin: const Offset(0, 0.25),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _appear, curve: Curves.easeOutCubic));
     _fade = CurvedAnimation(parent: _appear, curve: Curves.easeOut);
+    _scale = Tween<double>(begin: 0.92, end: 1).animate(
+      CurvedAnimation(parent: _appear, curve: Curves.easeOutCubic),
+    );
 
     _progress.addStatusListener((status) {
       if (status == AnimationStatus.completed && mounted) {
@@ -198,220 +287,23 @@ class _InteractiveFeedbackCardState extends State<_InteractiveFeedbackCard>
 
   @override
   Widget build(BuildContext context) {
-    final theme = _FeedbackTheme.of(widget.kind);
-    final colors = AppColors.of(context);
-
     return FadeTransition(
       opacity: _fade,
-      child: SlideTransition(
-        position: _slide,
-        child: Dismissible(
-          key: ValueKey('dismiss-${widget.key}'),
-          direction: DismissDirection.horizontal,
-          onDismissed: (_) => widget.onClose(),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: widget.onClose,
-              borderRadius: BorderRadius.circular(16),
-              child: Ink(
-                decoration: BoxDecoration(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: theme.accent.withValues(alpha: 0.35),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colors.shadow,
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 14, 8, 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 42,
-                              height: 42,
-                              decoration: BoxDecoration(
-                                color: theme.accent.withValues(alpha: 0.16),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                theme.icon,
-                                color: theme.accent,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    widget.title,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                      color: colors.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    widget.message,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.35,
-                                      color: colors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Dismiss',
-                              onPressed: widget.onClose,
-                              visualDensity: VisualDensity.compact,
-                              icon: Icon(
-                                Icons.close_rounded,
-                                size: 20,
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      AnimatedBuilder(
-                        animation: _progress,
-                        builder: (context, _) {
-                          return LinearProgressIndicator(
-                            value: 1 - _progress.value,
-                            minHeight: 3,
-                            backgroundColor:
-                                theme.accent.withValues(alpha: 0.12),
-                            color: theme.accent,
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
+      child: ScaleTransition(
+        scale: _scale,
+        child: AnimatedBuilder(
+          animation: _progress,
+          builder: (context, _) {
+            return AppFeedbackCard(
+              kind: widget.kind,
+              title: widget.title,
+              message: widget.message,
+              progress: 1 - _progress.value,
+              onClose: widget.onClose,
+            );
+          },
         ),
       ),
     );
-  }
-}
-
-class _FeedbackLoadingBarrier extends StatelessWidget {
-  const _FeedbackLoadingBarrier({
-    required this.title,
-    required this.message,
-  });
-
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppColors.of(context);
-    final theme = _FeedbackTheme.of(FeedbackKind.loading);
-
-    return AbsorbPointer(
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.38),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 320),
-            child: Material(
-              color: colors.card,
-              elevation: 10,
-              shadowColor: colors.shadow,
-              borderRadius: BorderRadius.circular(18),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 3.2,
-                        color: theme.accent,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      message,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FeedbackTheme {
-  const _FeedbackTheme({required this.accent, required this.icon});
-
-  final Color accent;
-  final IconData icon;
-
-  static _FeedbackTheme of(FeedbackKind kind) {
-    switch (kind) {
-      case FeedbackKind.success:
-        return const _FeedbackTheme(
-          accent: AppColors.success,
-          icon: Icons.check_circle_rounded,
-        );
-      case FeedbackKind.danger:
-        return const _FeedbackTheme(
-          accent: AppColors.error,
-          icon: Icons.error_rounded,
-        );
-      case FeedbackKind.info:
-        return const _FeedbackTheme(
-          accent: AppColors.primaryDark,
-          icon: Icons.info_rounded,
-        );
-      case FeedbackKind.loading:
-        return const _FeedbackTheme(
-          accent: AppColors.primaryDark,
-          icon: Icons.hourglass_top_rounded,
-        );
-    }
   }
 }

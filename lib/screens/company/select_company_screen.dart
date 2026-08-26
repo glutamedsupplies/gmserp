@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/navigation/app_navigator.dart';
+import '../../core/navigation/notification_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_model.dart';
@@ -109,6 +110,10 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
     }
 
     SnackBarHelper.showSuccess(context, 'Opened ${company.name}.');
+    await companies.loadMyAssignment(companyId: company.id, userId: user.id);
+    await companies.loadStaff(company.id);
+    if (!mounted) return;
+    syncUserNotificationProviders(context);
     AppNavigator.popToRoot(context);
   }
 
@@ -133,7 +138,7 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
     final items = companies.memberCompanies;
     final index = items.isEmpty ? 0 : _index.clamp(0, items.length - 1);
     final selected = items.isEmpty ? null : items[index];
-    final canGoBack = companies.selectedCompany != null;
+    final canGoBack = companies.canCancelCompanyPick;
 
     return PopScope(
       canPop: false,
@@ -177,7 +182,9 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
                               Text(
                                 canGoBack
                                     ? 'Pick another company, or go back to the current one.'
-                                    : 'Swipe to pick a company, then continue to the dashboard.',
+                                    : companies.selectedCompany != null
+                                        ? 'Company session expired. Enter the company code again to reload ${companies.selectedCompany!.name}.'
+                                        : 'Swipe to pick a company, then continue to the dashboard.',
                                 textAlign: TextAlign.center,
                                 style: (CompactPageStyle.of(context).compact
                                         ? Theme.of(context).textTheme.bodySmall
@@ -266,17 +273,10 @@ class _LockedSelectHeader extends StatelessWidget {
   final VoidCallback? onBack;
 
   Future<void> _logout(BuildContext context) async {
-    SnackBarHelper.showLoading(
+    await SnackBarHelper.confirmLogout(
       context,
-      title: 'Signing out',
-      message: 'Ending your session…',
+      onSignedOut: () => AppNavigator.popToRoot(context),
     );
-    context.read<CompanyProvider>().clearSelection();
-    await context.read<AuthProvider>().logout();
-    SnackBarHelper.hideLoading();
-    if (!context.mounted) return;
-    SnackBarHelper.showInfo(context, 'You have been signed out.');
-    AppNavigator.popToRoot(context);
   }
 
   @override

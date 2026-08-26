@@ -118,14 +118,37 @@ String formatWorkDate(DateTime date) {
   return '$y-$m-$d';
 }
 
-String formatClockTime(DateTime value) {
-  final hour24 = value.hour;
+/// 12-hour clock with AM/PM, e.g. `09:05:00 AM` or `09:05 AM`.
+String formatClockTime(DateTime value, {bool withSeconds = true}) {
+  return formatHourMinute12h(
+    value.hour,
+    value.minute,
+    second: withSeconds ? value.second : null,
+  );
+}
+
+/// 12-hour hour:minute (optional seconds) with AM/PM.
+String formatHourMinute12h(
+  int hour24,
+  int minute, {
+  int? second,
+}) {
   final period = hour24 >= 12 ? 'PM' : 'AM';
   final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
   final hour = hour12.toString().padLeft(2, '0');
-  final minute = value.minute.toString().padLeft(2, '0');
-  final second = value.second.toString().padLeft(2, '0');
-  return '$hour:$minute:$second $period';
+  final min = minute.toString().padLeft(2, '0');
+  if (second == null) {
+    return '$hour:$min $period';
+  }
+  final sec = second.toString().padLeft(2, '0');
+  return '$hour:$min:$sec $period';
+}
+
+/// Local date + 12-hour time, e.g. `2026-08-26 09:05 AM`.
+String formatDateTime12h(DateTime value, {bool withSeconds = false}) {
+  final local = value.toLocal();
+  return '${formatWorkDate(local)} '
+      '${formatClockTime(local, withSeconds: withSeconds)}';
 }
 
 /// Parses values like `09:00:00 AM` or `09:00 AM` onto [date].

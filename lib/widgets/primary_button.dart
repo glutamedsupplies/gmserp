@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import 'compact_page.dart';
 
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
@@ -18,9 +19,10 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = CompactPageStyle.of(context);
     return SizedBox(
       width: double.infinity,
-      height: 54,
+      height: density.buttonHeight,
       child: ElevatedButton(
         onPressed: (isLoading || onPressed == null) ? null : onPressed,
         style: isLoading
@@ -36,10 +38,10 @@ class PrimaryButton extends StatelessWidget {
                   key: const ValueKey('loading'),
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
+                    SizedBox(
+                      width: density.compact ? 18 : 20,
+                      height: density.compact ? 18 : 20,
+                      child: const CircularProgressIndicator(
                         strokeWidth: 2.4,
                         color: AppColors.onPrimary,
                       ),
@@ -47,9 +49,10 @@ class PrimaryButton extends StatelessWidget {
                     const SizedBox(width: 12),
                     Text(
                       loadingLabel ?? label,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.onPrimary,
                         fontWeight: FontWeight.w600,
+                        fontSize: density.compact ? 15 : 17,
                       ),
                     ),
                   ],
