@@ -29,6 +29,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   List<ActivityLogEntry> _items = [];
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
   String _companyFilter = 'All';
   String _typeFilter = 'All';
@@ -77,7 +78,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         );
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool refresh = false}) async {
     final user = context.read<AuthProvider>().user;
     if (user == null) {
       setState(() {
@@ -101,7 +102,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
 
     setState(() {
-      _loading = true;
+      if (refresh) {
+        _refreshing = true;
+      } else {
+        _loading = true;
+      }
       _error = null;
       _pager.reset();
     });
@@ -138,6 +143,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       setState(() {
         _items = items;
         _loading = false;
+        _refreshing = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _markVisibleSeen();
@@ -147,6 +153,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       setState(() {
         _items = [];
         _loading = false;
+        _refreshing = false;
         _error = _auditMode
             ? 'Unable to load activity logs.'
             : 'Unable to load notifications.';
@@ -201,7 +208,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (_typeFilter == 'Time in / out' || _typeFilter == 'Time card') {
         if (item.kind != ActivityLogKind.timeEdit &&
-            item.kind != ActivityLogKind.clock) {
+            item.kind != ActivityLogKind.clock &&
+            item.kind != ActivityLogKind.timeCardSettings) {
           return false;
         }
       } else if (_typeFilter == 'Leave' && item.kind != ActivityLogKind.leave) {
@@ -222,7 +230,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       } else {
         if (_outcomeFilter == 'Approved' && !item.isApproved) return false;
         if (_outcomeFilter == 'Declined' && !item.isRejected) return false;
-        if (_outcomeFilter == 'Updated' && !item.isSalaryUpdate) return false;
+        if (_outcomeFilter == 'Updated' &&
+            !item.isSalaryUpdate &&
+            !item.isTimeCardSettingsUpdate) {
+          return false;
+        }
         if (_outcomeFilter == 'Sent' && !item.isAnnouncement) return false;
       }
 
@@ -258,7 +270,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ? 'System logs across every company, plus updates for you '
             '(salary, announcements, and your request outcomes).'
             '${unseen > 0 ? ' · $unseen new for you' : ''}'
-        : 'Request outcomes and salary rate updates for you. '
+        : 'Request outcomes, time card updates, and salary changes for you. '
             'Items are marked seen only after they appear on screen.';
 
     return DashboardScaffold(
@@ -271,7 +283,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             padding: density.pagePadding.copyWith(bottom: 0),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                CompactPageHeader(title: title, subtitle: subtitle),
+                CompactPageHeader(
+                  title: title,
+                  subtitle: subtitle,
+                  trailing: IconButton(
+                    tooltip: 'Refresh',
+                    onPressed:
+                        _loading || _refreshing ? null : () => _load(refresh: true),
+                    icon: _refreshing
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primaryDark,
+                            ),
+                          )
+                        : const Icon(Icons.refresh_rounded),
+                  ),
+                ),
                 SizedBox(height: density.sectionGap),
                 CompactSummaryStrip(
                   items: [
@@ -461,7 +491,7 @@ class _ActivityRow extends StatelessWidget {
 
   String get _outcomeLabel => entry.isAnnouncement
       ? 'Sent'
-      : entry.isSalaryUpdate
+      : entry.isSalaryUpdate || entry.isTimeCardSettingsUpdate
           ? 'Updated'
           : entry.isRejected
               ? (auditStyle ? 'Rejected' : 'Declined')
@@ -471,7 +501,9 @@ class _ActivityRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
-    final statusColor = entry.isAnnouncement || entry.isSalaryUpdate
+    final statusColor = entry.isAnnouncement ||
+            entry.isSalaryUpdate ||
+            entry.isTimeCardSettingsUpdate
         ? AppColors.primaryDark
         : entry.isApproved
             ? AppColors.success
@@ -483,6 +515,7 @@ class _ActivityRow extends StatelessWidget {
       ActivityLogKind.clock => const Color(0xFF0F766E),
       ActivityLogKind.leave => const Color(0xFF2563EB),
       ActivityLogKind.salaryRate => const Color(0xFF7C3AED),
+      ActivityLogKind.timeCardSettings => const Color(0xFF9333EA),
       ActivityLogKind.announcement => const Color(0xFFEA580C),
     };
     final kindLabel = auditStyle
@@ -492,6 +525,7 @@ class _ActivityRow extends StatelessWidget {
             ActivityLogKind.clock => 'Time in / out',
             ActivityLogKind.leave => 'Leave',
             ActivityLogKind.salaryRate => 'Salary',
+            ActivityLogKind.timeCardSettings => 'Time card',
             ActivityLogKind.announcement => 'Announcement',
           };
 
@@ -617,7 +651,8 @@ class _ActivityRow extends StatelessWidget {
                     fontSize: density.captionSize,
                   ),
             ),
-          if (entry.kind == ActivityLogKind.salaryRate) ...[
+          if (entry.kind == ActivityLogKind.salaryRate ||
+              entry.kind == ActivityLogKind.timeCardSettings) ...[
             if (!auditStyle && entry.subjectName.isNotEmpty)
               Text(
                 'Employee ${entry.subjectName}',

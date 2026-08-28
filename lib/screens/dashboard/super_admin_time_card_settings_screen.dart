@@ -138,10 +138,15 @@ class _SuperAdminTimeCardSettingsScreenState
         );
     if (!mounted) return;
     if (ok) {
-      SnackBarHelper.showSuccess(
-        context,
-        'Saved ${member.username}\'s time card settings.',
-      );
+      final warning = context.read<CompanyProvider>().errorMessage;
+      if (warning != null && warning.isNotEmpty) {
+        SnackBarHelper.showError(context, warning);
+      } else {
+        SnackBarHelper.showSuccess(
+          context,
+          'Saved ${member.username}\'s time card settings.',
+        );
+      }
       setState(() => _expandedUserId = null);
     } else {
       SnackBarHelper.showError(

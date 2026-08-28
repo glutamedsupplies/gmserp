@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import 'time_entry.dart';
 
 enum AttendanceStatus {
@@ -165,15 +166,18 @@ class TimeCardSchedule {
   factory TimeCardSchedule.fromFirestore(Map<String, dynamic>? data) {
     if (data == null) return defaults;
     return TimeCardSchedule(
-      workdayHours: _int(data['workdayHours'], 8),
-      breakMinutes: _int(data['breakMinutes'], 60),
-      breakStartHour: _int(data['breakStartHour'], 12).clamp(0, 23),
-      breakStartMinute: _int(data['breakStartMinute'], 0).clamp(0, 59),
-      overtimeAfterHours: _int(data['overtimeAfterHours'], 8),
+      workdayHours: parseFirebaseInt(data['workdayHours'], 8),
+      breakMinutes: parseFirebaseInt(data['breakMinutes'], 60),
+      breakStartHour: parseFirebaseInt(data['breakStartHour'], 12).clamp(0, 23),
+      breakStartMinute:
+          parseFirebaseInt(data['breakStartMinute'], 0).clamp(0, 59),
+      overtimeAfterHours: parseFirebaseInt(data['overtimeAfterHours'], 8),
       workWeek: WorkWeekPattern.fromStorage(data['workWeek']?.toString()),
-      shiftStartHour: _int(data['shiftStartHour'], 9).clamp(0, 23),
-      shiftStartMinute: _int(data['shiftStartMinute'], 0).clamp(0, 59),
-      lateGraceMinutes: _int(data['lateGraceMinutes'], 15).clamp(0, 240),
+      shiftStartHour: parseFirebaseInt(data['shiftStartHour'], 9).clamp(0, 23),
+      shiftStartMinute:
+          parseFirebaseInt(data['shiftStartMinute'], 0).clamp(0, 59),
+      lateGraceMinutes:
+          parseFirebaseInt(data['lateGraceMinutes'], 15).clamp(0, 240),
     );
   }
 
@@ -189,10 +193,5 @@ class TimeCardSchedule {
       'shiftStartMinute': shiftStartMinute,
       'lateGraceMinutes': lateGraceMinutes,
     };
-  }
-
-  static int _int(dynamic value, int fallback) {
-    if (value is int) return value;
-    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 }

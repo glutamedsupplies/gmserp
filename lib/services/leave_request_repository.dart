@@ -1,42 +1,47 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import '../core/utils/firebase_data.dart';
 import '../models/company_model.dart';
 import '../models/leave_request.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 
 class LeaveRequestRepository {
-  LeaveRequestRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  LeaveRequestRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
 
-  static const String collectionName = 'leaveRequests';
+  static const String collectionName = RtdbPaths.leaveRequests;
 
-  CollectionReference<Map<String, dynamic>> get _leaves =>
-      _firestore.collection(collectionName);
+  String _requestPath(String requestId) =>
+      '${RtdbPaths.leaveRequests}/$requestId';
+
+  Future<List<LeaveRequest>> _loadAll() async {
+    final children = await _rtdb.getChildren(RtdbPaths.leaveRequests);
+    return children.entries
+        .map(
+          (entry) =>
+              LeaveRequest.fromFirestore(id: entry.key, data: entry.value),
+        )
+        .toList();
+  }
 
   Future<List<LeaveRequest>> listForUserCompany({
     required String userId,
     required String companyId,
   }) async {
-    final snapshot = await _leaves
-        .where('userId', isEqualTo: userId)
-        .where('companyId', isEqualTo: companyId)
-        .get();
-
-    final leaves = snapshot.docs
-        .map((doc) => LeaveRequest.fromFirestore(id: doc.id, data: doc.data()))
+    final leaves = (await _loadAll())
+        .where(
+          (leave) => leave.userId == userId && leave.companyId == companyId,
+        )
         .toList();
     leaves.sort((a, b) => b.startDate.compareTo(a.startDate));
     return leaves;
   }
 
   Future<List<LeaveRequest>> listByUserId(String userId) async {
-    final snapshot = await _leaves.where('userId', isEqualTo: userId).get();
-    final leaves = snapshot.docs
-        .map((doc) => LeaveRequest.fromFirestore(id: doc.id, data: doc.data()))
-        .toList();
+    final leaves =
+        (await _loadAll()).where((leave) => leave.userId == userId).toList();
     leaves.sort((a, b) {
       final byUpdated = (b.updatedAt ?? b.createdAt ?? DateTime(0))
           .compareTo(a.updatedAt ?? a.createdAt ?? DateTime(0));
@@ -46,7 +51,6 @@ class LeaveRequestRepository {
     return leaves;
   }
 
-  /// Pending or approved leave that already covers any day in [startDate]–[endDate].
   Future<LeaveRequest?> findBlockingLeave({
     required String userId,
     required String companyId,
@@ -54,15 +58,12 @@ class LeaveRequestRepository {
     required DateTime startDate,
     required DateTime endDate,
   }) async {
-    final snapshot =
-        await _leaves.where('userId', isEqualTo: userId).get();
     final docId = companyDocumentId?.trim() ?? '';
     final start = formatWorkDate(startDate);
     final end = formatWorkDate(endDate);
 
-    for (final doc in snapshot.docs) {
-      final leave = LeaveRequest.fromFirestore(id: doc.id, data: doc.data());
-      if (!leave.isActiveLeave) continue;
+    for (final leave in await _loadAll()) {
+      if (leave.userId != userId || !leave.isActiveLeave) continue;
 
       final matchesCompany = leave.companyId == companyId ||
           leave.companyDocumentId == companyId ||
@@ -70,7 +71,6 @@ class LeaveRequestRepository {
               (leave.companyId == docId || leave.companyDocumentId == docId));
       if (!matchesCompany) continue;
 
-      // Ranges overlap when startA <= endB && startB <= endA.
       if (start.compareTo(leave.endDate) <= 0 &&
           leave.startDate.compareTo(end) <= 0) {
         return leave;
@@ -79,22 +79,26 @@ class LeaveRequestRepository {
     return null;
   }
 
-  Future<List<LeaveRequest>> listByCompanyId(String companyId) async {
-    final snapshot =
-        await _leaves.where('companyId', isEqualTo: companyId).get();
-
-    final leaves = snapshot.docs
-        .map((doc) => LeaveRequest.fromFirestore(id: doc.id, data: doc.data()))
+  Future<List<LeaveRequest>> listByCompanyId(
+    String companyId, {
+    String? companyDocumentId,
+  }) async {
+    final leaves = (await _loadAll())
+        .where(
+          (leave) => matchesCompanyRef(
+            storedCompanyId: leave.companyId,
+            storedDocumentId: leave.companyDocumentId,
+            companyId: companyId,
+            companyDocumentId: companyDocumentId,
+          ),
+        )
         .toList();
     leaves.sort((a, b) => b.startDate.compareTo(a.startDate));
     return leaves;
   }
 
   Future<List<LeaveRequest>> listAll() async {
-    final snapshot = await _leaves.get();
-    final leaves = snapshot.docs
-        .map((doc) => LeaveRequest.fromFirestore(id: doc.id, data: doc.data()))
-        .toList();
+    final leaves = await _loadAll();
     leaves.sort((a, b) {
       final byCreated = (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
           .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0));
@@ -110,12 +114,12 @@ class LeaveRequestRepository {
     String reviewerId = '',
     String reviewerName = '',
   }) async {
-    await _leaves.doc(requestId).update({
+    await _rtdb.merge(_requestPath(requestId), {
       'status': status,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
       if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
       if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
-      'reviewedAt': FieldValue.serverTimestamp(),
+      'reviewedAt': serverTimestamp(),
     });
   }
 
@@ -144,6 +148,7 @@ class LeaveRequestRepository {
     }
 
     final now = DateTime.now();
+    final id = _rtdb.newKey(RtdbPaths.leaveRequests);
     final data = <String, dynamic>{
       'userId': user.id,
       'userEmail': user.email,
@@ -155,17 +160,12 @@ class LeaveRequestRepository {
       'startDate': formatWorkDate(startDate),
       'endDate': formatWorkDate(endDate),
       'status': 'pending',
-      // Client timestamp so Super Admin always sees when the request was taken.
       'requestedAt': now.toUtc().toIso8601String(),
-      'createdAt': Timestamp.fromDate(now),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': writeFirebaseDate(now),
+      'updatedAt': serverTimestamp(),
     };
 
-    final doc = await _leaves.add(data);
-    final snapshot = await doc.get();
-    return LeaveRequest.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data() ?? data,
-    );
+    await _rtdb.set(_requestPath(id), data);
+    return LeaveRequest.fromFirestore(id: id, data: data);
   }
 }

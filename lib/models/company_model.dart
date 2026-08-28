@@ -1,3 +1,5 @@
+import '../core/utils/firebase_data.dart';
+
 class CompanyModel {
   final String id;
   final String? documentId;
@@ -44,24 +46,13 @@ class CompanyModel {
       passwordHash: _stringField(data['passwordHash']),
       staffPasswordHash: _stringField(data['staffPasswordHash']),
       createdBy: _stringField(data['createdBy']),
-      createdAt: _parseDate(data['createdAt']),
-      updatedAt: _parseDate(data['updatedAt']),
+      createdAt: parseFirebaseDate(data['createdAt']),
+      updatedAt: parseFirebaseDate(data['updatedAt']),
     );
   }
 
   static String _stringField(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
-  }
-
-  static DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return null;
-    }
   }
 }

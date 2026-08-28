@@ -1,27 +1,26 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import '../core/utils/firebase_data.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 
 class UserRepository {
-  UserRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  UserRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
 
-  static const String collectionName = 'users';
+  static const String collectionName = RtdbPaths.users;
 
-  CollectionReference<Map<String, dynamic>> get _users =>
-      _firestore.collection(collectionName);
+  String _userPath(String userId) => '${RtdbPaths.users}/$userId';
 
   Future<void> saveProfile({
     required UserModel user,
     required String source,
   }) async {
-    final ref = _users.doc(user.id);
-    final existing = await ref.get();
-    final existingRole = existing.exists
-        ? UserRole.fromStorage(existing.data()?['role'] as String?)
+    final path = _userPath(user.id);
+    final existing = await _rtdb.getMap(path);
+    final existingRole = existing != null
+        ? UserRole.fromStorage(existing['role'] as String?)
         : null;
     final role = RolePolicy.resolve(
       email: user.email,
@@ -34,29 +33,28 @@ class UserRepository {
       'email': user.email,
       'phoneNumber': user.phoneNumber,
       'role': role.storageValue,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
       'lastSource': source,
     };
 
-    // Preserve existing photoUrl on merge saves unless this write sets one.
     if (user.photoUrl.trim().isNotEmpty) {
       data['photoUrl'] = user.photoUrl.trim();
     }
 
     if (source == 'login') {
-      data['lastLoginAt'] = FieldValue.serverTimestamp();
+      data['lastLoginAt'] = serverTimestamp();
       data['lastLoginEmail'] = user.email;
     }
 
     if (source == 'register') {
-      data['registeredAt'] = FieldValue.serverTimestamp();
+      data['registeredAt'] = serverTimestamp();
     }
 
-    if (!existing.exists) {
-      data['createdAt'] = FieldValue.serverTimestamp();
+    if (existing == null) {
+      data['createdAt'] = serverTimestamp();
     }
 
-    await ref.set(data, SetOptions(merge: true));
+    await _rtdb.merge(path, data);
   }
 
   Future<void> updatePhotoUrl({
@@ -64,19 +62,16 @@ class UserRepository {
     required String? photoUrl,
   }) async {
     final trimmed = photoUrl?.trim() ?? '';
-    await _users.doc(userId).set(
-      {
-        'photoUrl': trimmed,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await _rtdb.merge(_userPath(userId), {
+      'photoUrl': trimmed,
+      'updatedAt': serverTimestamp(),
+    });
   }
 
   Future<UserModel?> getUserById(String uid) async {
-    final snapshot = await _users.doc(uid).get();
-    if (!snapshot.exists || snapshot.data() == null) return null;
-    final user = UserModel.fromFirestore(id: snapshot.id, data: snapshot.data()!);
+    final data = await _rtdb.getMap(_userPath(uid));
+    if (data == null) return null;
+    final user = UserModel.fromFirestore(id: uid, data: data);
     if (RolePolicy.isSuperAdminEmail(user.email) &&
         user.role != UserRole.superAdmin) {
       final promoted = user.copyWith(role: UserRole.superAdmin);
@@ -87,9 +82,9 @@ class UserRepository {
   }
 
   Future<List<UserModel>> listUsers() async {
-    final snapshot = await _users.get();
-    final users = snapshot.docs
-        .map((doc) => UserModel.fromFirestore(id: doc.id, data: doc.data()))
+    final children = await _rtdb.getChildren(RtdbPaths.users);
+    final users = children.entries
+        .map((entry) => UserModel.fromFirestore(id: entry.key, data: entry.value))
         .toList();
     users.sort((a, b) => a.username.compareTo(b.username));
     return users;
@@ -99,12 +94,9 @@ class UserRepository {
     required String userId,
     required UserRole role,
   }) async {
-    await _users.doc(userId).set(
-      {
-        'role': role.storageValue,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await _rtdb.merge(_userPath(userId), {
+      'role': role.storageValue,
+      'updatedAt': serverTimestamp(),
+    });
   }
 }

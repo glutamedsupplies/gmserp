@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import 'time_card_schedule.dart';
 import 'time_entry.dart';
 
@@ -101,21 +102,16 @@ class DayShiftSchedule {
     if (raw is! Map) return DayShiftSchedule.off;
     final data = Map<String, dynamic>.from(raw);
     return DayShiftSchedule(
-      isWorkDay: data['work'] == true,
-      timeInHour: _int(data['inH'], 9).clamp(0, 23),
-      timeInMinute: _int(data['inM'], 0).clamp(0, 59),
-      timeOutHour: _int(data['outH'], 18).clamp(0, 23),
-      timeOutMinute: _int(data['outM'], 0).clamp(0, 59),
+      isWorkDay: parseFirebaseBool(data['work']),
+      timeInHour: parseFirebaseInt(data['inH'], 9).clamp(0, 23),
+      timeInMinute: parseFirebaseInt(data['inM'], 0).clamp(0, 59),
+      timeOutHour: parseFirebaseInt(data['outH'], 18).clamp(0, 23),
+      timeOutMinute: parseFirebaseInt(data['outM'], 0).clamp(0, 59),
     );
   }
 
   static String _formatClock(int hour24, int minute) =>
       formatHourMinute12h(hour24, minute);
-
-  static int _int(dynamic value, int fallback) {
-    if (value is int) return value;
-    return int.tryParse(value?.toString() ?? '') ?? fallback;
-  }
 }
 
 /// Per-employee weekly time in / time out schedule.
@@ -204,18 +200,40 @@ class EmployeeWeeklySchedule {
     });
   }
 
+  /// Non-numeric keys (`d1`…`d7`) so RTDB does not coerce the week into an array.
+  static String storageKey(int weekday) => 'd$weekday';
+
   Map<String, dynamic> toFirestore() {
     return {
-      for (final day in _weekdayKeys) '$day': forWeekday(day).toFirestore(),
+      for (final day in _weekdayKeys)
+        storageKey(day): forWeekday(day).toFirestore(),
     };
   }
 
   factory EmployeeWeeklySchedule.fromFirestore(dynamic raw) {
+    if (raw == null) return EmployeeWeeklySchedule.defaults();
+
+    // RTDB/web turns consecutive int keys (1–7) into a List with a null at [0].
+    if (raw is List) {
+      return EmployeeWeeklySchedule({
+        for (final day in _weekdayKeys)
+          day: DayShiftSchedule.fromFirestore(
+            day < raw.length ? raw[day] : null,
+          ),
+      });
+    }
+
     if (raw is! Map) return EmployeeWeeklySchedule.defaults();
-    final data = Map<String, dynamic>.from(raw);
+
+    final data = <String, dynamic>{};
+    for (final entry in raw.entries) {
+      data[entry.key.toString()] = entry.value;
+    }
     return EmployeeWeeklySchedule({
       for (final day in _weekdayKeys)
-        day: DayShiftSchedule.fromFirestore(data['$day']),
+        day: DayShiftSchedule.fromFirestore(
+          data[storageKey(day)] ?? data['$day'],
+        ),
     });
   }
 }

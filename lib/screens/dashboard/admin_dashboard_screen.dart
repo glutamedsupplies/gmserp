@@ -877,7 +877,7 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       SizedBox(height: density.cardGap),
                   itemBuilder: (context, index) {
                     final task = filtered[index];

@@ -1,6 +1,10 @@
 import '../core/utils/firebase_data.dart';
-class SalaryRateChange {
-  const SalaryRateChange({
+import 'employee_time_card_profile.dart';
+import 'salary_rate_change.dart';
+
+/// Audit trail when an admin updates an employee's time card settings.
+class TimeCardProfileChange {
+  const TimeCardProfileChange({
     required this.id,
     required this.companyId,
     required this.companyDocumentId,
@@ -12,6 +16,8 @@ class SalaryRateChange {
     required this.actorName,
     required this.previousRate,
     required this.newRate,
+    required this.previousScheduleSummary,
+    required this.newScheduleSummary,
     required this.recipientIds,
     this.createdAt,
   });
@@ -27,19 +33,32 @@ class SalaryRateChange {
   final String actorName;
   final double previousRate;
   final double newRate;
+  final String previousScheduleSummary;
+  final String newScheduleSummary;
   final List<String> recipientIds;
   final DateTime? createdAt;
 
-  static String formatRate(double rate) {
-    if (rate <= 0) return '₱0 / day';
-    final whole = rate == rate.roundToDouble();
-    final amount =
-        whole ? rate.toStringAsFixed(0) : rate.toStringAsFixed(2);
-    return '₱$amount / day';
-  }
+  bool get rateChanged => (previousRate - newRate).abs() > 0.0001;
 
-  String get rateChangeLabel =>
-      '${formatRate(previousRate)} → ${formatRate(newRate)}';
+  bool get scheduleChanged =>
+      previousScheduleSummary.trim() != newScheduleSummary.trim();
+
+  String get rateChangeLabel => rateChanged
+      ? '${SalaryRateChange.formatRate(previousRate)} → '
+          '${SalaryRateChange.formatRate(newRate)}'
+      : SalaryRateChange.formatRate(newRate);
+
+  String get scheduleChangeLabel => scheduleChanged
+      ? '$previousScheduleSummary → $newScheduleSummary'
+      : newScheduleSummary;
+
+  String get changeSummary {
+    final parts = <String>[];
+    if (rateChanged) parts.add(rateChangeLabel);
+    if (scheduleChanged) parts.add(scheduleChangeLabel);
+    if (parts.isEmpty) return 'Time card settings updated';
+    return parts.join(' · ');
+  }
 
   Map<String, dynamic> toFirestore() {
     return {
@@ -53,13 +72,15 @@ class SalaryRateChange {
       'actorName': actorName,
       'previousRate': previousRate,
       'newRate': newRate,
+      'previousScheduleSummary': previousScheduleSummary,
+      'newScheduleSummary': newScheduleSummary,
       'recipientIds': recipientIdsToMap(recipientIds),
       'createdAt': serverTimestamp(),
-      'type': 'salaryRate',
+      'type': 'timeCardProfile',
     };
   }
 
-  factory SalaryRateChange.fromFirestore({
+  factory TimeCardProfileChange.fromFirestore({
     required String id,
     required Map<String, dynamic> data,
   }) {
@@ -68,7 +89,7 @@ class SalaryRateChange {
       return double.tryParse(value?.toString() ?? '') ?? 0;
     }
 
-    return SalaryRateChange(
+    return TimeCardProfileChange(
       id: id,
       companyId: data['companyId']?.toString() ?? '',
       companyDocumentId: data['companyDocumentId']?.toString() ?? '',
@@ -80,8 +101,30 @@ class SalaryRateChange {
       actorName: data['actorName']?.toString() ?? '',
       previousRate: asRate(data['previousRate']),
       newRate: asRate(data['newRate']),
+      previousScheduleSummary:
+          data['previousScheduleSummary']?.toString() ?? '',
+      newScheduleSummary: data['newScheduleSummary']?.toString() ?? '',
       recipientIds: parseRecipientIds(data['recipientIds']),
       createdAt: parseFirebaseDate(data['createdAt']),
     );
+  }
+
+  static bool profilesEqual(
+    EmployeeTimeCardProfile a,
+    EmployeeTimeCardProfile b,
+  ) {
+    if ((a.dailyRate - b.dailyRate).abs() > 0.0001) return false;
+    for (final day in EmployeeWeeklySchedule.weekdayLabels.keys) {
+      final left = a.weeklySchedule.forWeekday(day);
+      final right = b.weeklySchedule.forWeekday(day);
+      if (left.isWorkDay != right.isWorkDay ||
+          left.timeInHour != right.timeInHour ||
+          left.timeInMinute != right.timeInMinute ||
+          left.timeOutHour != right.timeOutHour ||
+          left.timeOutMinute != right.timeOutMinute) {
+        return false;
+      }
+    }
+    return true;
   }
 }

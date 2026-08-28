@@ -1,14 +1,15 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/firebase_data.dart';
+import '../core/utils/rtdb_platform.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
-import '../services/clock_request_repository.dart';
-import '../services/leave_request_repository.dart';
 import '../services/notification_service.dart';
-import '../services/time_card_change_request_repository.dart';
+import '../services/rtdb/rtdb_paths.dart';
+import '../services/rtdb/rtdb_service.dart';
 
 class _PendingHint {
   const _PendingHint({
@@ -29,24 +30,26 @@ class _PendingHint {
 /// Pending inbox count for Admin / Super Admin (Requests page + burger + badge).
 class PendingRequestsProvider extends ChangeNotifier {
   PendingRequestsProvider({
-    FirebaseFirestore? firestore,
+    RtdbService? rtdb,
     NotificationService? notifications,
     bool Function()? notificationsEnabled,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _rtdb = rtdb ?? RtdbService(),
         _notifications = notifications ?? NotificationService.instance,
         _notificationsEnabled = notificationsEnabled ?? (() => true);
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
   final NotificationService _notifications;
   final bool Function() _notificationsEnabled;
 
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _timeSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _leaveSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _clockSub;
+  StreamSubscription<DatabaseEvent>? _timeSub;
+  StreamSubscription<DatabaseEvent>? _leaveSub;
+  StreamSubscription<DatabaseEvent>? _clockSub;
+  Timer? _pollTimer;
   bool _listening = false;
   bool _seeded = false;
   bool _includeTimeEdits = false;
   bool _companyUnlocked = true;
+  bool _polling = false;
   String? _userId;
 
   int _timePending = 0;
@@ -124,40 +127,48 @@ class PendingRequestsProvider extends ChangeNotifier {
     _seeded = false;
     _includeTimeEdits = role == UserRole.superAdmin;
 
+    if (preferRtdbPolling) {
+      _startPolling();
+      return;
+    }
+    _startLiveListeners();
+  }
+
+  void _startPolling() {
+    unawaited(_pollOnce());
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      unawaited(_pollOnce());
+    });
+  }
+
+  Future<void> _pollOnce() async {
+    if (!_listening || _polling) return;
+    _polling = true;
+    try {
+      if (_includeTimeEdits) {
+        final time = await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
+        _applyTimePending(time);
+      } else {
+        _timePending = 0;
+        _latestTime = null;
+      }
+      final leave = await _rtdb.getChildren(RtdbPaths.leaveRequests);
+      _applyLeavePending(leave);
+      final clock = await _rtdb.getChildren(RtdbPaths.clockRequests);
+      _applyClockPending(clock);
+      _emit();
+    } catch (_) {
+      // Keep last good badge counts on transient RTDB errors.
+    } finally {
+      _polling = false;
+    }
+  }
+
+  void _startLiveListeners() {
     if (_includeTimeEdits) {
-      _timeSub = _firestore
-          .collection(TimeCardChangeRequestRepository.collectionName)
-          .snapshots()
-          .listen(
-        (snapshot) {
-          _PendingHint? newest;
-          var count = 0;
-          for (final doc in snapshot.docs) {
-            final data = doc.data();
-            final status = data['status']?.toString().toLowerCase() ?? '';
-            if (status != 'pending') continue;
-            count += 1;
-            final created = _readCreatedAt(data);
-            final employee =
-                (data['employeeName']?.toString().trim().isNotEmpty == true)
-                    ? data['employeeName'].toString().trim()
-                    : (data['employeeEmail']?.toString() ?? 'Employee');
-            final company = data['companyName']?.toString().trim() ?? '';
-            final hint = _PendingHint(
-              type: RequestNotificationPayload.typeTime,
-              id: doc.id,
-              createdAt: created,
-              title: 'Time card change request',
-              body: company.isEmpty
-                  ? '$employee submitted a time edit for review.'
-                  : '$employee · $company submitted a time edit for review.',
-            );
-            if (newest == null || hint.createdAt.isAfter(newest.createdAt)) {
-              newest = hint;
-            }
-          }
-          _timePending = count;
-          _latestTime = newest;
+      _timeSub = _rtdb.onValue(RtdbPaths.timeCardChangeRequests).listen(
+        (event) {
+          _applyTimePending(RtdbService.snapshotChildren(event.snapshot));
           _emit();
         },
         onError: (_) {
@@ -171,39 +182,9 @@ class PendingRequestsProvider extends ChangeNotifier {
       _latestTime = null;
     }
 
-    _leaveSub = _firestore
-        .collection(LeaveRequestRepository.collectionName)
-        .snapshots()
-        .listen(
-      (snapshot) {
-        _PendingHint? newest;
-        var count = 0;
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final status = data['status']?.toString().toLowerCase() ?? '';
-          if (status != 'pending') continue;
-          count += 1;
-          final created = _readCreatedAt(data);
-          final employee =
-              (data['username']?.toString().trim().isNotEmpty == true)
-                  ? data['username'].toString().trim()
-                  : (data['userEmail']?.toString() ?? 'Employee');
-          final company = data['companyName']?.toString().trim() ?? '';
-          final hint = _PendingHint(
-            type: RequestNotificationPayload.typeLeave,
-            id: doc.id,
-            createdAt: created,
-            title: 'Leave request',
-            body: company.isEmpty
-                ? '$employee submitted a leave request for review.'
-                : '$employee · $company submitted a leave request for review.',
-          );
-          if (newest == null || hint.createdAt.isAfter(newest.createdAt)) {
-            newest = hint;
-          }
-        }
-        _leavePending = count;
-        _latestLeave = newest;
+    _leaveSub = _rtdb.onValue(RtdbPaths.leaveRequests).listen(
+      (event) {
+        _applyLeavePending(RtdbService.snapshotChildren(event.snapshot));
         _emit();
       },
       onError: (_) {
@@ -213,41 +194,9 @@ class PendingRequestsProvider extends ChangeNotifier {
       },
     );
 
-    _clockSub = _firestore
-        .collection(ClockRequestRepository.collectionName)
-        .snapshots()
-        .listen(
-      (snapshot) {
-        _PendingHint? newest;
-        var count = 0;
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final status = data['status']?.toString().toLowerCase() ?? '';
-          if (status != 'pending') continue;
-          count += 1;
-          final created = _readCreatedAt(data);
-          final type = data['type']?.toString() ?? 'clockIn';
-          final employee =
-              (data['username']?.toString().trim().isNotEmpty == true)
-                  ? data['username'].toString().trim()
-                  : (data['userEmail']?.toString() ?? 'Employee');
-          final company = data['companyName']?.toString().trim() ?? '';
-          final kind = type == 'clockOut' ? 'time out' : 'time in';
-          final hint = _PendingHint(
-            type: RequestNotificationPayload.typeClock,
-            id: doc.id,
-            createdAt: created,
-            title: 'Employee $kind request',
-            body: company.isEmpty
-                ? '$employee submitted a $kind request.'
-                : '$employee · $company submitted a $kind request.',
-          );
-          if (newest == null || hint.createdAt.isAfter(newest.createdAt)) {
-            newest = hint;
-          }
-        }
-        _clockPending = count;
-        _latestClock = newest;
+    _clockSub = _rtdb.onValue(RtdbPaths.clockRequests).listen(
+      (event) {
+        _applyClockPending(RtdbService.snapshotChildren(event.snapshot));
         _emit();
       },
       onError: (_) {
@@ -256,6 +205,101 @@ class PendingRequestsProvider extends ChangeNotifier {
         _emit();
       },
     );
+  }
+
+  void _applyTimePending(Map<String, Map<String, dynamic>> children) {
+    _PendingHint? newest;
+    var count = 0;
+    for (final entry in children.entries) {
+      final data = entry.value;
+      final status = data['status']?.toString().toLowerCase() ?? '';
+      if (status != 'pending') continue;
+      count += 1;
+      final created = _readCreatedAt(data);
+      final employee =
+          (data['employeeName']?.toString().trim().isNotEmpty == true)
+              ? data['employeeName'].toString().trim()
+              : (data['employeeEmail']?.toString() ?? 'Employee');
+      final company = data['companyName']?.toString().trim() ?? '';
+      final hint = _PendingHint(
+        type: RequestNotificationPayload.typeTime,
+        id: entry.key,
+        createdAt: created,
+        title: 'Time card change request',
+        body: company.isEmpty
+            ? '$employee submitted a time edit for review.'
+            : '$employee · $company submitted a time edit for review.',
+      );
+      if (newest == null || hint.createdAt.isAfter(newest.createdAt)) {
+        newest = hint;
+      }
+    }
+    _timePending = count;
+    _latestTime = newest;
+  }
+
+  void _applyLeavePending(Map<String, Map<String, dynamic>> children) {
+    _PendingHint? newest;
+    var count = 0;
+    for (final entry in children.entries) {
+      final data = entry.value;
+      final status = data['status']?.toString().toLowerCase() ?? '';
+      if (status != 'pending') continue;
+      count += 1;
+      final created = _readCreatedAt(data);
+      final employee =
+          (data['username']?.toString().trim().isNotEmpty == true)
+              ? data['username'].toString().trim()
+              : (data['userEmail']?.toString() ?? 'Employee');
+      final company = data['companyName']?.toString().trim() ?? '';
+      final hint = _PendingHint(
+        type: RequestNotificationPayload.typeLeave,
+        id: entry.key,
+        createdAt: created,
+        title: 'Leave request',
+        body: company.isEmpty
+            ? '$employee submitted a leave request for review.'
+            : '$employee · $company submitted a leave request for review.',
+      );
+      if (newest == null || hint.createdAt.isAfter(newest.createdAt)) {
+        newest = hint;
+      }
+    }
+    _leavePending = count;
+    _latestLeave = newest;
+  }
+
+  void _applyClockPending(Map<String, Map<String, dynamic>> children) {
+    _PendingHint? newest;
+    var count = 0;
+    for (final entry in children.entries) {
+      final data = entry.value;
+      final status = data['status']?.toString().toLowerCase() ?? '';
+      if (status != 'pending') continue;
+      count += 1;
+      final created = _readCreatedAt(data);
+      final type = data['type']?.toString() ?? 'clockIn';
+      final employee =
+          (data['username']?.toString().trim().isNotEmpty == true)
+              ? data['username'].toString().trim()
+              : (data['userEmail']?.toString() ?? 'Employee');
+      final company = data['companyName']?.toString().trim() ?? '';
+      final kind = type == 'clockOut' ? 'time out' : 'time in';
+      final hint = _PendingHint(
+        type: RequestNotificationPayload.typeClock,
+        id: entry.key,
+        createdAt: created,
+        title: 'Employee $kind request',
+        body: company.isEmpty
+            ? '$employee submitted a $kind request.'
+            : '$employee · $company submitted a $kind request.',
+      );
+      if (newest == null || hint.createdAt.isAfter(newest.createdAt)) {
+        newest = hint;
+      }
+    }
+    _clockPending = count;
+    _latestClock = newest;
   }
 
   Future<void> refreshNotificationPrefs() async {
@@ -326,14 +370,15 @@ class PendingRequestsProvider extends ChangeNotifier {
   }
 
   DateTime _readCreatedAt(Map<String, dynamic> data) {
-    final value = data['createdAt'] ?? data['updatedAt'] ?? data['requestedAt'];
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
-    return DateTime.tryParse(value?.toString() ?? '') ??
+    return parseFirebaseDate(data['createdAt']) ??
+        parseFirebaseDate(data['updatedAt']) ??
+        parseFirebaseDate(data['requestedAt']) ??
         DateTime.fromMillisecondsSinceEpoch(0);
   }
 
   void _stop() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
     _timeSub?.cancel();
     _leaveSub?.cancel();
     _clockSub?.cancel();
@@ -343,6 +388,7 @@ class PendingRequestsProvider extends ChangeNotifier {
     _listening = false;
     _seeded = false;
     _includeTimeEdits = false;
+    _polling = false;
     _userId = null;
     _companyUnlocked = false;
   }

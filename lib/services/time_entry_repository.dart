@@ -1,29 +1,36 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import '../core/utils/firebase_data.dart';
 import '../models/company_model.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 
 class TimeEntryRepository {
-  TimeEntryRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  TimeEntryRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
 
-  static const String collectionName = 'timeEntries';
+  static const String collectionName = RtdbPaths.timeEntries;
 
-  CollectionReference<Map<String, dynamic>> get _entries =>
-      _firestore.collection(collectionName);
+  String _entryPath(String entryId) => '${RtdbPaths.timeEntries}/$entryId';
+
+  Future<List<TimeEntry>> _loadAll() async {
+    final children = await _rtdb.getChildren(RtdbPaths.timeEntries);
+    return children.entries
+        .map(
+          (entry) =>
+              TimeEntry.fromFirestore(id: entry.key, data: entry.value),
+        )
+        .toList();
+  }
 
   Future<TimeEntry?> getById(String entryId) async {
     if (entryId.isEmpty) return null;
-    final snapshot = await _entries.doc(entryId).get();
-    if (!snapshot.exists || snapshot.data() == null) return null;
-    return TimeEntry.fromFirestore(id: snapshot.id, data: snapshot.data()!);
+    final data = await _rtdb.getMap(_entryPath(entryId));
+    if (data == null) return null;
+    return TimeEntry.fromFirestore(id: entryId, data: data);
   }
 
-  /// Finds the existing time card for an employee on a work date.
-  /// Tries entry id, then companyId, then companyDocumentId, then user+date only.
   Future<TimeEntry?> findPriorEntry({
     required String userId,
     required String companyId,
@@ -45,63 +52,68 @@ class TimeEntryRepository {
 
     final docId = companyDocumentId?.trim() ?? '';
     if (docId.isNotEmpty && docId != companyId) {
-      final snapshot = await _entries
-          .where('userId', isEqualTo: userId)
-          .where('companyDocumentId', isEqualTo: docId)
-          .where('workDate', isEqualTo: workDate)
-          .limit(1)
-          .get();
-      if (snapshot.docs.isNotEmpty) {
-        final doc = snapshot.docs.first;
-        return TimeEntry.fromFirestore(id: doc.id, data: doc.data());
+      final all = await _loadAll();
+      for (final entry in all) {
+        if (entry.userId == userId &&
+            entry.companyDocumentId == docId &&
+            entry.workDate == workDate) {
+          return entry;
+        }
       }
     }
 
-    final loose = await _entries
-        .where('userId', isEqualTo: userId)
-        .where('workDate', isEqualTo: workDate)
-        .limit(5)
-        .get();
-    if (loose.docs.isEmpty) return null;
+    final loose = (await _loadAll())
+        .where((entry) => entry.userId == userId && entry.workDate == workDate)
+        .take(5)
+        .toList();
+    if (loose.isEmpty) return null;
 
-    for (final doc in loose.docs) {
-      final data = doc.data();
-      final entryCompanyId = data['companyId']?.toString() ?? '';
-      final entryDocId = data['companyDocumentId']?.toString() ?? '';
-      if (entryCompanyId == companyId ||
-          (docId.isNotEmpty && entryDocId == docId)) {
-        return TimeEntry.fromFirestore(id: doc.id, data: data);
+    for (final entry in loose) {
+      if (matchesCompanyRef(
+        storedCompanyId: entry.companyId,
+        storedDocumentId: entry.companyDocumentId,
+        companyId: companyId,
+        companyDocumentId: docId.isEmpty ? null : docId,
+      )) {
+        return entry;
       }
     }
-    final fallback = loose.docs.first;
-    return TimeEntry.fromFirestore(id: fallback.id, data: fallback.data());
+    // Never fall back across companies for multi-company users.
+    return null;
   }
 
   Future<TimeEntry?> getOpenEntry({
     required String userId,
     required String companyId,
+    String? companyDocumentId,
   }) async {
-    final snapshot = await _entries
-        .where('userId', isEqualTo: userId)
-        .where('companyId', isEqualTo: companyId)
-        .where('status', isEqualTo: TimeEntryStatus.open.storageValue)
-        .limit(1)
-        .get();
-
-    if (snapshot.docs.isEmpty) return null;
-    final doc = snapshot.docs.first;
-    return TimeEntry.fromFirestore(id: doc.id, data: doc.data());
+    final all = await _loadAll();
+    for (final entry in all) {
+      if (entry.userId == userId &&
+          entry.status == TimeEntryStatus.open &&
+          matchesCompanyRef(
+            storedCompanyId: entry.companyId,
+            storedDocumentId: entry.companyDocumentId,
+            companyId: companyId,
+            companyDocumentId: companyDocumentId,
+          )) {
+        return entry;
+      }
+    }
+    return null;
   }
 
   Future<TimeEntry?> getEntryForWorkDate({
     required String userId,
     required String companyId,
     required String workDate,
+    String? companyDocumentId,
   }) async {
     final entries = await listForWorkDate(
       userId: userId,
       companyId: companyId,
       workDate: workDate,
+      companyDocumentId: companyDocumentId,
     );
     if (entries.isEmpty) return null;
     return entries.first;
@@ -114,6 +126,7 @@ class TimeEntryRepository {
     final existing = await getOpenEntry(
       userId: user.id,
       companyId: company.id,
+      companyDocumentId: company.firestoreId,
     );
     if (existing != null) {
       throw StateError('You are already clocked in for this company.');
@@ -125,6 +138,7 @@ class TimeEntryRepository {
       userId: user.id,
       companyId: company.id,
       workDate: workDate,
+      companyDocumentId: company.firestoreId,
     );
     if (todayEntry != null) {
       throw StateError(
@@ -133,6 +147,7 @@ class TimeEntryRepository {
       );
     }
 
+    final id = _rtdb.newKey(RtdbPaths.timeEntries);
     final data = <String, dynamic>{
       'userId': user.id,
       'userEmail': user.email,
@@ -141,33 +156,26 @@ class TimeEntryRepository {
       'companyDocumentId': company.firestoreId,
       'companyName': company.name,
       'status': TimeEntryStatus.open.storageValue,
-      'timeIn': Timestamp.fromDate(now),
+      'timeIn': writeFirebaseDate(now),
       'timeOut': null,
       'durationSeconds': null,
       'workDate': workDate,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
 
-    final doc = await _entries.add(data);
-    final snapshot = await doc.get();
-    return TimeEntry.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data() ?? data,
-    );
+    await _rtdb.set(_entryPath(id), data);
+    return TimeEntry.fromFirestore(id: id, data: data);
   }
 
   Future<TimeEntry> clockOut({required String entryId}) async {
-    final ref = _entries.doc(entryId);
-    final snapshot = await ref.get();
-    if (!snapshot.exists || snapshot.data() == null) {
+    final path = _entryPath(entryId);
+    final data = await _rtdb.getMap(path);
+    if (data == null) {
       throw StateError('Time entry not found.');
     }
 
-    final entry = TimeEntry.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data()!,
-    );
+    final entry = TimeEntry.fromFirestore(id: entryId, data: data);
     if (!entry.isOpen) {
       throw StateError('This time entry is already closed.');
     }
@@ -175,17 +183,17 @@ class TimeEntryRepository {
     final now = DateTime.now();
     final durationSeconds = now.difference(entry.timeIn).inSeconds;
 
-    await ref.update({
+    final update = <String, dynamic>{
       'status': TimeEntryStatus.closed.storageValue,
-      'timeOut': Timestamp.fromDate(now),
+      'timeOut': writeFirebaseDate(now),
       'durationSeconds': durationSeconds,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+      'updatedAt': serverTimestamp(),
+    };
+    await _rtdb.merge(path, update);
 
-    final updated = await ref.get();
     return TimeEntry.fromFirestore(
-      id: updated.id,
-      data: updated.data()!,
+      id: entryId,
+      data: {...data, ...update},
     );
   }
 
@@ -193,15 +201,20 @@ class TimeEntryRepository {
     required String userId,
     required String companyId,
     required String workDate,
+    String? companyDocumentId,
   }) async {
-    final snapshot = await _entries
-        .where('userId', isEqualTo: userId)
-        .where('companyId', isEqualTo: companyId)
-        .where('workDate', isEqualTo: workDate)
-        .get();
-
-    final entries = snapshot.docs
-        .map((doc) => TimeEntry.fromFirestore(id: doc.id, data: doc.data()))
+    final entries = (await _loadAll())
+        .where(
+          (entry) =>
+              entry.userId == userId &&
+              entry.workDate == workDate &&
+              matchesCompanyRef(
+                storedCompanyId: entry.companyId,
+                storedDocumentId: entry.companyDocumentId,
+                companyId: companyId,
+                companyDocumentId: companyDocumentId,
+              ),
+        )
         .toList();
     entries.sort((a, b) => b.timeIn.compareTo(a.timeIn));
     return entries;
@@ -210,11 +223,13 @@ class TimeEntryRepository {
   Future<List<TimeEntry>> listRecent({
     required String userId,
     required String companyId,
+    String? companyDocumentId,
     int limit = 12,
   }) async {
     final entries = await listAllForCompany(
       userId: userId,
       companyId: companyId,
+      companyDocumentId: companyDocumentId,
     );
     if (entries.length <= limit) return entries;
     return entries.take(limit).toList();
@@ -223,14 +238,19 @@ class TimeEntryRepository {
   Future<List<TimeEntry>> listAllForCompany({
     required String userId,
     required String companyId,
+    String? companyDocumentId,
   }) async {
-    final snapshot = await _entries
-        .where('userId', isEqualTo: userId)
-        .where('companyId', isEqualTo: companyId)
-        .get();
-
-    final entries = snapshot.docs
-        .map((doc) => TimeEntry.fromFirestore(id: doc.id, data: doc.data()))
+    final entries = (await _loadAll())
+        .where(
+          (entry) =>
+              entry.userId == userId &&
+              matchesCompanyRef(
+                storedCompanyId: entry.companyId,
+                storedDocumentId: entry.companyDocumentId,
+                companyId: companyId,
+                companyDocumentId: companyDocumentId,
+              ),
+        )
         .toList();
     entries.sort((a, b) {
       final aDate = a.timeOut ?? a.timeIn;
@@ -240,29 +260,21 @@ class TimeEntryRepository {
     return entries;
   }
 
-  /// All time entries for every staff member in a company.
-  /// Prefer [companyDocumentId] when available; falls back to business [companyId].
   Future<List<TimeEntry>> listByCompanyId(
     String companyId, {
     String? companyDocumentId,
   }) async {
-    QuerySnapshot<Map<String, dynamic>> snapshot;
-    final docId = companyDocumentId?.trim() ?? '';
-    if (docId.isNotEmpty) {
-      snapshot =
-          await _entries.where('companyDocumentId', isEqualTo: docId).get();
-      if (snapshot.docs.isEmpty && docId != companyId) {
-        snapshot =
-            await _entries.where('companyId', isEqualTo: companyId).get();
-      }
-    } else {
-      snapshot =
-          await _entries.where('companyId', isEqualTo: companyId).get();
-    }
-
-    final entries = snapshot.docs
-        .map((doc) => TimeEntry.fromFirestore(id: doc.id, data: doc.data()))
+    final entries = (await _loadAll())
+        .where(
+          (entry) => matchesCompanyRef(
+            storedCompanyId: entry.companyId,
+            storedDocumentId: entry.companyDocumentId,
+            companyId: companyId,
+            companyDocumentId: companyDocumentId,
+          ),
+        )
         .toList();
+
     entries.sort((a, b) {
       final byDate = b.workDate.compareTo(a.workDate);
       if (byDate != 0) return byDate;
@@ -271,7 +283,6 @@ class TimeEntryRepository {
     return entries;
   }
 
-  /// Apply an approved employee clock-in request (writes open time entry).
   Future<TimeEntry> applyApprovedClockIn({
     required String userId,
     required String userEmail,
@@ -282,7 +293,11 @@ class TimeEntryRepository {
     required String workDate,
     required DateTime timeIn,
   }) async {
-    final open = await getOpenEntry(userId: userId, companyId: companyId);
+    final open = await getOpenEntry(
+      userId: userId,
+      companyId: companyId,
+      companyDocumentId: companyDocumentId,
+    );
     if (open != null) {
       throw StateError('Employee already has an open time entry.');
     }
@@ -290,11 +305,13 @@ class TimeEntryRepository {
       userId: userId,
       companyId: companyId,
       workDate: workDate,
+      companyDocumentId: companyDocumentId,
     );
     if (today != null) {
       throw StateError('Employee already has a time card for $workDate.');
     }
 
+    final id = _rtdb.newKey(RtdbPaths.timeEntries);
     final data = <String, dynamic>{
       'userId': userId,
       'userEmail': userEmail,
@@ -303,35 +320,27 @@ class TimeEntryRepository {
       'companyDocumentId': companyDocumentId,
       'companyName': companyName,
       'status': TimeEntryStatus.open.storageValue,
-      'timeIn': Timestamp.fromDate(timeIn),
+      'timeIn': writeFirebaseDate(timeIn),
       'timeOut': null,
       'durationSeconds': null,
       'workDate': workDate,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
-    final doc = await _entries.add(data);
-    final snapshot = await doc.get();
-    return TimeEntry.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data() ?? data,
-    );
+    await _rtdb.set(_entryPath(id), data);
+    return TimeEntry.fromFirestore(id: id, data: data);
   }
 
-  /// Apply an approved employee clock-out request.
   Future<TimeEntry> applyApprovedClockOut({
     required String entryId,
     required DateTime timeOut,
   }) async {
-    final ref = _entries.doc(entryId);
-    final snapshot = await ref.get();
-    if (!snapshot.exists || snapshot.data() == null) {
+    final path = _entryPath(entryId);
+    final data = await _rtdb.getMap(path);
+    if (data == null) {
       throw StateError('Open time entry not found for clock-out.');
     }
-    final entry = TimeEntry.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data()!,
-    );
+    final entry = TimeEntry.fromFirestore(id: entryId, data: data);
     if (!entry.isOpen) {
       throw StateError('Time entry is already closed.');
     }
@@ -340,17 +349,16 @@ class TimeEntryRepository {
     }
 
     final durationSeconds = timeOut.difference(entry.timeIn).inSeconds;
-    await ref.update({
+    final update = <String, dynamic>{
       'status': TimeEntryStatus.closed.storageValue,
-      'timeOut': Timestamp.fromDate(timeOut),
+      'timeOut': writeFirebaseDate(timeOut),
       'durationSeconds': durationSeconds,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    final updated = await ref.get();
-    return TimeEntry.fromFirestore(id: updated.id, data: updated.data()!);
+      'updatedAt': serverTimestamp(),
+    };
+    await _rtdb.merge(path, update);
+    return TimeEntry.fromFirestore(id: entryId, data: {...data, ...update});
   }
 
-  /// Admin/super admin: create or update an employee's time in / time out.
   Future<TimeEntry> adminSaveEntry({
     String? entryId,
     required String userId,
@@ -390,37 +398,30 @@ class TimeEntryRepository {
       'status': closed
           ? TimeEntryStatus.closed.storageValue
           : TimeEntryStatus.open.storageValue,
-      'timeIn': Timestamp.fromDate(timeIn),
-      'timeOut': closed ? Timestamp.fromDate(timeOut) : null,
+      'timeIn': writeFirebaseDate(timeIn),
+      'timeOut': closed ? writeFirebaseDate(timeOut) : null,
       'durationSeconds': durationSeconds,
       'workDate': workDate,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
 
     if (entryId == null || entryId.isEmpty) {
-      data['createdAt'] = FieldValue.serverTimestamp();
-      final doc = await _entries.add(data);
-      final snapshot = await doc.get();
-      return TimeEntry.fromFirestore(
-        id: snapshot.id,
-        data: snapshot.data() ?? data,
-      );
+      final id = _rtdb.newKey(RtdbPaths.timeEntries);
+      data['createdAt'] = serverTimestamp();
+      await _rtdb.set(_entryPath(id), data);
+      return TimeEntry.fromFirestore(id: id, data: data);
     }
 
-    final ref = _entries.doc(entryId);
-    final existing = await ref.get();
-    if (!existing.exists) {
+    final path = _entryPath(entryId);
+    final existing = await _rtdb.getMap(path);
+    if (existing == null) {
       throw StateError('Time entry not found.');
     }
-    await ref.update(data);
-    final updated = await ref.get();
-    return TimeEntry.fromFirestore(
-      id: updated.id,
-      data: updated.data()!,
-    );
+    await _rtdb.merge(path, data);
+    return TimeEntry.fromFirestore(id: entryId, data: {...existing, ...data});
   }
 
   Future<void> adminDeleteEntry(String entryId) async {
-    await _entries.doc(entryId).delete();
+    await _rtdb.remove(_entryPath(entryId));
   }
 }

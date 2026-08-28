@@ -1,17 +1,13 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../models/announcement.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 
 class AnnouncementRepository {
-  AnnouncementRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  AnnouncementRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
 
-  static const String collectionName = 'announcements';
-
-  CollectionReference<Map<String, dynamic>> get _collection =>
-      _firestore.collection(collectionName);
+  static const String collectionName = RtdbPaths.announcements;
 
   Future<Announcement> create({
     required String companyId,
@@ -38,9 +34,9 @@ class AnnouncementRepository {
       throw StateError('Message is required.');
     }
 
-    final ref = _collection.doc();
+    final id = _rtdb.newKey(RtdbPaths.announcements);
     final announcement = Announcement(
-      id: ref.id,
+      id: id,
       companyId: companyId,
       companyDocumentId: companyDocumentId,
       companyName: companyName,
@@ -52,14 +48,17 @@ class AnnouncementRepository {
       actorName: actorName,
       createdAt: DateTime.now(),
     );
-    await ref.set(announcement.toFirestore());
+    await _rtdb.set('${RtdbPaths.announcements}/$id', announcement.toFirestore());
     return announcement;
   }
 
   Future<List<Announcement>> listAll() async {
-    final snapshot = await _collection.get();
-    final items = snapshot.docs
-        .map((doc) => Announcement.fromFirestore(id: doc.id, data: doc.data()))
+    final children = await _rtdb.getChildren(RtdbPaths.announcements);
+    final items = children.entries
+        .map(
+          (entry) =>
+              Announcement.fromFirestore(id: entry.key, data: entry.value),
+        )
         .toList();
     items.sort(
       (a, b) =>
@@ -69,16 +68,9 @@ class AnnouncementRepository {
   }
 
   Future<List<Announcement>> listForRecipient(String userId) async {
-    final snapshot = await _collection
-        .where('recipientIds', arrayContains: userId)
-        .get();
-    final items = snapshot.docs
-        .map((doc) => Announcement.fromFirestore(id: doc.id, data: doc.data()))
+    final items = await listAll();
+    return items
+        .where((item) => item.recipientIds.contains(userId))
         .toList();
-    items.sort(
-      (a, b) =>
-          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
-    );
-    return items;
   }
 }

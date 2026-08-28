@@ -1,16 +1,16 @@
 import 'dart:io' show Platform;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../core/constants/app_constants.dart';
 import '../models/app_release_config.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 
 class AppReleaseRepository {
-  AppReleaseRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  AppReleaseRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
 
   static String platformDocumentId() {
     if (kIsWeb) return AppConstants.androidReleaseDocId;
@@ -20,13 +20,7 @@ class AppReleaseRepository {
 
   Future<AppReleaseConfig?> fetchCurrentPlatformRelease() async {
     final docId = platformDocumentId();
-    final snapshot = await _firestore
-        .collection(AppConstants.appConfigCollection)
-        .doc(docId)
-        .get();
-    if (!snapshot.exists) return null;
-
-    final data = snapshot.data();
+    final data = await _rtdb.getMap('${RtdbPaths.appConfig}/$docId');
     if (data == null || data.isEmpty) return null;
 
     final config = AppReleaseConfig.fromFirestore(data);

@@ -1,90 +1,89 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import '../core/utils/firebase_data.dart';
 import '../models/company_model.dart';
 import '../models/time_card_change_request.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 import 'time_entry_repository.dart';
 
 class TimeCardChangeRequestRepository {
   TimeCardChangeRequestRepository({
-    FirebaseFirestore? firestore,
+    RtdbService? rtdb,
     TimeEntryRepository? timeEntries,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _rtdb = rtdb ?? RtdbService(),
         _timeEntries = timeEntries ?? TimeEntryRepository();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
   final TimeEntryRepository _timeEntries;
 
-  static const String collectionName = 'timeCardChangeRequests';
+  static const String collectionName = RtdbPaths.timeCardChangeRequests;
 
-  CollectionReference<Map<String, dynamic>> get _requests =>
-      _firestore.collection(collectionName);
+  String _requestPath(String requestId) =>
+      '${RtdbPaths.timeCardChangeRequests}/$requestId';
+
+  Future<List<TimeCardChangeRequest>> _loadAll() async {
+    final children = await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
+    return _sortedEntries(children.entries);
+  }
 
   Future<List<TimeCardChangeRequest>> listAll() async {
-    final snapshot = await _requests.get();
-    return _hydrateCurrents(_sorted(snapshot.docs));
+    return _hydrateCurrents(await _loadAll());
   }
 
   Future<List<TimeCardChangeRequest>> listByRequester(String requesterId) async {
-    final snapshot =
-        await _requests.where('requesterId', isEqualTo: requesterId).get();
-    return _hydrateCurrents(_sorted(snapshot.docs));
+    final items = (await _loadAll())
+        .where((request) => request.requesterId == requesterId)
+        .toList();
+    return _hydrateCurrents(items);
   }
 
   Future<List<TimeCardChangeRequest>> listByEmployeeId(String employeeId) async {
-    final snapshot =
-        await _requests.where('employeeId', isEqualTo: employeeId).get();
-    return _hydrateCurrents(_sorted(snapshot.docs));
+    final items = (await _loadAll())
+        .where((request) => request.employeeId == employeeId)
+        .toList();
+    return _hydrateCurrents(items);
   }
 
-  /// Live pending count for Super Admin inbox (all time-change requests).
   Stream<int> watchPendingCount() {
-    return _requests.snapshots().map((snapshot) {
+    return _rtdb.onValue(RtdbPaths.timeCardChangeRequests).map((event) {
+      final children = RtdbService.snapshotChildren(event.snapshot);
       var count = 0;
-      for (final doc in snapshot.docs) {
-        final status = doc.data()['status']?.toString().toLowerCase() ?? '';
+      for (final data in children.values) {
+        final status = data['status']?.toString().toLowerCase() ?? '';
         if (status == 'pending') count += 1;
       }
       return count;
     });
   }
 
-  /// Returns a pending request for this employee/company/day, if any.
   Future<TimeCardChangeRequest?> findPendingForWorkDate({
     required String employeeId,
     required String companyId,
     String? companyDocumentId,
     required String workDate,
   }) async {
-    final snapshot = await _requests
-        .where('employeeId', isEqualTo: employeeId)
-        .where('status', isEqualTo: 'pending')
-        .get();
-
     final docId = companyDocumentId?.trim() ?? '';
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      if (data['workDate']?.toString() != workDate) continue;
-      final entryCompanyId = data['companyId']?.toString() ?? '';
-      final entryDocId = data['companyDocumentId']?.toString() ?? '';
-      if (entryCompanyId == companyId ||
-          (docId.isNotEmpty && entryDocId == docId) ||
-          entryCompanyId.isEmpty) {
-        return TimeCardChangeRequest.fromFirestore(id: doc.id, data: data);
+    for (final request in await _loadAll()) {
+      if (request.employeeId != employeeId || !request.isPending) continue;
+      if (request.workDate != workDate) continue;
+      if (request.companyId == companyId ||
+          (docId.isNotEmpty && request.companyDocumentId == docId) ||
+          request.companyId.isEmpty) {
+        return request;
       }
     }
     return null;
   }
 
-  List<TimeCardChangeRequest> _sorted(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  List<TimeCardChangeRequest> _sortedEntries(
+    Iterable<MapEntry<String, Map<String, dynamic>>> entries,
   ) {
-    final items = docs
+    final items = entries
         .map(
-          (doc) => TimeCardChangeRequest.fromFirestore(
-            id: doc.id,
-            data: doc.data(),
+          (entry) => TimeCardChangeRequest.fromFirestore(
+            id: entry.key,
+            data: entry.value,
           ),
         )
         .toList();
@@ -97,7 +96,6 @@ class TimeCardChangeRequestRepository {
     return items;
   }
 
-  /// Fills missing "current" times for pending requests from the live entry.
   Future<List<TimeCardChangeRequest>> _hydrateCurrents(
     List<TimeCardChangeRequest> items,
   ) async {
@@ -177,7 +175,6 @@ class TimeCardChangeRequestRepository {
       );
     }
 
-    // Always resolve the live time card so current* is never missed.
     final prior = await _timeEntries.findPriorEntry(
       userId: employeeId,
       companyId: company.id,
@@ -197,6 +194,7 @@ class TimeCardChangeRequestRepository {
         ? (resolvedTimeIn == null ? 'No prior record' : 'Open')
         : formatClockTime(resolvedTimeOut);
 
+    final id = _rtdb.newKey(RtdbPaths.timeCardChangeRequests);
     final data = <String, dynamic>{
       'type': 'timeEdit',
       'status': 'pending',
@@ -210,29 +208,26 @@ class TimeCardChangeRequestRepository {
       'companyDocumentId': company.firestoreId,
       'companyName': company.name,
       'workDate': workDate,
-      'proposedTimeIn': Timestamp.fromDate(proposedTimeIn),
-      'proposedTimeOut':
-          proposedTimeOut == null ? null : Timestamp.fromDate(proposedTimeOut),
+      'proposedTimeIn': writeFirebaseDate(proposedTimeIn),
+      'proposedTimeOut': proposedTimeOut == null
+          ? null
+          : writeFirebaseDate(proposedTimeOut),
       'currentTimeIn': resolvedTimeIn == null
           ? null
-          : Timestamp.fromDate(resolvedTimeIn),
+          : writeFirebaseDate(resolvedTimeIn),
       'currentTimeOut': resolvedTimeOut == null
           ? null
-          : Timestamp.fromDate(resolvedTimeOut),
+          : writeFirebaseDate(resolvedTimeOut),
       'currentTimeInLabel': currentInLabel,
       'currentTimeOutLabel': currentOutLabel,
       'existingEntryId': resolvedEntryId,
       'note': noteText,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
 
-    final doc = await _requests.add(data);
-    final snapshot = await doc.get();
-    return TimeCardChangeRequest.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data() ?? data,
-    );
+    await _rtdb.set(_requestPath(id), data);
+    return TimeCardChangeRequest.fromFirestore(id: id, data: data);
   }
 
   Future<void> reject(
@@ -240,16 +235,15 @@ class TimeCardChangeRequestRepository {
     String reviewerId = '',
     String reviewerName = '',
   }) async {
-    await _requests.doc(requestId).update({
+    await _rtdb.merge(_requestPath(requestId), {
       'status': 'rejected',
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
       if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
       if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
-      'reviewedAt': FieldValue.serverTimestamp(),
+      'reviewedAt': serverTimestamp(),
     });
   }
 
-  /// Applies the proposed time entry, then marks the request approved.
   Future<void> approve(
     TimeCardChangeRequest request, {
     String reviewerId = '',
@@ -279,12 +273,71 @@ class TimeCardChangeRequestRepository {
       timeOut: request.proposedTimeOut,
     );
 
-    await _requests.doc(request.id).update({
+    await _rtdb.merge(_requestPath(request.id), {
       'status': 'approved',
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
       if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
       if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
-      'reviewedAt': FieldValue.serverTimestamp(),
+      'reviewedAt': serverTimestamp(),
     });
+  }
+
+  /// Writes an approved audit row when Super Admin edits time in/out directly.
+  Future<TimeCardChangeRequest> recordApprovedDirectEdit({
+    required UserModel actor,
+    required CompanyModel company,
+    required String employeeId,
+    required String employeeName,
+    required String employeeEmail,
+    required String workDate,
+    required DateTime proposedTimeIn,
+    DateTime? proposedTimeOut,
+    DateTime? currentTimeIn,
+    DateTime? currentTimeOut,
+    String? existingEntryId,
+  }) async {
+    final currentInLabel = currentTimeIn == null
+        ? 'No prior record'
+        : formatClockTime(currentTimeIn);
+    final currentOutLabel = currentTimeOut == null
+        ? (currentTimeIn == null ? 'No prior record' : 'Open')
+        : formatClockTime(currentTimeOut);
+
+    final actorName =
+        actor.username.trim().isNotEmpty ? actor.username.trim() : actor.email;
+    final id = _rtdb.newKey(RtdbPaths.timeCardChangeRequests);
+    final data = <String, dynamic>{
+      'type': 'timeEdit',
+      'status': 'approved',
+      'source': 'directEdit',
+      'requesterId': actor.id,
+      'requesterName': actorName,
+      'requesterEmail': actor.email,
+      'employeeId': employeeId,
+      'employeeName': employeeName,
+      'employeeEmail': employeeEmail,
+      'companyId': company.id,
+      'companyDocumentId': company.firestoreId,
+      'companyName': company.name,
+      'workDate': workDate,
+      'proposedTimeIn': writeFirebaseDate(proposedTimeIn),
+      'proposedTimeOut':
+          proposedTimeOut == null ? null : writeFirebaseDate(proposedTimeOut),
+      'currentTimeIn':
+          currentTimeIn == null ? null : writeFirebaseDate(currentTimeIn),
+      'currentTimeOut':
+          currentTimeOut == null ? null : writeFirebaseDate(currentTimeOut),
+      'currentTimeInLabel': currentInLabel,
+      'currentTimeOutLabel': currentOutLabel,
+      'existingEntryId': existingEntryId,
+      'reviewedById': actor.id,
+      'reviewedByName': actorName,
+      'reviewedAt': serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
+    };
+
+    await _rtdb.set(_requestPath(id), data);
+    return TimeCardChangeRequest.fromFirestore(id: id, data: data);
   }
 }

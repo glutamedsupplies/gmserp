@@ -1,29 +1,28 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import '../core/utils/firebase_data.dart';
 import '../models/time_card_schedule.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 
 class TimeCardSettingsRepository {
-  TimeCardSettingsRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  TimeCardSettingsRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
 
-  static const String collectionName = 'timeCardSettings';
+  static const String collectionName = RtdbPaths.timeCardSettings;
   static const String documentId = 'global';
 
-  DocumentReference<Map<String, dynamic>> get _doc =>
-      _firestore.collection(collectionName).doc(documentId);
+  String get _path => '${RtdbPaths.timeCardSettings}/$documentId';
 
   Future<TimeCardSchedule> load() async {
-    final snapshot = await _doc.get();
-    if (!snapshot.exists) return TimeCardSchedule.defaults;
-    return TimeCardSchedule.fromFirestore(snapshot.data());
+    final data = await _rtdb.getMap(_path);
+    if (data == null) return TimeCardSchedule.defaults;
+    return TimeCardSchedule.fromFirestore(data);
   }
 
   Future<void> save(TimeCardSchedule schedule) async {
-    await _doc.set({
+    await _rtdb.merge(_path, {
       ...schedule.toFirestore(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      'updatedAt': serverTimestamp(),
+    });
   }
 }

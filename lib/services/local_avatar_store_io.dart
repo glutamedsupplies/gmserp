@@ -38,7 +38,7 @@ class DeviceLocalAvatarStore implements LocalAvatarStore {
       final dir = await _directory();
       final file = File('${dir.path}/${_safeId(userId)}.jpg');
       if (!await file.exists()) return null;
-      return file.readAsBytes();
+      return await file.readAsBytes();
     } catch (error) {
       debugPrint('Local avatar read failed: $error');
       return null;

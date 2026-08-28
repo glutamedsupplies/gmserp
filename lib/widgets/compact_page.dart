@@ -215,6 +215,25 @@ class CompactFilterDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
+    if (items.isEmpty) {
+      return Container(
+        height: density.filterHeight,
+        alignment: Alignment.centerLeft,
+        padding: EdgeInsets.symmetric(horizontal: density.compact ? 10 : 14),
+        decoration: BoxDecoration(
+          color: colors.card,
+          borderRadius: BorderRadius.circular(density.radius),
+          border: Border.all(color: colors.border),
+        ),
+        child: Text(
+          hint ?? 'No options',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontSize: density.bodySize,
+                color: colors.textSecondary,
+              ),
+        ),
+      );
+    }
     final display = items.contains(value) ? value : items.first;
     return Container(
       height: density.filterHeight,

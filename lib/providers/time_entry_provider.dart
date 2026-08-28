@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../models/clock_request.dart';
@@ -75,15 +75,21 @@ class TimeEntryProvider extends ChangeNotifier {
     try {
       final workDate = formatWorkDate(DateTime.now());
       final results = await Future.wait([
-        _repository.getOpenEntry(userId: user.id, companyId: company.id),
+        _repository.getOpenEntry(
+          userId: user.id,
+          companyId: company.id,
+          companyDocumentId: company.firestoreId,
+        ),
         _repository.listForWorkDate(
           userId: user.id,
           companyId: company.id,
           workDate: workDate,
+          companyDocumentId: company.firestoreId,
         ),
         _repository.listRecent(
           userId: user.id,
           companyId: company.id,
+          companyDocumentId: company.firestoreId,
         ),
         _clockRequests.findPendingClockIn(
           userId: user.id,
@@ -139,15 +145,21 @@ class TimeEntryProvider extends ChangeNotifier {
     try {
       final workDate = formatWorkDate(DateTime.now());
       final results = await Future.wait([
-        _repository.getOpenEntry(userId: user.id, companyId: company.id),
+        _repository.getOpenEntry(
+          userId: user.id,
+          companyId: company.id,
+          companyDocumentId: company.firestoreId,
+        ),
         _repository.listForWorkDate(
           userId: user.id,
           companyId: company.id,
           workDate: workDate,
+          companyDocumentId: company.firestoreId,
         ),
         _repository.listAllForCompany(
           userId: user.id,
           companyId: company.id,
+          companyDocumentId: company.firestoreId,
         ),
         _clockRequests.findPendingClockIn(
           userId: user.id,
@@ -266,15 +278,21 @@ class TimeEntryProvider extends ChangeNotifier {
   }) async {
     final workDate = formatWorkDate(DateTime.now());
     final results = await Future.wait([
-      _repository.getOpenEntry(userId: user.id, companyId: company.id),
+      _repository.getOpenEntry(
+        userId: user.id,
+        companyId: company.id,
+        companyDocumentId: company.firestoreId,
+      ),
       _repository.listForWorkDate(
         userId: user.id,
         companyId: company.id,
         workDate: workDate,
+        companyDocumentId: company.firestoreId,
       ),
       _repository.listRecent(
         userId: user.id,
         companyId: company.id,
+        companyDocumentId: company.firestoreId,
       ),
       _clockRequests.findPendingClockIn(
         userId: user.id,

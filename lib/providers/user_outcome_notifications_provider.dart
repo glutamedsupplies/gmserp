@@ -1,19 +1,20 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/firebase_data.dart';
+import '../core/utils/rtdb_platform.dart';
 import '../models/announcement.dart';
 import '../models/company_model.dart';
 import '../models/salary_rate_change.dart';
+import '../models/time_card_profile_change.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
-import '../services/announcement_repository.dart';
-import '../services/leave_request_repository.dart';
 import '../services/notification_seen_store.dart';
 import '../services/notification_service.dart';
-import '../services/salary_rate_change_repository.dart';
-import '../services/time_card_change_request_repository.dart';
+import '../services/rtdb/rtdb_paths.dart';
+import '../services/rtdb/rtdb_service.dart';
 
 class _OutcomeItem {
   const _OutcomeItem({
@@ -33,22 +34,26 @@ class _OutcomeItem {
 /// and keeps local notifications for unseen items.
 class UserOutcomeNotificationsProvider extends ChangeNotifier {
   UserOutcomeNotificationsProvider({
-    FirebaseFirestore? firestore,
+    RtdbService? rtdb,
     NotificationService? notifications,
     NotificationSeenStore? seenStore,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _rtdb = rtdb ?? RtdbService(),
         _notifications = notifications ?? NotificationService.instance,
         _seenStore = seenStore ?? NotificationSeenStore.instance;
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
   final NotificationService _notifications;
   final NotificationSeenStore _seenStore;
 
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _leaveSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _requesterSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _employeeSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _salarySub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _announceSub;
+  StreamSubscription<DatabaseEvent>? _leaveSub;
+  StreamSubscription<DatabaseEvent>? _requesterSub;
+  StreamSubscription<DatabaseEvent>? _employeeSub;
+  StreamSubscription<DatabaseEvent>? _salarySub;
+  StreamSubscription<DatabaseEvent>? _profileSub;
+  StreamSubscription<DatabaseEvent>? _clockSub;
+  StreamSubscription<DatabaseEvent>? _announceSub;
+  Timer? _pollTimer;
+  bool _polling = false;
 
   String? _userId;
   String? _activeCompanyId;
@@ -61,6 +66,8 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   final Map<String, _OutcomeItem> _timeAsRequester = {};
   final Map<String, _OutcomeItem> _timeAsEmployee = {};
   final Map<String, _OutcomeItem> _salaryOutcomes = {};
+  final Map<String, _OutcomeItem> _profileOutcomes = {};
+  final Map<String, _OutcomeItem> _clockOutcomes = {};
   final Map<String, _OutcomeItem> _announceOutcomes = {};
 
   Set<String> _seen = {};
@@ -70,8 +77,10 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     final merged = <String, _OutcomeItem>{
       ..._leaveOutcomes,
       ..._timeAsEmployee,
-      ..._timeAsRequester, // requester wording wins when both
+      ..._timeAsRequester,
       ..._salaryOutcomes,
+      ..._profileOutcomes,
+      ..._clockOutcomes,
       ..._announceOutcomes,
     };
     return merged;
@@ -82,7 +91,6 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
   bool isSeen(String entryId) => _seen.contains(entryId);
 
-  /// True when [entryId] is in the personal inbox stream (badge source).
   bool isTrackedOutcome(String entryId) => _outcomes.containsKey(entryId);
 
   bool isTrackedUnseen(String entryId) =>
@@ -149,73 +157,255 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     unawaited(_notifications.requestPermission());
 
-    _leaveSub = _firestore
-        .collection(LeaveRequestRepository.collectionName)
-        .where('userId', isEqualTo: userId)
-        .snapshots()
-        .listen((snapshot) {
+    if (preferRtdbPolling) {
+      unawaited(_pollOnce(userId));
+      _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+        unawaited(_pollOnce(userId));
+      });
+      return;
+    }
+
+    _leaveSub = _rtdb.onValue(RtdbPaths.leaveRequests).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          if (entry.value['userId']?.toString() == userId) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _leaveOutcomes
+          ..clear()
+          ..addAll(_parseLeaveOutcomes(filtered));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known leave outcomes on transient RTDB errors.
+      },
+    );
+
+    _requesterSub = _rtdb.onValue(RtdbPaths.timeCardChangeRequests).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          if (entry.value['requesterId']?.toString() == userId) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _timeAsRequester
+          ..clear()
+          ..addAll(_parseTimeOutcomes(filtered, asRequester: true));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known requester outcomes on transient RTDB errors.
+      },
+    );
+
+    _employeeSub = _rtdb.onValue(RtdbPaths.timeCardChangeRequests).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          if (entry.value['employeeId']?.toString() == userId) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _timeAsEmployee
+          ..clear()
+          ..addAll(_parseTimeOutcomes(filtered, asRequester: false));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known employee outcomes on transient RTDB errors.
+      },
+    );
+
+    _clockSub = _rtdb.onValue(RtdbPaths.clockRequests).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          if (entry.value['userId']?.toString() == userId) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _clockOutcomes
+          ..clear()
+          ..addAll(_parseClockOutcomes(filtered));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known clock outcomes on transient RTDB errors.
+      },
+    );
+
+    _salarySub = _rtdb.onValue(RtdbPaths.salaryRateChanges).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          final recipients = parseRecipientIds(entry.value['recipientIds']);
+          if (recipients.contains(userId)) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _salaryOutcomes
+          ..clear()
+          ..addAll(_parseSalaryOutcomes(filtered, userId: userId));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known salary outcomes on transient RTDB errors.
+      },
+    );
+
+    _profileSub = _rtdb.onValue(RtdbPaths.timeCardProfileChanges).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          final recipients = parseRecipientIds(entry.value['recipientIds']);
+          if (recipients.contains(userId)) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _profileOutcomes
+          ..clear()
+          ..addAll(_parseProfileOutcomes(filtered, userId: userId));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known profile outcomes on transient RTDB errors.
+      },
+    );
+
+    _announceSub = _rtdb.onValue(RtdbPaths.announcements).listen(
+      (event) {
+        final children = RtdbService.snapshotChildren(event.snapshot);
+        final filtered = <String, Map<String, dynamic>>{};
+        for (final entry in children.entries) {
+          final recipients = parseRecipientIds(entry.value['recipientIds']);
+          if (recipients.contains(userId)) {
+            filtered[entry.key] = entry.value;
+          }
+        }
+        _announceOutcomes
+          ..clear()
+          ..addAll(_parseAnnouncementOutcomes(filtered));
+        unawaited(_syncLocalNotifications(userId));
+        notifyListeners();
+      },
+      onError: (_) {
+        // Keep last known announcement outcomes on transient RTDB errors.
+      },
+    );
+  }
+
+  Future<void> _pollOnce(String userId) async {
+    if (!_listening || _userId != userId || _polling) return;
+    _polling = true;
+    try {
+      final leaves = await _rtdb.getChildren(RtdbPaths.leaveRequests);
+      final leaveFiltered = <String, Map<String, dynamic>>{};
+      for (final entry in leaves.entries) {
+        if (entry.value['userId']?.toString() == userId) {
+          leaveFiltered[entry.key] = entry.value;
+        }
+      }
       _leaveOutcomes
         ..clear()
-        ..addAll(_parseLeaveOutcomes(snapshot));
-      unawaited(_syncLocalNotifications(userId));
-      notifyListeners();
-    });
+        ..addAll(_parseLeaveOutcomes(leaveFiltered));
 
-    _requesterSub = _firestore
-        .collection(TimeCardChangeRequestRepository.collectionName)
-        .where('requesterId', isEqualTo: userId)
-        .snapshots()
-        .listen((snapshot) {
+      final timeChanges =
+          await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
+      final asRequester = <String, Map<String, dynamic>>{};
+      final asEmployee = <String, Map<String, dynamic>>{};
+      for (final entry in timeChanges.entries) {
+        if (entry.value['requesterId']?.toString() == userId) {
+          asRequester[entry.key] = entry.value;
+        }
+        if (entry.value['employeeId']?.toString() == userId) {
+          asEmployee[entry.key] = entry.value;
+        }
+      }
       _timeAsRequester
         ..clear()
-        ..addAll(_parseTimeOutcomes(snapshot, asRequester: true));
-      unawaited(_syncLocalNotifications(userId));
-      notifyListeners();
-    });
-
-    _employeeSub = _firestore
-        .collection(TimeCardChangeRequestRepository.collectionName)
-        .where('employeeId', isEqualTo: userId)
-        .snapshots()
-        .listen((snapshot) {
+        ..addAll(_parseTimeOutcomes(asRequester, asRequester: true));
       _timeAsEmployee
         ..clear()
-        ..addAll(_parseTimeOutcomes(snapshot, asRequester: false));
-      unawaited(_syncLocalNotifications(userId));
-      notifyListeners();
-    });
+        ..addAll(_parseTimeOutcomes(asEmployee, asRequester: false));
 
-    _salarySub = _firestore
-        .collection(SalaryRateChangeRepository.collectionName)
-        .where('recipientIds', arrayContains: userId)
-        .snapshots()
-        .listen((snapshot) {
+      final salary = await _rtdb.getChildren(RtdbPaths.salaryRateChanges);
+      final salaryFiltered = <String, Map<String, dynamic>>{};
+      for (final entry in salary.entries) {
+        final recipients = parseRecipientIds(entry.value['recipientIds']);
+        if (recipients.contains(userId)) {
+          salaryFiltered[entry.key] = entry.value;
+        }
+      }
       _salaryOutcomes
         ..clear()
-        ..addAll(_parseSalaryOutcomes(snapshot, userId: userId));
-      unawaited(_syncLocalNotifications(userId));
-      notifyListeners();
-    });
+        ..addAll(_parseSalaryOutcomes(salaryFiltered, userId: userId));
 
-    _announceSub = _firestore
-        .collection(AnnouncementRepository.collectionName)
-        .where('recipientIds', arrayContains: userId)
-        .snapshots()
-        .listen((snapshot) {
+      final profiles =
+          await _rtdb.getChildren(RtdbPaths.timeCardProfileChanges);
+      final profileFiltered = <String, Map<String, dynamic>>{};
+      for (final entry in profiles.entries) {
+        final recipients = parseRecipientIds(entry.value['recipientIds']);
+        if (recipients.contains(userId)) {
+          profileFiltered[entry.key] = entry.value;
+        }
+      }
+      _profileOutcomes
+        ..clear()
+        ..addAll(_parseProfileOutcomes(profileFiltered, userId: userId));
+
+      final clocks = await _rtdb.getChildren(RtdbPaths.clockRequests);
+      final clockFiltered = <String, Map<String, dynamic>>{};
+      for (final entry in clocks.entries) {
+        if (entry.value['userId']?.toString() == userId) {
+          clockFiltered[entry.key] = entry.value;
+        }
+      }
+      _clockOutcomes
+        ..clear()
+        ..addAll(_parseClockOutcomes(clockFiltered));
+
+      final announces = await _rtdb.getChildren(RtdbPaths.announcements);
+      final announceFiltered = <String, Map<String, dynamic>>{};
+      for (final entry in announces.entries) {
+        final recipients = parseRecipientIds(entry.value['recipientIds']);
+        if (recipients.contains(userId)) {
+          announceFiltered[entry.key] = entry.value;
+        }
+      }
       _announceOutcomes
         ..clear()
-        ..addAll(_parseAnnouncementOutcomes(snapshot));
+        ..addAll(_parseAnnouncementOutcomes(announceFiltered));
+
       unawaited(_syncLocalNotifications(userId));
       notifyListeners();
-    });
+    } catch (_) {
+      // Keep last known inbox state on transient RTDB errors.
+    } finally {
+      _polling = false;
+    }
   }
 
   Map<String, _OutcomeItem> _parseLeaveOutcomes(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
+    Map<String, Map<String, dynamic>> children,
   ) {
     final map = <String, _OutcomeItem>{};
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
+    for (final entry in children.entries) {
+      final data = entry.value;
       final companyId = data['companyId']?.toString() ?? '';
       final companyDocumentId = data['companyDocumentId']?.toString() ?? '';
       if (!_matchesActiveCompany(companyId, companyDocumentId)) continue;
@@ -223,7 +413,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
       final status = data['status']?.toString().toLowerCase() ?? '';
       if (status != 'approved' && status != 'rejected') continue;
 
-      final entryId = 'leave:${doc.id}';
+      final entryId = 'leave:${entry.key}';
       final approved = status == 'approved';
       final start = data['startDate']?.toString() ?? '';
       final end = data['endDate']?.toString() ?? '';
@@ -247,8 +437,8 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
                 ? 'Your leave request was approved.'
                 : 'Your leave request was declined.')
             : body,
-        updatedAt: _parseDate(data['updatedAt']) ??
-            _parseDate(data['createdAt']) ??
+        updatedAt: parseFirebaseDate(data['updatedAt']) ??
+            parseFirebaseDate(data['createdAt']) ??
             DateTime.now(),
       );
     }
@@ -256,12 +446,12 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   }
 
   Map<String, _OutcomeItem> _parseTimeOutcomes(
-    QuerySnapshot<Map<String, dynamic>> snapshot, {
+    Map<String, Map<String, dynamic>> children, {
     required bool asRequester,
   }) {
     final map = <String, _OutcomeItem>{};
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
+    for (final entry in children.entries) {
+      final data = entry.value;
       final companyId = data['companyId']?.toString() ?? '';
       final companyDocumentId = data['companyDocumentId']?.toString() ?? '';
       if (!_matchesActiveCompany(companyId, companyDocumentId)) continue;
@@ -269,13 +459,20 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
       final status = data['status']?.toString().toLowerCase() ?? '';
       if (status != 'approved' && status != 'rejected') continue;
 
-      final entryId = 'time:${doc.id}';
+      final entryId = 'time:${entry.key}';
       final approved = status == 'approved';
       final workDate = data['workDate']?.toString() ?? '';
       final employeeName = data['employeeName']?.toString().trim() ?? '';
       final reviewer = data['reviewedByName']?.toString().trim() ?? '';
+      final direct = data['source']?.toString() == 'directEdit';
       final String body;
-      if (asRequester) {
+      if (direct) {
+        body = [
+          if (employeeName.isNotEmpty && asRequester) employeeName,
+          if (workDate.isNotEmpty) 'Date $workDate',
+          if (reviewer.isNotEmpty) 'Updated by $reviewer',
+        ].join(' · ');
+      } else if (asRequester) {
         body = [
           if (employeeName.isNotEmpty) employeeName,
           if (workDate.isNotEmpty) 'Date $workDate',
@@ -293,16 +490,27 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
         ].join(' · ');
       }
 
+      final String title;
+      if (direct) {
+        title = asRequester
+            ? 'Time entry updated'
+            : 'Your time entry was updated';
+      } else {
+        title = approved ? 'Time change approved' : 'Time change declined';
+      }
+
       map[entryId] = _OutcomeItem(
         entryId: entryId,
-        title: approved ? 'Time change approved' : 'Time change declined',
+        title: title,
         body: body.isEmpty
-            ? (approved
-                ? 'Your time change request was approved.'
-                : 'Your time change request was declined.')
+            ? (direct
+                ? 'Time entry was updated.'
+                : (approved
+                    ? 'Your time change request was approved.'
+                    : 'Your time change request was declined.'))
             : body,
-        updatedAt: _parseDate(data['updatedAt']) ??
-            _parseDate(data['createdAt']) ??
+        updatedAt: parseFirebaseDate(data['updatedAt']) ??
+            parseFirebaseDate(data['createdAt']) ??
             DateTime.now(),
       );
     }
@@ -310,12 +518,13 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   }
 
   Map<String, _OutcomeItem> _parseSalaryOutcomes(
-    QuerySnapshot<Map<String, dynamic>> snapshot, {
+    Map<String, Map<String, dynamic>> children, {
     required String userId,
   }) {
     final map = <String, _OutcomeItem>{};
-    for (final doc in snapshot.docs) {
-      final change = SalaryRateChange.fromFirestore(id: doc.id, data: doc.data());
+    for (final entry in children.entries) {
+      final change =
+          SalaryRateChange.fromFirestore(id: entry.key, data: entry.value);
       if (!_matchesActiveCompany(change.companyId, change.companyDocumentId)) {
         continue;
       }
@@ -330,8 +539,83 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
               change.rateChangeLabel,
               if (change.companyName.isNotEmpty) change.companyName,
             ].join(' · ');
-      map['salary:${doc.id}'] = _OutcomeItem(
-        entryId: 'salary:${doc.id}',
+      map['salary:${entry.key}'] = _OutcomeItem(
+        entryId: 'salary:${entry.key}',
+        title: title,
+        body: body,
+        updatedAt: change.createdAt ?? DateTime.now(),
+      );
+    }
+    return map;
+  }
+
+  Map<String, _OutcomeItem> _parseClockOutcomes(
+    Map<String, Map<String, dynamic>> children,
+  ) {
+    final map = <String, _OutcomeItem>{};
+    for (final entry in children.entries) {
+      final data = entry.value;
+      final companyId = data['companyId']?.toString() ?? '';
+      final companyDocumentId = data['companyDocumentId']?.toString() ?? '';
+      if (!_matchesActiveCompany(companyId, companyDocumentId)) continue;
+
+      final status = data['status']?.toString().toLowerCase() ?? '';
+      if (status != 'approved' && status != 'rejected') continue;
+
+      final entryId = 'clock:${entry.key}';
+      final approved = status == 'approved';
+      final type = data['type']?.toString() == 'clockOut' ? 'Time out' : 'Time in';
+      final workDate = data['workDate']?.toString() ?? '';
+      final reviewer = data['reviewedByName']?.toString().trim() ?? '';
+      final body = [
+        if (workDate.isNotEmpty) 'Date $workDate',
+        if (reviewer.isNotEmpty)
+          approved ? 'Approved by $reviewer' : 'Declined by $reviewer',
+      ].join(' · ');
+
+      map[entryId] = _OutcomeItem(
+        entryId: entryId,
+        title: approved ? '$type approved' : '$type declined',
+        body: body.isEmpty
+            ? (approved
+                ? 'Your $type request was approved.'
+                : 'Your $type request was declined.')
+            : body,
+        updatedAt: parseFirebaseDate(data['updatedAt']) ??
+            parseFirebaseDate(data['createdAt']) ??
+            DateTime.now(),
+      );
+    }
+    return map;
+  }
+
+  Map<String, _OutcomeItem> _parseProfileOutcomes(
+    Map<String, Map<String, dynamic>> children, {
+    required String userId,
+  }) {
+    final map = <String, _OutcomeItem>{};
+    for (final entry in children.entries) {
+      final change =
+          TimeCardProfileChange.fromFirestore(id: entry.key, data: entry.value);
+      if (!_matchesActiveCompany(change.companyId, change.companyDocumentId)) {
+        continue;
+      }
+      final isEmployee = change.employeeId == userId;
+      final isActor = change.actorId == userId;
+      final title = isEmployee
+          ? 'Time card settings updated'
+          : isActor
+              ? 'Time card settings saved'
+              : 'Employee time card updated';
+      final body = isEmployee
+          ? '${change.changeSummary} · by ${change.actorName.isEmpty ? 'Admin' : change.actorName}'
+          : [
+              if (change.employeeName.isNotEmpty) change.employeeName,
+              change.changeSummary,
+              if (change.companyName.isNotEmpty) change.companyName,
+            ].join(' · ');
+      map['profile:${entry.key}'] = _OutcomeItem(
+        entryId: 'profile:${entry.key}',
         title: title,
         body: body,
         updatedAt: change.createdAt ?? DateTime.now(),
@@ -341,11 +625,11 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   }
 
   Map<String, _OutcomeItem> _parseAnnouncementOutcomes(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
+    Map<String, Map<String, dynamic>> children,
   ) {
     final map = <String, _OutcomeItem>{};
-    for (final doc in snapshot.docs) {
-      final item = Announcement.fromFirestore(id: doc.id, data: doc.data());
+    for (final entry in children.entries) {
+      final item = Announcement.fromFirestore(id: entry.key, data: entry.value);
       if (!_matchesActiveCompany(item.companyId, item.companyDocumentId)) {
         continue;
       }
@@ -353,8 +637,8 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
         if (item.message.isNotEmpty) item.message,
         if (item.companyName.isNotEmpty) item.companyName,
       ].join(' · ');
-      map['announce:${doc.id}'] = _OutcomeItem(
-        entryId: 'announce:${doc.id}',
+      map['announce:${entry.key}'] = _OutcomeItem(
+        entryId: 'announce:${entry.key}',
         title: item.subject.isEmpty ? 'Announcement' : item.subject,
         body: body.isEmpty ? 'New announcement' : body,
         updatedAt: item.createdAt ?? DateTime.now(),
@@ -369,7 +653,6 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     final outcomes = _outcomes;
     final liveIds = outcomes.keys.toSet();
 
-    // Drop tray items that are no longer unresolved outcomes.
     for (final id in {..._announced, ..._seen}) {
       if (!liveIds.contains(id) || _seen.contains(id)) {
         await _notifications.cancelRequestOutcome(id);
@@ -403,8 +686,6 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     await markLoadedSeen([entryId]);
   }
 
-  /// Opening the notifications page marks loaded outcomes as seen and clears
-  /// their local tray notifications.
   Future<void> markLoadedSeen(Iterable<String> entryIds) async {
     final userId = _userId;
     if (userId == null) return;
@@ -429,32 +710,29 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     }
   }
 
-  DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return DateTime.tryParse(value.toString());
-    }
-  }
-
   void _stop({bool cancelTray = false}) {
     final toCancel = cancelTray
         ? {..._announced, ..._seen, ..._outcomes.keys}
         : const <String>{};
+    _pollTimer?.cancel();
+    _pollTimer = null;
     _leaveSub?.cancel();
     _requesterSub?.cancel();
     _employeeSub?.cancel();
     _salarySub?.cancel();
+    _profileSub?.cancel();
+    _clockSub?.cancel();
     _announceSub?.cancel();
     _leaveSub = null;
     _requesterSub = null;
     _employeeSub = null;
     _salarySub = null;
+    _profileSub = null;
+    _clockSub = null;
     _announceSub = null;
     _listening = false;
     _seeded = false;
+    _polling = false;
     _userId = null;
     _activeCompanyId = null;
     _activeCompanyDocId = null;
@@ -463,6 +741,8 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     _timeAsRequester.clear();
     _timeAsEmployee.clear();
     _salaryOutcomes.clear();
+    _profileOutcomes.clear();
+    _clockOutcomes.clear();
     _announceOutcomes.clear();
     _seen = {};
     _announced = {};

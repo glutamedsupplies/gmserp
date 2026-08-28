@@ -1,0 +1,94 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null",
+      "$userId": {
+        ".write": "auth != null && (!data.exists() && auth.uid == $userId || auth.uid == $userId && (!newData.child('role').exists() || newData.child('role').val() == data.child('role').val() || auth.token.email == 'kianmaximo17@gmail.com' && newData.child('role').val() == 'superAdmin') || root.child('users').child(auth.uid).child('role').val() == 'superAdmin') && !newData.child('password').exists()",
+        ".validate": "!newData.child('password').exists()"
+      }
+    },
+
+    "companies": {
+      ".read": "auth != null",
+      "$companyId": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')",
+        "staff": {
+          "$staffId": {
+            ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com' || (root.child('users').child(auth.uid).child('role').val() == 'admin' && root.child('companies').child($companyId).child('staff').child(auth.uid).child('accessLevel').val() == 'admin'))"
+          }
+        },
+        "tasks": {
+          "$taskId": {
+            ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+          }
+        }
+      }
+    },
+
+    "timeEntries": {
+      ".read": "auth != null",
+      "$entryId": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "timeCardSettings": {
+      ".read": "auth != null",
+      "$docId": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "leaveRequests": {
+      ".read": "auth != null",
+      "$requestId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('userId').val() == auth.uid && newData.child('status').val() == 'pending') || root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "clockRequests": {
+      ".read": "auth != null",
+      "$requestId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('userId').val() == auth.uid && newData.child('status').val() == 'pending' && (newData.child('type').val() == 'clockIn' || newData.child('type').val() == 'clockOut')) || root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "timeCardChangeRequests": {
+      ".read": "auth != null",
+      "$requestId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('status').val() == 'pending' && newData.child('requesterId').val() == auth.uid && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com' || newData.child('employeeId').val() == auth.uid)) || root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "appConfig": {
+      ".read": "auth != null",
+      "$platform": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "salaryRateChanges": {
+      ".read": "auth != null",
+      "$changeId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('type').val() == 'salaryRate' && newData.child('actorId').val() == auth.uid && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin')) || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "timeCardProfileChanges": {
+      ".read": "auth != null",
+      "$changeId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('type').val() == 'timeCardProfile' && newData.child('actorId').val() == auth.uid && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'superAdmin')) || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    },
+
+    "announcements": {
+      ".read": "auth != null",
+      "$announcementId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('type').val() == 'announcement' && newData.child('actorId').val() == auth.uid && (root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')) || root.child('users').child(auth.uid).child('role').val() == 'superAdmin' || auth.token.email == 'kianmaximo17@gmail.com')"
+      }
+    }
+  }
+}

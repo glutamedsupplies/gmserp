@@ -3,6 +3,7 @@ enum ActivityLogKind {
   clock,
   leave,
   salaryRate,
+  timeCardSettings,
   announcement,
 }
 
@@ -47,6 +48,7 @@ class ActivityLogEntry {
   bool get isApproved => status.toLowerCase() == 'approved';
   bool get isRejected => status.toLowerCase() == 'rejected';
   bool get isSalaryUpdate => kind == ActivityLogKind.salaryRate;
+  bool get isTimeCardSettingsUpdate => kind == ActivityLogKind.timeCardSettings;
   bool get isAnnouncement => kind == ActivityLogKind.announcement;
 
   String get kindLabel {
@@ -59,6 +61,8 @@ class ActivityLogEntry {
         return 'Leave';
       case ActivityLogKind.salaryRate:
         return 'Salary';
+      case ActivityLogKind.timeCardSettings:
+        return 'Time card settings';
       case ActivityLogKind.announcement:
         return 'Announcement';
     }

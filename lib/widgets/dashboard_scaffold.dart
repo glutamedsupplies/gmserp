@@ -830,6 +830,12 @@ class _NavDropdownState extends State<_NavDropdown> {
   }
 
   Future<void> _showCollapsedMenu() async {
+    final routes = [
+      for (final child in widget.destination.children)
+        if (child.route != null) child,
+    ];
+    if (routes.isEmpty) return;
+
     final box = context.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return;
     final origin = box.localToGlobal(Offset.zero);
@@ -842,8 +848,7 @@ class _NavDropdownState extends State<_NavDropdown> {
         origin.dy + box.size.height,
       ),
       items: [
-        for (final child in widget.destination.children)
-          if (child.route != null)
+        for (final child in routes)
           PopupMenuItem<String>(
             value: child.route,
             child: Row(

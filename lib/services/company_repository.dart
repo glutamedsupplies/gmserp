@@ -1,25 +1,38 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../core/utils/company_id.dart';
+import '../core/utils/firebase_data.dart';
 import '../core/utils/password_hasher.dart';
 import '../models/company_job_role.dart';
 import '../models/company_model.dart';
 import '../models/company_task.dart';
 import '../models/employee_time_card_profile.dart';
 import '../models/staff_assignment.dart';
+import '../models/time_card_profile_change.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
+import 'time_card_profile_change_repository.dart';
 
 class CompanyRepository {
-  CompanyRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  CompanyRepository({
+    RtdbService? rtdb,
+    TimeCardProfileChangeRepository? profileChanges,
+  })  : _rtdb = rtdb ?? RtdbService(),
+        _profileChanges =
+            profileChanges ?? TimeCardProfileChangeRepository();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
+  final TimeCardProfileChangeRepository _profileChanges;
 
-  static const String collectionName = 'companies';
+  static const String collectionName = RtdbPaths.companies;
 
-  CollectionReference<Map<String, dynamic>> get _companies =>
-      _firestore.collection(collectionName);
+  String _companyPath(String companyId) => '${RtdbPaths.companies}/$companyId';
+
+  String _staffPath(String companyDocId, String userId) =>
+      '${_companyPath(companyDocId)}/staff/$userId';
+
+  String _taskFolderPath(String companyDocId, String taskId) =>
+      '${_companyPath(companyDocId)}/tasks/$taskId';
 
   Future<List<CompanyModel>> listCompaniesForMember({
     required String userId,
@@ -54,9 +67,12 @@ class CompanyRepository {
   }
 
   Future<List<CompanyModel>> listCompanies() async {
-    final snapshot = await _companies.get();
-    final companies = snapshot.docs
-        .map((doc) => CompanyModel.fromFirestore(id: doc.id, data: doc.data()))
+    final children = await _rtdb.getChildren(RtdbPaths.companies);
+    final companies = children.entries
+        .map(
+          (entry) =>
+              CompanyModel.fromFirestore(id: entry.key, data: entry.value),
+        )
         .toList();
     companies.sort((a, b) => a.name.compareTo(b.name));
     return companies;
@@ -68,23 +84,16 @@ class CompanyRepository {
 
     for (final key in {id, raw, companyId}) {
       if (key.isEmpty) continue;
-      final snapshot = await _companies.doc(key).get();
-      if (snapshot.exists && snapshot.data() != null) {
-        return CompanyModel.fromFirestore(
-          id: snapshot.id,
-          data: snapshot.data()!,
-        );
+      final data = await _rtdb.getMap(_companyPath(key));
+      if (data != null) {
+        return CompanyModel.fromFirestore(id: key, data: data);
       }
     }
 
     if (id.isNotEmpty) {
-      final matches = await _companies
-          .where('companyId', isEqualTo: id)
-          .limit(1)
-          .get();
-      if (matches.docs.isNotEmpty) {
-        final doc = matches.docs.first;
-        return CompanyModel.fromFirestore(id: doc.id, data: doc.data());
+      final all = await listCompanies();
+      for (final company in all) {
+        if (company.id == id) return company;
       }
     }
 
@@ -99,21 +108,21 @@ class CompanyRepository {
     required String createdBy,
   }) async {
     final id = CompanyId.normalize(companyId);
-    final existing = await _companies.doc(id).get();
-    if (existing.exists) {
+    final existing = await _rtdb.getMap(_companyPath(id));
+    if (existing != null) {
       throw StateError('That company ID is already in use.');
     }
 
     final founderHash = PasswordHasher.hash(password.trim());
     final staffHash = PasswordHasher.hash(staffPassword.trim());
-    await _companies.doc(id).set({
+    await _rtdb.set(_companyPath(id), {
       'companyId': id,
       'name': name.trim(),
       'passwordHash': founderHash,
       'staffPasswordHash': staffHash,
       'createdBy': createdBy,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     });
 
     final now = DateTime.now();
@@ -134,9 +143,10 @@ class CompanyRepository {
     String? newPassword,
     String? newStaffPassword,
   }) async {
+    final docId = await _resolveCompanyDocId(id);
     final data = <String, dynamic>{
       'name': name.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
     if (newPassword != null && newPassword.isNotEmpty) {
       data['passwordHash'] = PasswordHasher.hash(newPassword.trim());
@@ -144,7 +154,7 @@ class CompanyRepository {
     if (newStaffPassword != null && newStaffPassword.isNotEmpty) {
       data['staffPasswordHash'] = PasswordHasher.hash(newStaffPassword.trim());
     }
-    await _companies.doc(id).set(data, SetOptions(merge: true));
+    await _rtdb.merge(_companyPath(docId), data);
   }
 
   bool matchesFounderPassword({
@@ -169,7 +179,6 @@ class CompanyRepository {
     );
   }
 
-  /// Opens a company for employees/admins using the shared company code only.
   bool unlockCompany({
     required CompanyModel company,
     required String password,
@@ -185,17 +194,13 @@ class CompanyRepository {
       throw StateError('Incorrect company password.');
     }
 
-    final staff = await _staff(company.id).get();
-    final batch = _firestore.batch();
-    for (final doc in staff.docs) {
-      batch.delete(doc.reference);
+    final docId = await _resolveCompanyDocId(company.id);
+    final staff = await _rtdb.getChildren('${_companyPath(docId)}/staff');
+    for (final userId in staff.keys) {
+      await _rtdb.remove(_staffPath(docId, userId));
     }
-    batch.delete(_companies.doc(company.id));
-    await batch.commit();
+    await _rtdb.remove(_companyPath(docId));
   }
-
-  CollectionReference<Map<String, dynamic>> _staff(String companyId) =>
-      _companies.doc(companyId).collection('staff');
 
   Future<List<StaffAssignment>> listStaff(String companyId) async {
     final docId = await _resolveCompanyDocId(companyId);
@@ -203,25 +208,27 @@ class CompanyRepository {
   }
 
   Future<List<StaffAssignment>> listStaffByDocumentId(String documentId) async {
-    final snapshot = await _staff(documentId).get();
-    return snapshot.docs
+    final snapshot = await _rtdb.getChildren('${_companyPath(documentId)}/staff');
+    return snapshot.entries
         .map(
-          (doc) => StaffAssignment.fromFirestore(id: doc.id, data: doc.data()),
+          (entry) =>
+              StaffAssignment.fromFirestore(id: entry.key, data: entry.value),
         )
         .toList();
   }
 
   Future<List<StaffMembershipListing>> listAllStaffMemberships() async {
-    final snapshot = await _companies.get();
+    final children = await _rtdb.getChildren(RtdbPaths.companies);
     final listings = <StaffMembershipListing>[];
-    for (final doc in snapshot.docs) {
+    for (final entry in children.entries) {
       try {
-        final company = CompanyModel.fromFirestore(id: doc.id, data: doc.data());
-        final members = await listStaffByDocumentId(doc.id);
+        final company =
+            CompanyModel.fromFirestore(id: entry.key, data: entry.value);
+        final members = await listStaffByDocumentId(entry.key);
         for (final assignment in members) {
           listings.add(
             StaffMembershipListing(
-              companyDocumentId: doc.id,
+              companyDocumentId: entry.key,
               company: company,
               assignment: assignment,
             ),
@@ -239,12 +246,9 @@ class CompanyRepository {
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
     try {
-      final snapshot = await _staff(docId).doc(userId).get();
-      if (snapshot.exists && snapshot.data() != null) {
-        return StaffAssignment.fromFirestore(
-          id: snapshot.id,
-          data: snapshot.data()!,
-        );
+      final data = await _rtdb.getMap(_staffPath(docId, userId));
+      if (data != null) {
+        return StaffAssignment.fromFirestore(id: userId, data: data);
       }
     } catch (_) {}
 
@@ -268,24 +272,70 @@ class CompanyRepository {
     required StaffAssignment assignment,
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
-    await _staff(docId).doc(assignment.userId).set({
+    await _rtdb.merge(_staffPath(docId, assignment.userId), {
       ...assignment.toFirestore(),
       'userId': assignment.userId,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      'updatedAt': serverTimestamp(),
+    });
   }
 
-  /// Saves daily rate + weekly time in/out schedule for one staff member.
-  Future<void> saveStaffTimeCardProfile({
+  /// Replaces [timeCardWeek] entirely (non-numeric `d1`…`d7` keys) so RTDB
+  /// does not coerce weekday maps into arrays and wipe Saturday/Sunday.
+  ///
+  /// When [actor] is set and the profile changed, writes an audit row to
+  /// [RtdbPaths.timeCardProfileChanges] for the Activity / Notifications page.
+  Future<TimeCardProfileChange?> saveStaffTimeCardProfile({
     required String companyId,
     required String userId,
     required EmployeeTimeCardProfile profile,
+    String? companyDocumentId,
+    String companyName = '',
+    String employeeName = '',
+    String employeeEmail = '',
+    String? actorId,
+    String actorName = '',
+    List<String> recipientIds = const [],
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
-    await _staff(docId).doc(userId).set({
-      ...profile.toStaffFields(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    final existing = await getAssignment(companyId: companyId, userId: userId);
+    final previousProfile =
+        existing?.timeCardProfile ?? EmployeeTimeCardProfile.defaults();
+
+    final staffPath = _staffPath(docId, userId);
+    await _rtdb.merge(staffPath, {
+      'timeCardDailyRate': profile.dailyRate,
+      'updatedAt': serverTimestamp(),
+    });
+    await _rtdb.set(
+      '$staffPath/timeCardWeek',
+      profile.weeklySchedule.toFirestore(),
+    );
+
+    final actor = actorId?.trim() ?? '';
+    if (actor.isEmpty ||
+        TimeCardProfileChange.profilesEqual(previousProfile, profile)) {
+      return null;
+    }
+
+    final recipients = recipientIds.toSet()..add(userId)..add(actor);
+    return _profileChanges.create(
+      companyId: companyId,
+      companyDocumentId: companyDocumentId ?? docId,
+      companyName: companyName,
+      employeeId: userId,
+      employeeName: employeeName.isNotEmpty
+          ? employeeName
+          : (existing?.username ?? 'Employee'),
+      employeeEmail:
+          employeeEmail.isNotEmpty ? employeeEmail : (existing?.email ?? ''),
+      actorId: actor,
+      actorName: actorName.isNotEmpty ? actorName : 'Admin',
+      previousRate: previousProfile.dailyRate,
+      newRate: profile.dailyRate,
+      previousScheduleSummary: previousProfile.weeklySchedule.summaryLabel,
+      newScheduleSummary: profile.weeklySchedule.summaryLabel,
+      recipientIds: recipients.toList(),
+    );
   }
 
   Future<int> getClockDeclineCount({
@@ -301,22 +351,21 @@ class CompanyRepository {
     required String userId,
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
-    await _staff(docId).doc(userId).set({
-      'clockDeclineCount': FieldValue.increment(1),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _rtdb.merge(_staffPath(docId, userId), {
+      'clockDeclineCount': increment(1),
+      'updatedAt': serverTimestamp(),
+    });
   }
 
-  /// Clears the 3-decline lock so the employee can submit clock requests again.
   Future<void> resetClockDeclineCount({
     required String companyId,
     required String userId,
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
-    await _staff(docId).doc(userId).set({
+    await _rtdb.merge(_staffPath(docId, userId), {
       'clockDeclineCount': 0,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      'updatedAt': serverTimestamp(),
+    });
   }
 
   Future<void> ensureStaffMember({
@@ -374,33 +423,32 @@ class CompanyRepository {
     required String userId,
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
-    await _staff(docId).doc(userId).delete();
+    await _rtdb.remove(_staffPath(docId, userId));
   }
 
-  /// Removes a user from every company's staff subcollection (tasks + assignments).
   Future<void> removeUserFromAllCompanies({required String userId}) async {
-    final snapshot = await _companies.get();
-    for (final doc in snapshot.docs) {
+    final children = await _rtdb.getChildren(RtdbPaths.companies);
+    for (final companyId in children.keys) {
       try {
-        final staffRef = _staff(doc.id).doc(userId);
-        final existing = await staffRef.get();
-        if (existing.exists) {
-          await staffRef.delete();
+        final path = _staffPath(companyId, userId);
+        final existing = await _rtdb.getMap(path);
+        if (existing != null) {
+          await _rtdb.remove(path);
         }
       } catch (_) {}
     }
   }
 
   Future<List<CompanyTaskListing>> listAllTasks() async {
-    final snapshot = await _companies.get();
+    final children = await _rtdb.getChildren(RtdbPaths.companies);
     final listings = <CompanyTaskListing>[];
-    for (final doc in snapshot.docs) {
+    for (final entry in children.entries) {
       try {
-        final data = doc.data();
-        final company = CompanyModel.fromFirestore(id: doc.id, data: data);
+        final company =
+            CompanyModel.fromFirestore(id: entry.key, data: entry.value);
         final tasks = [
-          ..._tasksFromCompany(data),
-          ...await _folderTasks(doc.id),
+          ..._tasksFromCompany(entry.value),
+          ...await _folderTasks(entry.key),
         ];
         final seen = <String>{};
         for (final task in tasks) {
@@ -420,13 +468,13 @@ class CompanyRepository {
   }
 
   Future<List<CompanyRoleListing>> listAllRoles() async {
-    final snapshot = await _companies.get();
+    final children = await _rtdb.getChildren(RtdbPaths.companies);
     final listings = <CompanyRoleListing>[];
-    for (final doc in snapshot.docs) {
+    for (final entry in children.entries) {
       try {
-        final data = doc.data();
-        final company = CompanyModel.fromFirestore(id: doc.id, data: data);
-        final roles = _rolesFromCompany(data);
+        final company =
+            CompanyModel.fromFirestore(id: entry.key, data: entry.value);
+        final roles = _rolesFromCompany(entry.value);
         for (final role in roles) {
           listings.add(CompanyRoleListing(company: company, role: role));
         }
@@ -443,8 +491,8 @@ class CompanyRepository {
 
   Future<List<CompanyJobRole>> listRoles(String companyId) async {
     final docId = await _resolveCompanyDocId(companyId);
-    final company = await _companies.doc(docId).get();
-    final roles = _rolesFromCompany(company.data());
+    final data = await _rtdb.getMap(_companyPath(docId));
+    final roles = _rolesFromCompany(data);
     roles.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return roles;
   }
@@ -455,20 +503,14 @@ class CompanyRepository {
     String description = '',
   }) async {
     final role = CompanyJobRole(
-      id: _companies.doc().id,
+      id: _rtdb.newKey(RtdbPaths.companies),
       name: name.trim(),
       description: description.trim(),
     );
     final docId = await _resolveCompanyDocId(companyId);
-    try {
-      await _companies.doc(docId).update({
-        'roles.${role.id}': role.toFirestore(),
-      });
-    } on FirebaseException {
-      await _companies.doc(docId).set({
-        'roles': {role.id: role.toFirestore()},
-      }, SetOptions(merge: true));
-    }
+    await _rtdb.merge(_companyPath(docId), {
+      'roles/${role.id}': role.toFirestore(),
+    });
     return role;
   }
 
@@ -484,18 +526,12 @@ class CompanyRepository {
     );
     final docId = await _resolveCompanyDocId(companyId);
     final payload = updated.toFirestore();
-    try {
-      await _companies.doc(docId).update({
-        'roles.${role.id}': payload,
-      });
-    } on FirebaseException {
-      await _companies.doc(docId).set({
-        'roles': {role.id: payload},
-      }, SetOptions(merge: true));
-    }
+    await _rtdb.merge(_companyPath(docId), {
+      'roles/${role.id}': payload,
+    });
 
-    // Keep task role labels in sync when the role is renamed.
     if (updated.name != role.name) {
+      final fanOutErrors = <Object>[];
       final companyTasks = await listTasks(docId);
       for (final task in companyTasks) {
         if (task.roleId != role.id) continue;
@@ -508,28 +544,30 @@ class CompanyRepository {
             roleId: task.roleId,
             roleName: updated.name,
           );
-        } catch (_) {}
+        } catch (error) {
+          fanOutErrors.add(error);
+        }
       }
 
       try {
         final members = await listStaff(docId);
         for (final member in members) {
           if (member.roleId != role.id) continue;
-              await assignStaff(
+          await assignStaff(
             companyId: docId,
-            assignment: StaffAssignment(
-              userId: member.userId,
-              username: member.username,
-              email: member.email,
-              roleId: member.roleId,
-              jobRole: updated.name,
-              tasks: member.tasks,
-              accessLevel: member.accessLevel,
-              timeCardProfile: member.timeCardProfile,
-            ),
+            assignment: member.copyWith(jobRole: updated.name),
           );
         }
-      } catch (_) {}
+      } catch (error) {
+        fanOutErrors.add(error);
+      }
+
+      if (fanOutErrors.isNotEmpty) {
+        throw StateError(
+          'Role saved, but ${fanOutErrors.length} linked staff/task '
+          'update(s) failed.',
+        );
+      }
     }
 
     return updated;
@@ -540,23 +578,15 @@ class CompanyRepository {
     required String roleId,
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
-    try {
-      await _companies.doc(docId).update({
-        'roles.$roleId': FieldValue.delete(),
-      });
-    } catch (_) {}
-    try {
-      await _companies.doc(docId).update({
-        FieldPath(['roles.$roleId']): FieldValue.delete(),
-      });
-    } catch (_) {}
+    await _rtdb.remove('${_companyPath(docId)}/roles/$roleId');
   }
 
   Future<List<CompanyTask>> listTasks(String companyId) async {
-    final company = await _companies.doc(companyId).get();
+    final docId = await _resolveCompanyDocId(companyId);
+    final data = await _rtdb.getMap(_companyPath(docId));
     final tasks = [
-      ..._tasksFromCompany(company.data()),
-      ...await _folderTasks(companyId),
+      ..._tasksFromCompany(data),
+      ...await _folderTasks(docId),
     ];
     final seen = <String>{};
     final unique = [
@@ -580,7 +610,7 @@ class CompanyRepository {
   }) async {
     final now = DateTime.now();
     final task = CompanyTask(
-      id: _companies.doc().id,
+      id: _rtdb.newKey(RtdbPaths.companies),
       title: title.trim(),
       description: description.trim(),
       roleId: roleId.trim(),
@@ -592,15 +622,10 @@ class CompanyRepository {
       'createdAt': now.toIso8601String(),
     };
     final docId = await _resolveCompanyDocId(companyId);
-    try {
-      await _companies.doc(docId).update({
-        'tasks.${task.id}': payload,
-      });
-    } on FirebaseException {
-      await _companies.doc(docId).set({
-        'tasks': {task.id: payload},
-      }, SetOptions(merge: true));
-    }
+    await _rtdb.merge(_companyPath(docId), {
+      'tasks/${task.id}': payload,
+    });
+    await _rtdb.merge(_taskFolderPath(docId, task.id), payload);
     return task;
   }
 
@@ -626,22 +651,10 @@ class CompanyRepository {
       'updatedAt': updated.updatedAt!.toIso8601String(),
     };
     final docId = await _resolveCompanyDocId(companyId);
-    try {
-      await _companies.doc(docId).update({
-        'tasks.${task.id}': payload,
-        FieldPath(['tasks.${task.id}']): payload,
-      });
-    } on FirebaseException {
-      await _companies.doc(docId).set({
-        'tasks': {task.id: payload},
-      }, SetOptions(merge: true));
-    }
-    try {
-      await _companies.doc(docId).collection('tasks').doc(task.id).set(
-            payload,
-            SetOptions(merge: true),
-          );
-    } catch (_) {}
+    await _rtdb.merge(_companyPath(docId), {
+      'tasks/${task.id}': payload,
+    });
+    await _rtdb.merge(_taskFolderPath(docId, task.id), payload);
     return updated;
   }
 
@@ -650,18 +663,9 @@ class CompanyRepository {
     required String taskId,
   }) async {
     final docId = await _resolveCompanyDocId(companyId);
+    await _rtdb.remove('${_companyPath(docId)}/tasks/$taskId');
     try {
-      await _companies.doc(docId).update({
-        'tasks.$taskId': FieldValue.delete(),
-      });
-    } catch (_) {}
-    try {
-      await _companies.doc(docId).update({
-        FieldPath(['tasks.$taskId']): FieldValue.delete(),
-      });
-    } catch (_) {}
-    try {
-      await _companies.doc(docId).collection('tasks').doc(taskId).delete();
+      await _rtdb.remove(_taskFolderPath(docId, taskId));
     } catch (_) {}
   }
 
@@ -670,24 +674,25 @@ class CompanyRepository {
     final id = CompanyId.normalize(raw);
     for (final key in {id, raw, companyId}) {
       if (key.isEmpty) continue;
-      final snapshot = await _companies.doc(key).get();
-      if (snapshot.exists) return snapshot.id;
+      final data = await _rtdb.getMap(_companyPath(key));
+      if (data != null) return key;
     }
     if (id.isNotEmpty) {
-      final matches = await _companies
-          .where('companyId', isEqualTo: id)
-          .limit(1)
-          .get();
-      if (matches.docs.isNotEmpty) return matches.docs.first.id;
+      final all = await listCompanies();
+      for (final company in all) {
+        if (company.id == id) {
+          return company.firestoreId;
+        }
+      }
     }
-    final snapshot = await _companies.get();
+    final children = await _rtdb.getChildren(RtdbPaths.companies);
     final needle = raw.toLowerCase();
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
+    for (final entry in children.entries) {
+      final data = entry.value;
       final name = data['name']?.toString().trim().toLowerCase() ?? '';
       final stored = CompanyId.normalize(data['companyId']?.toString() ?? '');
       if (name == needle || (id.isNotEmpty && stored == id)) {
-        return doc.id;
+        return entry.key;
       }
     }
     return id.isNotEmpty ? id : raw;
@@ -695,10 +700,11 @@ class CompanyRepository {
 
   Future<List<CompanyTask>> _folderTasks(String companyId) async {
     try {
-      final folder = await _companies.doc(companyId).collection('tasks').get();
-      return folder.docs
+      final folder = await _rtdb.getChildren('${_companyPath(companyId)}/tasks');
+      return folder.entries
           .map(
-            (doc) => CompanyTask.fromFirestore(id: doc.id, data: doc.data()),
+            (entry) =>
+                CompanyTask.fromFirestore(id: entry.key, data: entry.value),
           )
           .toList();
     } catch (_) {
@@ -719,11 +725,8 @@ class CompanyRepository {
       );
     }
 
-    final nested = data['tasks'];
-    if (nested is Map) {
-      for (final entry in nested.entries) {
-        add(entry.key.toString(), entry.value);
-      }
+    for (final entry in mapOrListChildren(data['tasks']).entries) {
+      add(entry.key, entry.value);
     }
 
     for (final entry in data.entries) {
@@ -749,11 +752,8 @@ class CompanyRepository {
       );
     }
 
-    final nested = data['roles'];
-    if (nested is Map) {
-      for (final entry in nested.entries) {
-        add(entry.key.toString(), entry.value);
-      }
+    for (final entry in mapOrListChildren(data['roles']).entries) {
+      add(entry.key, entry.value);
     }
 
     for (final entry in data.entries) {

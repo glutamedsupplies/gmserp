@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import 'time_entry.dart';
 
 class LeaveRequest {
@@ -59,22 +60,12 @@ class LeaveRequest {
       startDate: data['startDate']?.toString() ?? '',
       endDate: data['endDate']?.toString() ?? '',
       status: data['status']?.toString() ?? 'pending',
-      createdAt:
-          _parseDate(data['createdAt']) ?? _parseDate(data['requestedAt']),
-      updatedAt: _parseDate(data['updatedAt']),
+      createdAt: parseFirebaseDate(data['createdAt']) ??
+          parseFirebaseDate(data['requestedAt']),
+      updatedAt: parseFirebaseDate(data['updatedAt']),
       reviewedById: data['reviewedById']?.toString() ?? '',
       reviewedByName: data['reviewedByName']?.toString() ?? '',
     );
-  }
-
-  static DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return DateTime.tryParse(value.toString());
-    }
   }
 }
 

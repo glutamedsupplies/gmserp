@@ -1,3 +1,5 @@
+import '../core/utils/firebase_data.dart';
+
 enum TimeEntryStatus {
   open,
   closed;
@@ -66,12 +68,12 @@ class TimeEntry {
       companyDocumentId: _string(data['companyDocumentId']),
       companyName: _string(data['companyName']),
       status: TimeEntryStatus.fromStorage(data['status']?.toString()),
-      timeIn: _parseDate(data['timeIn']) ?? DateTime.now(),
-      timeOut: _parseDate(data['timeOut']),
+      timeIn: parseFirebaseDate(data['timeIn']) ?? DateTime.now(),
+      timeOut: parseFirebaseDate(data['timeOut']),
       durationSeconds: _intOrNull(data['durationSeconds']),
       workDate: _string(data['workDate']),
-      createdAt: _parseDate(data['createdAt']),
-      updatedAt: _parseDate(data['updatedAt']),
+      createdAt: parseFirebaseDate(data['createdAt']),
+      updatedAt: parseFirebaseDate(data['updatedAt']),
     );
   }
 
@@ -96,18 +98,9 @@ class TimeEntry {
   static int? _intOrNull(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
-    return int.tryParse(value.toString());
-  }
-
-  static DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return null;
-    }
+    if (value is num) return value.round();
+    return int.tryParse(value.toString()) ??
+        double.tryParse(value.toString())?.round();
   }
 }
 

@@ -35,7 +35,10 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // TODO: Replace all values by running `flutterfire configure`
+  // Values from FlutterFire configure for project gmserp-ffc76.
+  static const _databaseUrl =
+      'https://gmserp-ffc76-default-rtdb.firebaseio.com/';
+
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyAeBYouKxv47RR2s4fmgZs3_QRiFga01rg',
     appId: '1:901927576776:web:3a8d0835845d0ecaf931fd',
@@ -43,6 +46,7 @@ class DefaultFirebaseOptions {
     projectId: 'gmserp-ffc76',
     authDomain: 'gmserp-ffc76.firebaseapp.com',
     storageBucket: 'gmserp-ffc76.firebasestorage.app',
+    databaseURL: _databaseUrl,
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -51,6 +55,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '901927576776',
     projectId: 'gmserp-ffc76',
     storageBucket: 'gmserp-ffc76.firebasestorage.app',
+    databaseURL: _databaseUrl,
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
@@ -60,6 +65,7 @@ class DefaultFirebaseOptions {
     projectId: 'gmserp-ffc76',
     storageBucket: 'gmserp-ffc76.firebasestorage.app',
     iosBundleId: 'com.exampleGmserp.ios',
+    databaseURL: _databaseUrl,
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -69,6 +75,7 @@ class DefaultFirebaseOptions {
     projectId: 'gmserp-ffc76',
     storageBucket: 'gmserp-ffc76.firebasestorage.app',
     iosBundleId: 'com.exampleGmserp.ios',
+    databaseURL: _databaseUrl,
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -77,5 +84,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '901927576776',
     projectId: 'gmserp-ffc76',
     storageBucket: 'gmserp-ffc76.firebasestorage.app',
+    databaseURL: _databaseUrl,
   );
 }

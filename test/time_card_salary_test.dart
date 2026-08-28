@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:new_gmserp/models/time_card_salary.dart';
-import 'package:new_gmserp/models/time_card_schedule.dart';
 import 'package:new_gmserp/models/time_card_table.dart';
 import 'package:new_gmserp/models/time_entry.dart';
 

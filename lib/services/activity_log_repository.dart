@@ -4,10 +4,12 @@ import '../models/clock_request.dart';
 import '../models/leave_request.dart';
 import '../models/salary_rate_change.dart';
 import '../models/time_card_change_request.dart';
+import '../models/time_card_profile_change.dart';
 import 'announcement_repository.dart';
 import 'clock_request_repository.dart';
 import 'leave_request_repository.dart';
 import 'salary_rate_change_repository.dart';
+import 'time_card_profile_change_repository.dart';
 import 'time_card_change_request_repository.dart';
 
 class ActivityLogRepository {
@@ -16,6 +18,7 @@ class ActivityLogRepository {
     TimeCardChangeRequestRepository? timeChangeRepository,
     ClockRequestRepository? clockRepository,
     SalaryRateChangeRepository? salaryRateRepository,
+    TimeCardProfileChangeRepository? timeCardProfileChangeRepository,
     AnnouncementRepository? announcementRepository,
   })  : _leaveRepository = leaveRepository ?? LeaveRequestRepository(),
         _timeChangeRepository =
@@ -23,6 +26,8 @@ class ActivityLogRepository {
         _clockRepository = clockRepository ?? ClockRequestRepository(),
         _salaryRateRepository =
             salaryRateRepository ?? SalaryRateChangeRepository(),
+        _timeCardProfileRepository =
+            timeCardProfileChangeRepository ?? TimeCardProfileChangeRepository(),
         _announcementRepository =
             announcementRepository ?? AnnouncementRepository();
 
@@ -34,6 +39,7 @@ class ActivityLogRepository {
   final TimeCardChangeRequestRepository _timeChangeRepository;
   final ClockRequestRepository _clockRepository;
   final SalaryRateChangeRepository _salaryRateRepository;
+  final TimeCardProfileChangeRepository _timeCardProfileRepository;
   final AnnouncementRepository _announcementRepository;
 
   Future<List<ActivityLogEntry>> listResolved() async {
@@ -42,6 +48,10 @@ class ActivityLogRepository {
       _timeChangeRepository.listAll(),
       _safeList(_clockRepository.listAll, const <ClockRequest>[]),
       _safeList(_salaryRateRepository.listAll, const <SalaryRateChange>[]),
+      _safeList(
+        _timeCardProfileRepository.listAll,
+        const <TimeCardProfileChange>[],
+      ),
       _safeList(_announcementRepository.listAll, const <Announcement>[]),
     ]);
 
@@ -49,7 +59,8 @@ class ActivityLogRepository {
     final timeEdits = results[1] as List<TimeCardChangeRequest>;
     final clocks = results[2] as List<ClockRequest>;
     final salaryChanges = results[3] as List<SalaryRateChange>;
-    final announcements = results[4] as List<Announcement>;
+    final profileChanges = results[4] as List<TimeCardProfileChange>;
+    final announcements = results[5] as List<Announcement>;
 
     final logs = <ActivityLogEntry>[
       for (final leave in leaves)
@@ -59,6 +70,7 @@ class ActivityLogRepository {
       for (final clock in clocks)
         if (_isResolved(clock.status)) _fromClock(clock),
       for (final change in salaryChanges) _fromSalary(change),
+      for (final change in profileChanges) _fromTimeCardProfile(change),
       for (final item in announcements) _fromAnnouncement(item),
     ];
 
@@ -93,6 +105,10 @@ class ActivityLogRepository {
       () => _salaryRateRepository.listForRecipient(userId),
       const <SalaryRateChange>[],
     );
+    final profileChanges = await _safeList(
+      () => _timeCardProfileRepository.listForRecipient(userId),
+      const <TimeCardProfileChange>[],
+    );
     final announcements = await _safeList(
       () => _announcementRepository.listForRecipient(userId),
       const <Announcement>[],
@@ -108,6 +124,8 @@ class ActivityLogRepository {
           _fromClock(clock, forViewerId: userId),
       for (final change in salaryChanges)
         _fromSalary(change, forViewerId: userId),
+      for (final change in profileChanges)
+        _fromTimeCardProfile(change, forViewerId: userId),
       for (final item in announcements) _fromAnnouncement(item),
     ];
 
@@ -219,8 +237,17 @@ class ActivityLogRepository {
     final asEmployee =
         forViewerId != null && change.employeeId == forViewerId;
     final reviewer = change.reviewedByName.trim();
+    final direct = change.isDirectEdit;
     final String summary;
-    if (asRequester) {
+    if (direct) {
+      if (asEmployee) {
+        summary = 'Your time entry was updated';
+      } else if (asRequester) {
+        summary = 'You updated an employee time entry';
+      } else {
+        summary = 'Employee time entry updated';
+      }
+    } else if (asRequester) {
       summary = approved
           ? 'Your time change request was approved'
           : 'Your time change request was declined';
@@ -233,9 +260,12 @@ class ActivityLogRepository {
     }
     final detailParts = <String>[
       '$current → $proposed',
+      if (change.workDate.isNotEmpty) 'Date ${change.workDate}',
       if (change.note.trim().isNotEmpty) 'Note: ${change.note.trim()}',
       if (reviewer.isNotEmpty)
-        approved ? 'Approved by $reviewer' : 'Declined by $reviewer',
+        direct
+            ? 'Updated by $reviewer'
+            : (approved ? 'Approved by $reviewer' : 'Declined by $reviewer'),
     ];
     return ActivityLogEntry(
       id: 'time:${change.id}',
@@ -310,6 +340,41 @@ class ActivityLogRepository {
     return ActivityLogEntry(
       id: 'salary:${change.id}',
       kind: ActivityLogKind.salaryRate,
+      status: 'updated',
+      companyId: change.companyId,
+      companyDocumentId: change.companyDocumentId,
+      companyName: change.companyName,
+      subjectName: change.employeeName,
+      subjectEmail: change.employeeEmail,
+      actorName: change.actorName,
+      summary: summary,
+      detail: detail,
+      occurredAt: change.createdAt ?? _unknownOccurredAt,
+    );
+  }
+
+  ActivityLogEntry _fromTimeCardProfile(
+    TimeCardProfileChange change, {
+    String? forViewerId,
+  }) {
+    final isEmployee =
+        forViewerId != null && change.employeeId == forViewerId;
+    final isActor = forViewerId != null && change.actorId == forViewerId;
+    final summary = isEmployee
+        ? 'Your time card settings were updated'
+        : isActor
+            ? 'You updated an employee time card'
+            : 'Employee time card settings updated';
+    final actor = change.actorName.trim().isEmpty
+        ? 'Admin'
+        : change.actorName.trim();
+    final detail = isEmployee
+        ? '${change.changeSummary} · by $actor'
+        : '${change.employeeName.isEmpty ? 'Employee' : change.employeeName}'
+            ' · ${change.changeSummary} · by $actor';
+    return ActivityLogEntry(
+      id: 'profile:${change.id}',
+      kind: ActivityLogKind.timeCardSettings,
       status: 'updated',
       companyId: change.companyId,
       companyDocumentId: change.companyDocumentId,

@@ -1,15 +1,16 @@
-import '../models/salary_rate_change.dart';
+import '../models/time_card_profile_change.dart';
 import 'rtdb/rtdb_paths.dart';
 import 'rtdb/rtdb_service.dart';
 
-class SalaryRateChangeRepository {
-  SalaryRateChangeRepository({RtdbService? rtdb}) : _rtdb = rtdb ?? RtdbService();
+class TimeCardProfileChangeRepository {
+  TimeCardProfileChangeRepository({RtdbService? rtdb})
+      : _rtdb = rtdb ?? RtdbService();
 
   final RtdbService _rtdb;
 
-  static const String collectionName = RtdbPaths.salaryRateChanges;
+  static const String collectionName = RtdbPaths.timeCardProfileChanges;
 
-  Future<SalaryRateChange> create({
+  Future<TimeCardProfileChange> create({
     required String companyId,
     required String companyDocumentId,
     required String companyName,
@@ -20,12 +21,14 @@ class SalaryRateChangeRepository {
     required String actorName,
     required double previousRate,
     required double newRate,
+    required String previousScheduleSummary,
+    required String newScheduleSummary,
     required List<String> recipientIds,
   }) async {
     final recipients = recipientIds.toSet().where((id) => id.isNotEmpty).toList()
       ..sort();
-    final id = _rtdb.newKey(RtdbPaths.salaryRateChanges);
-    final change = SalaryRateChange(
+    final id = _rtdb.newKey(RtdbPaths.timeCardProfileChanges);
+    final change = TimeCardProfileChange(
       id: id,
       companyId: companyId,
       companyDocumentId: companyDocumentId,
@@ -37,19 +40,26 @@ class SalaryRateChangeRepository {
       actorName: actorName,
       previousRate: previousRate,
       newRate: newRate,
+      previousScheduleSummary: previousScheduleSummary,
+      newScheduleSummary: newScheduleSummary,
       recipientIds: recipients,
       createdAt: DateTime.now(),
     );
-    await _rtdb.set('${RtdbPaths.salaryRateChanges}/$id', change.toFirestore());
+    await _rtdb.set(
+      '${RtdbPaths.timeCardProfileChanges}/$id',
+      change.toFirestore(),
+    );
     return change;
   }
 
-  Future<List<SalaryRateChange>> listAll() async {
-    final children = await _rtdb.getChildren(RtdbPaths.salaryRateChanges);
+  Future<List<TimeCardProfileChange>> listAll() async {
+    final children = await _rtdb.getChildren(RtdbPaths.timeCardProfileChanges);
     final items = children.entries
         .map(
-          (entry) =>
-              SalaryRateChange.fromFirestore(id: entry.key, data: entry.value),
+          (entry) => TimeCardProfileChange.fromFirestore(
+            id: entry.key,
+            data: entry.value,
+          ),
         )
         .toList();
     items.sort(
@@ -59,7 +69,7 @@ class SalaryRateChangeRepository {
     return items;
   }
 
-  Future<List<SalaryRateChange>> listForRecipient(String userId) async {
+  Future<List<TimeCardProfileChange>> listForRecipient(String userId) async {
     final items = await listAll();
     return items
         .where((item) => item.recipientIds.contains(userId))

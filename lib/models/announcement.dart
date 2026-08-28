@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/utils/firebase_data.dart';
 
 enum AnnouncementAudience {
   companyAdmins,
@@ -65,12 +65,12 @@ class Announcement {
       'companyDocumentId': companyDocumentId,
       'companyName': companyName,
       'audience': audience.storageValue,
-      'recipientIds': recipientIds,
+      'recipientIds': recipientIdsToMap(recipientIds),
       'subject': subject.trim(),
       'message': message.trim(),
       'actorId': actorId,
       'actorName': actorName,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
     };
   }
 
@@ -78,34 +78,18 @@ class Announcement {
     required String id,
     required Map<String, dynamic> data,
   }) {
-    DateTime? asDate(dynamic value) {
-      if (value == null) return null;
-      if (value is DateTime) return value;
-      try {
-        return (value as dynamic).toDate() as DateTime;
-      } catch (_) {
-        return DateTime.tryParse(value.toString());
-      }
-    }
-
-    final recipients = data['recipientIds'];
     return Announcement(
       id: id,
       companyId: data['companyId']?.toString() ?? '',
       companyDocumentId: data['companyDocumentId']?.toString() ?? '',
       companyName: data['companyName']?.toString() ?? '',
       audience: AnnouncementAudience.fromStorage(data['audience']?.toString()),
-      recipientIds: recipients is List
-          ? recipients
-              .map((e) => e.toString())
-              .where((e) => e.isNotEmpty)
-              .toList()
-          : const [],
+      recipientIds: parseRecipientIds(data['recipientIds']),
       subject: data['subject']?.toString().trim() ?? '',
       message: data['message']?.toString().trim() ?? '',
       actorId: data['actorId']?.toString() ?? '',
       actorName: data['actorName']?.toString() ?? '',
-      createdAt: asDate(data['createdAt']),
+      createdAt: parseFirebaseDate(data['createdAt']),
     );
   }
 }

@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import 'company_model.dart';
 
 class CompanyTaskListing {
@@ -30,7 +31,7 @@ class CompanyTask {
     String roleName = '',
     this.createdAt,
     this.updatedAt,
-  })  : _roleName = roleName;
+  }) : _roleName = roleName; // ignore: prefer_initializing_formals
 
   factory CompanyTask.fromFirestore({
     required String id,
@@ -42,8 +43,8 @@ class CompanyTask {
       description: data['description']?.toString().trim() ?? '',
       roleId: data['roleId']?.toString().trim() ?? '',
       roleName: data['roleName']?.toString().trim() ?? '',
-      createdAt: _parseDate(data['createdAt']),
-      updatedAt: _parseDate(data['updatedAt']),
+      createdAt: parseFirebaseDate(data['createdAt']),
+      updatedAt: parseFirebaseDate(data['updatedAt']),
     );
   }
 
@@ -73,16 +74,5 @@ class CompanyTask {
       'roleId': roleId.trim(),
       'roleName': roleName.trim(),
     };
-  }
-
-  static DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return null;
-    }
   }
 }

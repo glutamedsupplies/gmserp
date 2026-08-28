@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import '../models/time_entry.dart';
 
 /// Admin- or employee-submitted request to create/update time in / time out.
@@ -27,6 +28,7 @@ class TimeCardChangeRequest {
     this.updatedAt,
     this.reviewedById = '',
     this.reviewedByName = '',
+    this.source = '',
   });
 
   final String id;
@@ -54,6 +56,11 @@ class TimeCardChangeRequest {
   final DateTime? updatedAt;
   final String reviewedById;
   final String reviewedByName;
+
+  /// `directEdit` when Super Admin saves time in/out without a pending request.
+  final String source;
+
+  bool get isDirectEdit => source == 'directEdit';
 
   bool get isPending => status.toLowerCase() == 'pending';
 
@@ -90,6 +97,7 @@ class TimeCardChangeRequest {
     String? note,
     String? reviewedById,
     String? reviewedByName,
+    String? source,
   }) {
     return TimeCardChangeRequest(
       id: id,
@@ -116,6 +124,7 @@ class TimeCardChangeRequest {
       updatedAt: updatedAt,
       reviewedById: reviewedById ?? this.reviewedById,
       reviewedByName: reviewedByName ?? this.reviewedByName,
+      source: source ?? this.source,
     );
   }
 
@@ -136,10 +145,10 @@ class TimeCardChangeRequest {
       companyDocumentId: data['companyDocumentId']?.toString() ?? '',
       companyName: data['companyName']?.toString() ?? '',
       workDate: data['workDate']?.toString() ?? '',
-      proposedTimeIn: _parseDate(data['proposedTimeIn']) ?? DateTime.now(),
-      proposedTimeOut: _parseDate(data['proposedTimeOut']),
-      currentTimeIn: _parseDate(data['currentTimeIn']),
-      currentTimeOut: _parseDate(data['currentTimeOut']),
+      proposedTimeIn: parseFirebaseDate(data['proposedTimeIn']) ?? DateTime.now(),
+      proposedTimeOut: parseFirebaseDate(data['proposedTimeOut']),
+      currentTimeIn: parseFirebaseDate(data['currentTimeIn']),
+      currentTimeOut: parseFirebaseDate(data['currentTimeOut']),
       currentTimeInText: data['currentTimeInLabel']?.toString() ??
           data['currentTimeInText']?.toString() ??
           '',
@@ -148,21 +157,11 @@ class TimeCardChangeRequest {
           '',
       existingEntryId: data['existingEntryId']?.toString(),
       note: data['note']?.toString() ?? '',
-      createdAt: _parseDate(data['createdAt']),
-      updatedAt: _parseDate(data['updatedAt']),
+      createdAt: parseFirebaseDate(data['createdAt']),
+      updatedAt: parseFirebaseDate(data['updatedAt']),
       reviewedById: data['reviewedById']?.toString() ?? '',
       reviewedByName: data['reviewedByName']?.toString() ?? '',
+      source: data['source']?.toString() ?? '',
     );
-  }
-
-  static DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return null;
-    }
   }
 }

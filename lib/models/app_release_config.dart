@@ -1,3 +1,5 @@
+import '../core/utils/firebase_data.dart';
+
 /// Remote release info stored in Firestore (`appConfig/{android|ios}`).
 class AppReleaseConfig {
   const AppReleaseConfig({
@@ -19,15 +21,9 @@ class AppReleaseConfig {
   factory AppReleaseConfig.fromFirestore(Map<String, dynamic> data) {
     return AppReleaseConfig(
       latestVersion: data['latestVersion']?.toString() ?? '0.0.0',
-      latestBuildNumber: _parseInt(data['latestBuildNumber']),
+      latestBuildNumber: parseFirebaseInt(data['latestBuildNumber']),
       downloadUrl: data['downloadUrl']?.toString().trim() ?? '',
       releaseNotes: data['releaseNotes']?.toString().trim(),
     );
-  }
-
-  static int _parseInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    return int.tryParse(value.toString()) ?? 0;
   }
 }

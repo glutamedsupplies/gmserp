@@ -1,30 +1,36 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import '../core/utils/firebase_data.dart';
 import '../models/clock_request.dart';
 import '../models/company_model.dart';
 import '../models/staff_assignment.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
 import 'company_repository.dart';
+import 'rtdb/rtdb_paths.dart';
+import 'rtdb/rtdb_service.dart';
 import 'time_entry_repository.dart';
 
 class ClockRequestRepository {
   ClockRequestRepository({
-    FirebaseFirestore? firestore,
+    RtdbService? rtdb,
     TimeEntryRepository? timeEntries,
     CompanyRepository? companies,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _rtdb = rtdb ?? RtdbService(),
         _timeEntries = timeEntries ?? TimeEntryRepository(),
         _companies = companies ?? CompanyRepository();
 
-  final FirebaseFirestore _firestore;
+  final RtdbService _rtdb;
   final TimeEntryRepository _timeEntries;
   final CompanyRepository _companies;
 
-  static const String collectionName = 'clockRequests';
+  static const String collectionName = RtdbPaths.clockRequests;
 
-  CollectionReference<Map<String, dynamic>> get _requests =>
-      _firestore.collection(collectionName);
+  String _requestPath(String requestId) =>
+      '${RtdbPaths.clockRequests}/$requestId';
+
+  Future<List<ClockRequest>> _loadAll() async {
+    final children = await _rtdb.getChildren(RtdbPaths.clockRequests);
+    return _sortedEntries(children.entries);
+  }
 
   Future<void> _ensureNotLocked({
     required String userId,
@@ -51,15 +57,10 @@ class ClockRequestRepository {
     return trimmed;
   }
 
-  Future<List<ClockRequest>> listAll() async {
-    final snapshot = await _requests.get();
-    return _sorted(snapshot.docs);
-  }
+  Future<List<ClockRequest>> listAll() async => _loadAll();
 
   Future<List<ClockRequest>> listPending() async {
-    final snapshot =
-        await _requests.where('status', isEqualTo: 'pending').get();
-    return _sorted(snapshot.docs);
+    return (await _loadAll()).where((request) => request.isPending).toList();
   }
 
   Future<List<ClockRequest>> listForUserCompany({
@@ -67,20 +68,22 @@ class ClockRequestRepository {
     required String companyId,
     String? workDate,
   }) async {
-    final snapshot = await _requests
-        .where('userId', isEqualTo: userId)
-        .where('companyId', isEqualTo: companyId)
-        .get();
-    var items = _sorted(snapshot.docs);
+    var items = (await _loadAll())
+        .where(
+          (request) =>
+              request.userId == userId && request.companyId == companyId,
+        )
+        .toList();
     if (workDate != null && workDate.isNotEmpty) {
-      items = items.where((r) => r.workDate == workDate).toList();
+      items = items.where((request) => request.workDate == workDate).toList();
     }
     return items;
   }
 
   Future<List<ClockRequest>> listForUser(String userId) async {
-    final snapshot = await _requests.where('userId', isEqualTo: userId).get();
-    return _sorted(snapshot.docs);
+    return (await _loadAll())
+        .where((request) => request.userId == userId)
+        .toList();
   }
 
   Future<ClockRequest?> findPendingClockIn({
@@ -129,6 +132,7 @@ class ClockRequestRepository {
     final open = await _timeEntries.getOpenEntry(
       userId: user.id,
       companyId: company.id,
+      companyDocumentId: company.firestoreId,
     );
     if (open != null) {
       throw StateError('You already have an open time entry.');
@@ -138,6 +142,7 @@ class ClockRequestRepository {
       userId: user.id,
       companyId: company.id,
       workDate: workDate,
+      companyDocumentId: company.firestoreId,
     );
     if (today != null) {
       throw StateError(
@@ -158,6 +163,7 @@ class ClockRequestRepository {
       );
     }
 
+    final id = _rtdb.newKey(RtdbPaths.clockRequests);
     final data = <String, dynamic>{
       'type': ClockRequest.typeClockIn,
       'status': 'pending',
@@ -168,19 +174,15 @@ class ClockRequestRepository {
       'companyDocumentId': company.firestoreId,
       'companyName': company.name,
       'workDate': workDate,
-      'requestedAt': Timestamp.fromDate(at),
+      'requestedAt': writeFirebaseDate(at),
       'entryId': null,
       'note': noteText,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
 
-    final doc = await _requests.add(data);
-    final snapshot = await doc.get();
-    return ClockRequest.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data() ?? data,
-    );
+    await _rtdb.set(_requestPath(id), data);
+    return ClockRequest.fromFirestore(id: id, data: data);
   }
 
   Future<ClockRequest> submitClockOut({
@@ -228,6 +230,7 @@ class ClockRequestRepository {
       final open = await _timeEntries.getOpenEntry(
         userId: user.id,
         companyId: company.id,
+        companyDocumentId: company.firestoreId,
       );
       if (open != null && open.workDate == workDate) {
         if (!at.isAfter(open.timeIn)) {
@@ -256,6 +259,7 @@ class ClockRequestRepository {
       }
     }
 
+    final id = _rtdb.newKey(RtdbPaths.clockRequests);
     final data = <String, dynamic>{
       'type': ClockRequest.typeClockOut,
       'status': 'pending',
@@ -266,20 +270,16 @@ class ClockRequestRepository {
       'companyDocumentId': company.firestoreId,
       'companyName': company.name,
       'workDate': workDate,
-      'requestedAt': Timestamp.fromDate(at),
+      'requestedAt': writeFirebaseDate(at),
       'entryId': resolvedEntryId,
       'relatedClockInId': relatedClockInId,
       'note': noteText,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': serverTimestamp(),
+      'updatedAt': serverTimestamp(),
     };
 
-    final doc = await _requests.add(data);
-    final snapshot = await doc.get();
-    return ClockRequest.fromFirestore(
-      id: snapshot.id,
-      data: snapshot.data() ?? data,
-    );
+    await _rtdb.set(_requestPath(id), data);
+    return ClockRequest.fromFirestore(id: id, data: data);
   }
 
   Future<void> reject(
@@ -293,21 +293,19 @@ class ClockRequestRepository {
 
     final rejectFields = <String, dynamic>{
       'status': 'rejected',
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
       if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
       if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
-      'reviewedAt': FieldValue.serverTimestamp(),
+      'reviewedAt': serverTimestamp(),
     };
 
-    await _requests.doc(request.id).update(rejectFields);
+    await _rtdb.merge(_requestPath(request.id), rejectFields);
 
-    // One strike per admin decline decision (cascaded time-out does not add another).
     await recordDeclineStrike(
       companyId: request.companyId,
       userId: request.userId,
     );
 
-    // Declining time in also declines that day's pending time out.
     if (!request.isClockIn) return;
 
     final pendingOut = await findPendingClockOut(
@@ -317,14 +315,13 @@ class ClockRequestRepository {
     );
     if (pendingOut == null) return;
 
-    await _requests.doc(pendingOut.id).update({
+    await _rtdb.merge(_requestPath(pendingOut.id), {
       ...rejectFields,
       'relatedClockInId': request.id,
       'rejectedWithClockInId': request.id,
     });
   }
 
-  /// Records one decline toward the 3-decline lock for this employee/company.
   Future<void> recordDeclineStrike({
     required String companyId,
     required String userId,
@@ -351,10 +348,10 @@ class ClockRequestRepository {
   }) {
     return {
       'status': 'approved',
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': serverTimestamp(),
       if (reviewerId.isNotEmpty) 'reviewedById': reviewerId,
       if (reviewerName.isNotEmpty) 'reviewedByName': reviewerName,
-      'reviewedAt': FieldValue.serverTimestamp(),
+      'reviewedAt': serverTimestamp(),
     };
   }
 
@@ -383,25 +380,23 @@ class ClockRequestRepository {
         workDate: request.workDate,
         timeIn: request.requestedAt,
       );
-      await _requests.doc(request.id).update(reviewFields);
+      await _rtdb.merge(_requestPath(request.id), reviewFields);
 
-      // Link any pending time-out for this day to the new open entry.
       final pendingOut = await findPendingClockOut(
         userId: request.userId,
         companyId: request.companyId,
         workDate: request.workDate,
       );
       if (pendingOut != null) {
-        await _requests.doc(pendingOut.id).update({
+        await _rtdb.merge(_requestPath(pendingOut.id), {
           'entryId': entry.id,
           'relatedClockInId': request.id,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': serverTimestamp(),
         });
       }
       return;
     }
 
-    // Time out requires an approved time-in (open entry) for that day first.
     final pendingIn = await findPendingClockIn(
       userId: request.userId,
       companyId: request.companyId,
@@ -419,6 +414,7 @@ class ClockRequestRepository {
       final open = await _timeEntries.getOpenEntry(
         userId: request.userId,
         companyId: request.companyId,
+        companyDocumentId: request.companyDocumentId,
       );
       if (open != null && open.workDate == request.workDate) {
         entryId = open.id;
@@ -436,17 +432,20 @@ class ClockRequestRepository {
       entryId: entryId,
       timeOut: request.requestedAt,
     );
-    await _requests.doc(request.id).update({
+    await _rtdb.merge(_requestPath(request.id), {
       ...reviewFields,
       'entryId': entryId,
     });
   }
 
-  List<ClockRequest> _sorted(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  List<ClockRequest> _sortedEntries(
+    Iterable<MapEntry<String, Map<String, dynamic>>> entries,
   ) {
-    final items = docs
-        .map((doc) => ClockRequest.fromFirestore(id: doc.id, data: doc.data()))
+    final items = entries
+        .map(
+          (entry) =>
+              ClockRequest.fromFirestore(id: entry.key, data: entry.value),
+        )
         .toList();
     items.sort((a, b) {
       final byCreated = (b.createdAt ?? b.requestedAt)

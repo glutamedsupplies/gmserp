@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import 'company_model.dart';
 import 'employee_time_card_profile.dart';
 import 'user_role.dart';
@@ -75,7 +76,7 @@ class StaffAssignment {
     this.accessLevel = 'employee',
     this.clockDeclineCount = 0,
     EmployeeTimeCardProfile? timeCardProfile,
-  }) : _timeCardProfile = timeCardProfile;
+  }) : _timeCardProfile = timeCardProfile; // ignore: prefer_initializing_formals
 
   factory StaffAssignment.fromFirestore({
     required String id,
@@ -98,11 +99,7 @@ class StaffAssignment {
     );
   }
 
-  static int _intField(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
+  static int _intField(dynamic value) => parseFirebaseInt(value);
 
   static List<String> _tasksFromFirestore(Map<String, dynamic> data) {
     final raw = data['tasks'];
@@ -111,6 +108,19 @@ class StaffAssignment {
         for (final item in raw)
           if (item.toString().trim().isNotEmpty) item.toString().trim(),
       ];
+    }
+    if (raw is Map) {
+      final values = <String>[];
+      for (final entry in raw.entries) {
+        final text = entry.value?.toString().trim() ?? '';
+        if (text.isNotEmpty && text != 'true') {
+          values.add(text);
+        } else {
+          final key = entry.key.toString().trim();
+          if (key.isNotEmpty) values.add(key);
+        }
+      }
+      return values;
     }
     final single = data['task']?.toString().trim() ?? '';
     if (single.isEmpty) return [];

@@ -14,7 +14,6 @@ import '../models/user_role.dart';
 import '../services/company_repository.dart';
 import '../services/local_avatar_factory.dart';
 import '../services/local_avatar_store.dart';
-import '../services/salary_rate_change_repository.dart';
 import '../services/user_repository.dart';
 
 class CompanyProvider extends ChangeNotifier {
@@ -22,17 +21,13 @@ class CompanyProvider extends ChangeNotifier {
     CompanyRepository? companyRepository,
     UserRepository? userRepository,
     LocalAvatarStore? logoStore,
-    SalaryRateChangeRepository? salaryRateChangeRepository,
   })  : _companies = companyRepository ?? CompanyRepository(),
         _users = userRepository ?? UserRepository(),
-        _logos = logoStore ?? createLocalAvatarStore(),
-        _salaryRateChanges =
-            salaryRateChangeRepository ?? SalaryRateChangeRepository();
+        _logos = logoStore ?? createLocalAvatarStore();
 
   final CompanyRepository _companies;
   final UserRepository _users;
   final LocalAvatarStore _logos;
-  final SalaryRateChangeRepository _salaryRateChanges;
 
   bool isLoading = false;
   String? errorMessage;
@@ -403,7 +398,7 @@ class CompanyProvider extends ChangeNotifier {
     } catch (error) {
       errorMessage = error is StateError
           ? error.message
-          : 'Could not save the company. Check Firestore rules and try again.';
+          : 'Could not save the company. Check Realtime Database rules and try again.';
       isLoading = false;
       notifyListeners();
       return false;
@@ -638,57 +633,6 @@ class CompanyProvider extends ChangeNotifier {
   }) async {
     errorMessage = null;
     try {
-      final previousRate = member?.timeCardProfile.dailyRate ??
-          staff
-              .where((item) => item.userId == userId)
-              .map((item) => item.timeCardProfile.dailyRate)
-              .firstOrNull ??
-          0.0;
-
-      await _companies.saveStaffTimeCardProfile(
-        companyId: companyId,
-        userId: userId,
-        profile: profile,
-      );
-
-      // Editing time card settings unlocks clock requests after 3 declines.
-      await _companies.resetClockDeclineCount(
-        companyId: companyId,
-        userId: userId,
-      );
-
-      if (actor != null &&
-          (previousRate - profile.dailyRate).abs() > 0.0001) {
-        await _notifyDailyRateChange(
-          companyId: companyId,
-          company: company,
-          userId: userId,
-          member: member,
-          actor: actor,
-          previousRate: previousRate,
-          newRate: profile.dailyRate,
-        );
-      }
-
-      await loadStaff(companyId);
-      return true;
-    } catch (_) {
-      errorMessage = 'Could not save employee time card settings.';
-      notifyListeners();
-      return false;
-    }
-  }
-
-  Future<void> _notifyDailyRateChange({
-    required String companyId,
-    required String userId,
-    required UserModel actor,
-    required double previousRate,
-    required double newRate,
-    CompanyModel? company,
-    StaffAssignment? member,
-  }) async {
-    try {
       CompanyModel? resolvedCompany = company;
       if (resolvedCompany == null) {
         for (final item in companies) {
@@ -699,6 +643,7 @@ class CompanyProvider extends ChangeNotifier {
         }
       }
       resolvedCompany ??= selectedCompany;
+
       if (users.isEmpty) {
         await loadUsers();
       }
@@ -711,7 +656,9 @@ class CompanyProvider extends ChangeNotifier {
           member?.email.isNotEmpty == true ? member!.email : (employee?.email ?? '');
 
       final recipientIds = <String>{userId};
-      for (final staffMember in staff) {
+      if (actor != null) recipientIds.add(actor.id);
+      final companyStaff = await _companies.listStaff(companyId);
+      for (final staffMember in companyStaff) {
         if (memberAccessRole(staffMember) == UserRole.admin) {
           recipientIds.add(staffMember.userId);
         }
@@ -722,21 +669,33 @@ class CompanyProvider extends ChangeNotifier {
         }
       }
 
-      await _salaryRateChanges.create(
-        companyId: resolvedCompany?.id ?? companyId,
-        companyDocumentId: resolvedCompany?.firestoreId ?? companyId,
+      await _companies.saveStaffTimeCardProfile(
+        companyId: companyId,
+        userId: userId,
+        profile: profile,
+        companyDocumentId: resolvedCompany?.firestoreId,
         companyName: resolvedCompany?.name ?? '',
-        employeeId: userId,
         employeeName: employeeName,
         employeeEmail: employeeEmail,
-        actorId: actor.id,
-        actorName: actor.username.isNotEmpty ? actor.username : actor.email,
-        previousRate: previousRate,
-        newRate: newRate,
+        actorId: actor?.id,
+        actorName: actor != null
+            ? (actor.username.isNotEmpty ? actor.username : actor.email)
+            : '',
         recipientIds: recipientIds.toList(),
       );
-    } catch (_) {
-      // Profile save already succeeded; skip notification failures.
+
+      // Editing time card settings unlocks clock requests after 3 declines.
+      await _companies.resetClockDeclineCount(
+        companyId: companyId,
+        userId: userId,
+      );
+
+      await loadStaff(companyId);
+      return true;
+    } catch (e) {
+      errorMessage = 'Could not save employee time card settings.';
+      notifyListeners();
+      return false;
     }
   }
 

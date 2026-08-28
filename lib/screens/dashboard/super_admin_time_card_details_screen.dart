@@ -496,6 +496,7 @@ class _SuperAdminTimeCardDetailsScreenState
 
                             final authUser =
                                 context.read<AuthProvider>().user;
+                            final companies = context.read<CompanyProvider>();
                             final asSuperAdmin = _isSuperAdmin(authUser?.role);
 
                             if (asSuperAdmin) {
@@ -508,9 +509,22 @@ class _SuperAdminTimeCardDetailsScreenState
                                 timeIn: newTimeIn,
                                 timeOut: newTimeOut,
                               );
-                              await context
-                                  .read<CompanyProvider>()
-                                  .unlockEmployeeClockRequests(
+                              if (authUser != null) {
+                                await _changeRequestRepo.recordApprovedDirectEdit(
+                                  actor: authUser,
+                                  company: company,
+                                  employeeId: selectedMember.userId,
+                                  employeeName: selectedMember.username,
+                                  employeeEmail: selectedMember.email,
+                                  workDate: row.workDate,
+                                  proposedTimeIn: newTimeIn,
+                                  proposedTimeOut: newTimeOut,
+                                  currentTimeIn: baselineTimeIn,
+                                  currentTimeOut: baselineTimeOut,
+                                  existingEntryId: existing?.id,
+                                );
+                              }
+                              await companies.unlockEmployeeClockRequests(
                                     companyId: company.id,
                                     userId: selectedMember.userId,
                                   );

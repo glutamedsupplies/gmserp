@@ -10,7 +10,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/pending_requests_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/app_update_service.dart';
+import '../../services/firestore_to_rtdb_migration.dart';
 import '../../services/notification_service.dart';
+import '../../core/utils/feedback_toast.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 
@@ -151,6 +153,19 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              if (user?.role == UserRole.superAdmin) ...[
+                SizedBox(height: density.sectionGap + 8),
+                _SectionLabel('Data migration'),
+                _SettingsCard(
+                  child: _NavRow(
+                    icon: Icons.cloud_sync_rounded,
+                    title: 'Copy Firestore → Realtime Database',
+                    subtitle:
+                        'One-time import of users, companies, time cards, and requests',
+                    onTap: () => _runFirestoreMigration(context),
+                  ),
+                ),
+              ],
               SizedBox(height: density.sectionGap),
               Text(
                 'GMSERP keeps your theme and density on this device.',
@@ -162,6 +177,46 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+Future<void> _runFirestoreMigration(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Migrate Firestore data?'),
+      content: const Text(
+        'This copies existing Firestore data into Realtime Database. '
+        'It does not delete Firestore. Safe to run once (or again to refresh).',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Migrate'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  FeedbackToast.showLoading(context, message: 'Copying Firestore → RTDB…');
+  try {
+    final summary = await FirestoreToRtdbMigration().run();
+    if (!context.mounted) return;
+    FeedbackToast.hideLoading();
+    FeedbackToast.showSuccess(context, summary, title: 'Migration done');
+  } catch (e) {
+    if (!context.mounted) return;
+    FeedbackToast.hideLoading();
+    FeedbackToast.showDanger(
+      context,
+      e.toString(),
+      title: 'Migration failed',
     );
   }
 }

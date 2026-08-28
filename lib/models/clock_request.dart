@@ -1,3 +1,4 @@
+import '../core/utils/firebase_data.dart';
 import 'time_entry.dart';
 
 /// Employee-submitted clock in or clock out awaiting admin/super-admin approval.
@@ -73,24 +74,14 @@ class ClockRequest {
       companyDocumentId: data['companyDocumentId']?.toString() ?? '',
       companyName: data['companyName']?.toString() ?? '',
       workDate: data['workDate']?.toString() ?? '',
-      requestedAt: _parseDate(data['requestedAt']) ?? DateTime.now(),
+      requestedAt: parseFirebaseDate(data['requestedAt']) ?? DateTime.now(),
       entryId: data['entryId']?.toString(),
       relatedClockInId: data['relatedClockInId']?.toString(),
       note: data['note']?.toString() ?? '',
-      createdAt: _parseDate(data['createdAt']),
-      updatedAt: _parseDate(data['updatedAt']),
+      createdAt: parseFirebaseDate(data['createdAt']),
+      updatedAt: parseFirebaseDate(data['updatedAt']),
       reviewedById: data['reviewedById']?.toString() ?? '',
       reviewedByName: data['reviewedByName']?.toString() ?? '',
     );
-  }
-
-  static DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    try {
-      return (value as dynamic).toDate() as DateTime;
-    } catch (_) {
-      return DateTime.tryParse(value.toString());
-    }
   }
 }

@@ -14,11 +14,19 @@ import 'services/notification_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Android auto-inits from google-services.json; Dart may still report empty
+  // apps (especially after hot restart). Treat duplicate-app as success.
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    final duplicate = (e is FirebaseException && e.code == 'duplicate-app') ||
+        e.toString().contains('duplicate-app');
+    if (!duplicate) rethrow;
+  }
 
-  // Firebase Auth + Firestore profiles. Swap implementations if needed.
+  // Firebase Auth + Realtime Database profiles. Swap implementations if needed.
   final AuthService authService = FirebaseAuthService();
   final settings = SettingsProvider();
   await settings.load();
