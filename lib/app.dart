@@ -4,8 +4,11 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/constants/app_routes.dart';
 import 'core/navigation/app_navigator.dart';
+import 'core/navigation/app_page_routes.dart';
 import 'core/navigation/notification_sync.dart';
 import 'core/navigation/post_login.dart';
+import 'core/navigation/signed_in_host.dart';
+import 'core/navigation/signed_in_nav_controller.dart';
 import 'core/navigation/signed_in_router.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
@@ -20,7 +23,6 @@ import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/company/select_company_screen.dart';
-import 'screens/dashboard/role_dashboard_screen.dart';
 import 'services/leave_reminder_service.dart';
 import 'services/leave_request_repository.dart';
 import 'services/notification_service.dart';
@@ -133,10 +135,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     final auth = context.read<AuthProvider>();
     if (payload == NotificationService.calendarRoutePayload) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        AppNavigator.signedInKey.currentState?.pushNamedAndRemoveUntil(
-          AppRoutes.timeCardCalendar,
-          (route) => route.isFirst,
-        );
+        AppNavigator.openShellRoute(AppRoutes.timeCardCalendar);
       });
       return;
     }
@@ -145,10 +144,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     if (payload == NotificationService.notificationsRoutePayload ||
         outcomeEntryId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        AppNavigator.signedInKey.currentState?.pushNamedAndRemoveUntil(
-          AppRoutes.notifications,
-          (route) => route.isFirst,
-        );
+        AppNavigator.openShellRoute(AppRoutes.notifications);
       });
       return;
     }
@@ -284,24 +280,41 @@ class _SignedInNavigator extends StatefulWidget {
 }
 
 class _SignedInNavigatorState extends State<_SignedInNavigator> {
+  late final SignedInNavController _shellNav;
+
+  @override
+  void initState() {
+    super.initState();
+    _shellNav = SignedInNavController();
+  }
+
+  @override
+  void dispose() {
+    _shellNav.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Navigator(
-      key: AppNavigator.signedInKey,
-      onGenerateInitialRoutes: (navigator, initialRoute) {
-        return [
-          MaterialPageRoute<void>(
-            settings: const RouteSettings(name: AppRoutes.dashboard),
-            builder: (_) => const RoleDashboardScreen(),
-          ),
-        ];
-      },
-      onGenerateRoute: (settings) {
-        return MaterialPageRoute<void>(
-          settings: settings,
-          builder: (_) => buildSignedInPage(settings),
-        );
-      },
+    return ChangeNotifierProvider<SignedInNavController>.value(
+      value: _shellNav,
+      child: Navigator(
+        key: AppNavigator.signedInKey,
+        onGenerateInitialRoutes: (navigator, initialRoute) {
+          return [
+            signedInPageRoute<void>(
+              settings: const RouteSettings(name: AppRoutes.dashboard),
+              builder: (_) => const SignedInHost(),
+            ),
+          ];
+        },
+        onGenerateRoute: (settings) {
+          return signedInPageRoute<void>(
+            settings: settings,
+            builder: (_) => buildSignedInPage(settings),
+          );
+        },
+      ),
     );
   }
 }

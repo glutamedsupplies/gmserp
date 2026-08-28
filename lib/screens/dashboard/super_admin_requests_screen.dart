@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/rtdb_platform.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/clock_request.dart';
 import '../../models/company_model.dart';
@@ -16,6 +17,7 @@ import '../../providers/company_provider.dart';
 import '../../services/clock_request_repository.dart';
 import '../../services/leave_request_repository.dart';
 import '../../services/time_card_change_request_repository.dart';
+import '../../services/rtdb/rtdb_desktop_limiter.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
@@ -58,6 +60,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   String? _focusType;
   String? _focusId;
   bool _didApplyFocus = false;
+  int _loadGeneration = 0;
 
   static const _allCompanies = 'All';
 
@@ -80,9 +83,15 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
       }
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CompanyProvider>().loadCompanies();
+      context.read<CompanyProvider>().loadCompanies(force: false);
+      if (preferRtdbPolling) {
+        Future.delayed(const Duration(milliseconds: 1200), () {
+          if (mounted) _load();
+        });
+      } else {
+        _load();
+      }
     });
-    _load();
   }
 
   @override
@@ -112,6 +121,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
 
   @override
   void dispose() {
+    _loadGeneration++;
     _pager.dispose();
     _searchController.dispose();
     super.dispose();
@@ -125,48 +135,63 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
       _pager.reset();
     });
     try {
-      final results = await Future.wait([
-        _leaveRepo.listAll(),
-        _timeChangeRepo.listAll(),
-        _clockRepo.listAll(),
-      ]);
-      if (!mounted) return;
-      final clocks = results[2] as List<ClockRequest>;
-      final declines = <String, int>{};
-      final pairs = <({String companyId, String userId})>{};
-      for (final clock in clocks) {
-        pairs.add((companyId: clock.companyId, userId: clock.userId));
-      }
-      final companyProvider = context.read<CompanyProvider>();
-      await Future.wait([
-        for (final pair in pairs)
-          () async {
-            final count = await companyProvider.clockDeclineCountFor(
-              companyId: pair.companyId,
-              userId: pair.userId,
-            );
-            declines[_declineKey(pair.companyId, pair.userId)] = count;
-          }(),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _leaveRequests = results[0] as List<LeaveRequest>;
-        _timeRequests = results[1] as List<TimeCardChangeRequest>;
-        _clockRequests = clocks;
-        _clockDeclines
-          ..clear()
-          ..addAll(declines);
-        _loading = false;
+      await RtdbDesktopLimiter.runHeavy(() async {
+        late List<LeaveRequest> leaves;
+        late List<TimeCardChangeRequest> times;
+        late List<ClockRequest> clocks;
+        if (preferRtdbPolling) {
+          leaves = await _leaveRepo.listAll();
+          if (generation != _loadGeneration || !mounted) return;
+          times = await _timeChangeRepo.listAll(hydrate: false);
+          if (generation != _loadGeneration || !mounted) return;
+          clocks = await _clockRepo.listAll();
+        } else {
+          final results = await Future.wait([
+            _leaveRepo.listAll(),
+            _timeChangeRepo.listAll(),
+            _clockRepo.listAll(),
+          ]);
+          leaves = results[0] as List<LeaveRequest>;
+          times = results[1] as List<TimeCardChangeRequest>;
+          clocks = results[2] as List<ClockRequest>;
+        }
+        if (generation != _loadGeneration || !mounted) return;
+
+        if (!mounted || generation != _loadGeneration) return;
+        setState(() {
+          _leaveRequests = leaves;
+          _timeRequests = times;
+          _clockRequests = clocks;
+          _loading = false;
+        });
+        _scrollToFocus();
+
+        final pairs = <({String companyId, String userId})>{};
+        for (final clock in clocks) {
+          pairs.add((companyId: clock.companyId, userId: clock.userId));
+        }
+        if (pairs.isEmpty || generation != _loadGeneration || !mounted) {
+          return;
+        }
+        final companyProvider = context.read<CompanyProvider>();
+        final declines =
+            await companyProvider.clockDeclineCountsFor(members: pairs);
+        if (generation != _loadGeneration || !mounted) return;
+        setState(() {
+          _clockDeclines
+            ..clear()
+            ..addAll(declines);
+        });
       });
-      _scrollToFocus();
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _leaveRequests = [];
         _timeRequests = [];

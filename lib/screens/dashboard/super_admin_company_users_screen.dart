@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
+import '../../core/navigation/signed_in_nav_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/company_model.dart';
 import '../../models/time_entry.dart';
@@ -88,22 +89,24 @@ class _SuperAdminCompanyUsersScreenState
             children: [
               OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.of(context).pushNamed(AppRoutes.superAdminRoles);
+                  SignedInNavController.goTo(context, AppRoutes.superAdminRoles);
                 },
                 icon: const Icon(Icons.badge_outlined, size: 18),
                 label: const Text('Role lists'),
               ),
               OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.of(context).pushNamed(AppRoutes.superAdminTasks);
+                  SignedInNavController.goTo(context, AppRoutes.superAdminTasks);
                 },
                 icon: const Icon(Icons.task_alt_rounded, size: 18),
                 label: const Text('Task lists'),
               ),
               OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.of(context)
-                      .pushNamed(AppRoutes.superAdminEmployees);
+                  SignedInNavController.goTo(
+                    context,
+                    AppRoutes.superAdminEmployees,
+                  );
                 },
                 icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
                 label: const Text('Employee lists'),

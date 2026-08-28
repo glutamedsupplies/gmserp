@@ -1,4 +1,5 @@
 import '../core/utils/firebase_data.dart';
+import '../core/utils/rtdb_platform.dart';
 import '../models/company_model.dart';
 import '../models/time_card_change_request.dart';
 import '../models/time_entry.dart';
@@ -27,14 +28,17 @@ class TimeCardChangeRequestRepository {
     return _sortedEntries(children.entries);
   }
 
-  Future<List<TimeCardChangeRequest>> listAll() async {
-    return _hydrateCurrents(await _loadAll());
+  Future<List<TimeCardChangeRequest>> listAll({bool hydrate = true}) async {
+    final items = await _loadAll();
+    if (!hydrate || preferRtdbPolling) return items;
+    return _hydrateCurrents(items);
   }
 
   Future<List<TimeCardChangeRequest>> listByRequester(String requesterId) async {
     final items = (await _loadAll())
         .where((request) => request.requesterId == requesterId)
         .toList();
+    if (preferRtdbPolling) return items;
     return _hydrateCurrents(items);
   }
 
@@ -42,19 +46,37 @@ class TimeCardChangeRequestRepository {
     final items = (await _loadAll())
         .where((request) => request.employeeId == employeeId)
         .toList();
+    if (preferRtdbPolling) return items;
     return _hydrateCurrents(items);
   }
 
-  Stream<int> watchPendingCount() {
-    return _rtdb.onValue(RtdbPaths.timeCardChangeRequests).map((event) {
+  Stream<int> watchPendingCount() async* {
+    if (preferRtdbPolling) {
+      yield await _countPending();
+      yield* Stream.periodic(
+        const Duration(seconds: 8),
+        (_) => _countPending(),
+      ).asyncMap((future) => future);
+      return;
+    }
+    yield* _rtdb.onValue(RtdbPaths.timeCardChangeRequests).map((event) {
       final children = RtdbService.snapshotChildren(event.snapshot);
-      var count = 0;
-      for (final data in children.values) {
-        final status = data['status']?.toString().toLowerCase() ?? '';
-        if (status == 'pending') count += 1;
-      }
-      return count;
+      return _countPendingFrom(children);
     });
+  }
+
+  Future<int> _countPending() async {
+    final children = await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
+    return _countPendingFrom(children);
+  }
+
+  int _countPendingFrom(Map<String, Map<String, dynamic>> children) {
+    var count = 0;
+    for (final data in children.values) {
+      final status = data['status']?.toString().toLowerCase() ?? '';
+      if (status == 'pending') count += 1;
+    }
+    return count;
   }
 
   Future<TimeCardChangeRequest?> findPendingForWorkDate({

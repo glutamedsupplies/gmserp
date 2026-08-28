@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
+import '../../core/navigation/signed_in_nav_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/time_entry.dart';
 import '../../models/user_role.dart';
@@ -83,7 +84,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
       context.read<CompanyProvider>().beginCompanyPick();
       return;
     }
-    Navigator.of(context).pushNamed(route, arguments: arguments);
+    SignedInNavController.goTo(context, route, arguments: arguments);
   }
 
   @override

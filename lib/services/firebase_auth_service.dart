@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/user_model.dart';
 import '../models/user_role.dart';
+import '../core/utils/rtdb_platform.dart';
 import 'auth_service.dart';
 import 'user_repository.dart';
 
@@ -224,6 +225,12 @@ class FirebaseAuthService implements AuthService {
   }
 
   Future<void> _ensureAuthToken(User firebaseUser) async {
+    if (preferRtdbPolling) {
+      try {
+        await firebaseUser.getIdToken(false);
+      } catch (_) {}
+      return;
+    }
     await firebaseUser.reload();
     await firebaseUser.getIdToken(true);
   }

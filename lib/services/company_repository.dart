@@ -342,8 +342,37 @@ class CompanyRepository {
     required String companyId,
     required String userId,
   }) async {
-    final assignment = await getAssignment(companyId: companyId, userId: userId);
-    return assignment?.clockDeclineCount ?? 0;
+    final counts = await getClockDeclineCounts(
+      members: [(companyId: companyId, userId: userId)],
+    );
+    return counts['$companyId|$userId'] ?? 0;
+  }
+
+  /// One staff fetch per company instead of one RTDB read per employee.
+  Future<Map<String, int>> getClockDeclineCounts({
+    required Iterable<({String companyId, String userId})> members,
+  }) async {
+    final byCompany = <String, Set<String>>{};
+    for (final member in members) {
+      final companyId = member.companyId.trim();
+      final userId = member.userId.trim();
+      if (companyId.isEmpty || userId.isEmpty) continue;
+      byCompany.putIfAbsent(companyId, () => {}).add(userId);
+    }
+
+    final out = <String, int>{};
+    for (final entry in byCompany.entries) {
+      final docId = await _resolveCompanyDocId(entry.key);
+      final staff = await _rtdb.getChildren('${_companyPath(docId)}/staff');
+      for (final userId in entry.value) {
+        final data = staff[userId];
+        final count = data == null
+            ? 0
+            : parseFirebaseInt(data['clockDeclineCount']);
+        out['${entry.key}|$userId'] = count;
+      }
+    }
+    return out;
   }
 
   Future<void> incrementClockDeclineCount({

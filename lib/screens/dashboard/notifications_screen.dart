@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
+import '../../core/utils/rtdb_platform.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/activity_log_entry.dart';
 import '../../models/time_entry.dart';
@@ -10,6 +11,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/user_outcome_notifications_provider.dart';
 import '../../services/activity_log_repository.dart';
+import '../../services/rtdb/rtdb_desktop_limiter.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
@@ -37,6 +39,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   String _search = '';
 
   static const _allCompanies = 'All';
+  int _loadGeneration = 0;
 
   bool get _isSuperAdmin =>
       context.read<AuthProvider>().user?.role == UserRole.superAdmin;
@@ -58,6 +61,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   void dispose() {
+    _loadGeneration++;
     _pager.dispose();
     _searchController.dispose();
     super.dispose();
@@ -79,6 +83,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _load({bool refresh = false}) async {
+    final generation = ++_loadGeneration;
     final user = context.read<AuthProvider>().user;
     if (user == null) {
       setState(() {
@@ -111,45 +116,66 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       _pager.reset();
     });
     try {
-      final List<ActivityLogEntry> items;
+      List<ActivityLogEntry>? items;
+      List<ActivityLogEntry> personalEntries = const [];
       if (_auditMode) {
-        // Combine system-wide activity with personal inbox (salary / announcements
-        // addressed to Super Admin) so the header badge matches this page.
-        final results = await Future.wait([
-          _repo.listResolved(),
-          _repo.listResolvedForUser(user.id),
-        ]);
-        final audit = results[0];
-        final personal = results[1];
-        final byId = <String, ActivityLogEntry>{};
-        for (final entry in audit) {
-          byId[entry.id] = entry;
+        if (preferRtdbPolling) {
+          items = await RtdbDesktopLimiter.runHeavy(() async {
+            final audit = await _repo.listResolved();
+            if (generation != _loadGeneration || !mounted) return null;
+            personalEntries = await _repo.listResolvedForUser(user.id);
+            if (generation != _loadGeneration || !mounted) return null;
+            final byId = <String, ActivityLogEntry>{};
+            for (final entry in audit) {
+              byId[entry.id] = entry;
+            }
+            for (final entry in personalEntries) {
+              byId[entry.id] = entry;
+            }
+            return byId.values.toList()
+              ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+          });
+        } else {
+          final results = await Future.wait([
+            _repo.listResolved(),
+            _repo.listResolvedForUser(user.id),
+          ]);
+          final audit = results[0];
+          personalEntries = results[1];
+          final byId = <String, ActivityLogEntry>{};
+          for (final entry in audit) {
+            byId[entry.id] = entry;
+          }
+          for (final entry in personalEntries) {
+            byId[entry.id] = entry;
+          }
+          items = byId.values.toList()
+            ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
         }
-        for (final entry in personal) {
-          // Prefer personal wording when both exist.
-          byId[entry.id] = entry;
-        }
-        items = byId.values.toList()
-          ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
       } else {
         final company = companies.selectedCompany;
-        items = await _repo.listResolvedForUser(
+        personalEntries = await _repo.listResolvedForUser(
           user.id,
           companyId: needsCompany ? company?.id : null,
           companyDocumentId: needsCompany ? company?.firestoreId : null,
         );
+        items = personalEntries;
       }
-      if (!mounted) return;
+      if (items == null || !mounted || generation != _loadGeneration) return;
       setState(() {
-        _items = items;
+        _items = items!;
         _loading = false;
         _refreshing = false;
       });
+      await context
+          .read<UserOutcomeNotificationsProvider>()
+          .applyPersonalActivityEntries(personalEntries);
+      if (!mounted || generation != _loadGeneration) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _markVisibleSeen();
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _items = [];
         _loading = false;
@@ -203,6 +229,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<ActivityLogEntry> _filtered([CompanyProvider? companies]) {
     final query = _search.trim().toLowerCase();
     final companyProvider = companies ?? context.read<CompanyProvider>();
+    final outcomes = context.read<UserOutcomeNotificationsProvider>();
     final list = _items.where((item) {
       if (_auditMode && !_matchesCompany(item, companyProvider)) return false;
 
@@ -242,8 +269,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return true;
     }).toList();
 
-    // Newest activity / notifications always first.
-    list.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    list.sort((a, b) {
+      if (_auditMode) {
+        final aUnseen = outcomes.isTrackedUnseen(a.id);
+        final bUnseen = outcomes.isTrackedUnseen(b.id);
+        if (aUnseen != bUnseen) return aUnseen ? -1 : 1;
+      }
+      return b.occurredAt.compareTo(a.occurredAt);
+    });
     return list;
   }
 

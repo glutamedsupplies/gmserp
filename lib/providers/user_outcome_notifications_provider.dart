@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/utils/firebase_data.dart';
 import '../core/utils/rtdb_platform.dart';
+import '../models/activity_log_entry.dart';
 import '../models/announcement.dart';
 import '../models/company_model.dart';
 import '../models/salary_rate_change.dart';
@@ -13,6 +14,7 @@ import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../services/notification_seen_store.dart';
 import '../services/notification_service.dart';
+import '../services/rtdb/rtdb_desktop_limiter.dart';
 import '../services/rtdb/rtdb_paths.dart';
 import '../services/rtdb/rtdb_service.dart';
 
@@ -61,6 +63,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   bool _companyUnlocked = false;
   bool _listening = false;
   bool _seeded = false;
+  bool _superAdminMode = false;
 
   final Map<String, _OutcomeItem> _leaveOutcomes = {};
   final Map<String, _OutcomeItem> _timeAsRequester = {};
@@ -133,6 +136,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     _activeCompanyId = companyId;
     _activeCompanyDocId = companyDocId;
     _companyUnlocked = companyUnlocked;
+    _superAdminMode = role == UserRole.superAdmin;
     _listening = true;
     _seeded = false;
     unawaited(_start(user.id));
@@ -158,9 +162,12 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     unawaited(_notifications.requestPermission());
 
     if (preferRtdbPolling) {
-      unawaited(_pollOnce(userId));
-      _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      Future.delayed(const Duration(seconds: 3), () {
+        if (!_listening || _userId != userId) return;
         unawaited(_pollOnce(userId));
+        _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+          unawaited(_pollOnce(userId));
+        });
       });
       return;
     }
@@ -310,38 +317,59 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   }
 
   Future<void> _pollOnce(String userId) async {
-    if (!_listening || _userId != userId || _polling) return;
+    if (!_listening ||
+        _userId != userId ||
+        _polling ||
+        RtdbDesktopLimiter.isHeavyLoading) {
+      return;
+    }
     _polling = true;
     try {
-      final leaves = await _rtdb.getChildren(RtdbPaths.leaveRequests);
-      final leaveFiltered = <String, Map<String, dynamic>>{};
-      for (final entry in leaves.entries) {
-        if (entry.value['userId']?.toString() == userId) {
-          leaveFiltered[entry.key] = entry.value;
+      final skipInboxPaths = preferRtdbPolling && _superAdminMode;
+      if (!skipInboxPaths) {
+        final leaves = await _rtdb.getChildren(RtdbPaths.leaveRequests);
+        final leaveFiltered = <String, Map<String, dynamic>>{};
+        for (final entry in leaves.entries) {
+          if (entry.value['userId']?.toString() == userId) {
+            leaveFiltered[entry.key] = entry.value;
+          }
         }
-      }
-      _leaveOutcomes
-        ..clear()
-        ..addAll(_parseLeaveOutcomes(leaveFiltered));
+        _leaveOutcomes
+          ..clear()
+          ..addAll(_parseLeaveOutcomes(leaveFiltered));
 
-      final timeChanges =
-          await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
-      final asRequester = <String, Map<String, dynamic>>{};
-      final asEmployee = <String, Map<String, dynamic>>{};
-      for (final entry in timeChanges.entries) {
-        if (entry.value['requesterId']?.toString() == userId) {
-          asRequester[entry.key] = entry.value;
+        final timeChanges =
+            await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
+        final asRequester = <String, Map<String, dynamic>>{};
+        final asEmployee = <String, Map<String, dynamic>>{};
+        for (final entry in timeChanges.entries) {
+          if (entry.value['requesterId']?.toString() == userId) {
+            asRequester[entry.key] = entry.value;
+          }
+          if (entry.value['employeeId']?.toString() == userId) {
+            asEmployee[entry.key] = entry.value;
+          }
         }
-        if (entry.value['employeeId']?.toString() == userId) {
-          asEmployee[entry.key] = entry.value;
+        _timeAsRequester
+          ..clear()
+          ..addAll(_parseTimeOutcomes(asRequester, asRequester: true));
+        _timeAsEmployee
+          ..clear()
+          ..addAll(_parseTimeOutcomes(asEmployee, asRequester: false));
+
+        final clocks = await _rtdb.getChildren(RtdbPaths.clockRequests);
+        final clockFiltered = <String, Map<String, dynamic>>{};
+        for (final entry in clocks.entries) {
+          if (entry.value['userId']?.toString() == userId) {
+            clockFiltered[entry.key] = entry.value;
+          }
         }
+        _clockOutcomes
+          ..clear()
+          ..addAll(_parseClockOutcomes(clockFiltered));
       }
-      _timeAsRequester
-        ..clear()
-        ..addAll(_parseTimeOutcomes(asRequester, asRequester: true));
-      _timeAsEmployee
-        ..clear()
-        ..addAll(_parseTimeOutcomes(asEmployee, asRequester: false));
+      // Personal leave/time/clock on desktop Super Admin are synced when the
+      // Activity page loads; do not clear them here or the badge orphan counts.
 
       final salary = await _rtdb.getChildren(RtdbPaths.salaryRateChanges);
       final salaryFiltered = <String, Map<String, dynamic>>{};
@@ -367,17 +395,6 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
       _profileOutcomes
         ..clear()
         ..addAll(_parseProfileOutcomes(profileFiltered, userId: userId));
-
-      final clocks = await _rtdb.getChildren(RtdbPaths.clockRequests);
-      final clockFiltered = <String, Map<String, dynamic>>{};
-      for (final entry in clocks.entries) {
-        if (entry.value['userId']?.toString() == userId) {
-          clockFiltered[entry.key] = entry.value;
-        }
-      }
-      _clockOutcomes
-        ..clear()
-        ..addAll(_parseClockOutcomes(clockFiltered));
 
       final announces = await _rtdb.getChildren(RtdbPaths.announcements);
       final announceFiltered = <String, Map<String, dynamic>>{};
@@ -710,6 +727,48 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     }
   }
 
+  /// Keeps the header badge aligned with personal rows the Activity page loaded.
+  Future<void> applyPersonalActivityEntries(
+    List<ActivityLogEntry> entries,
+  ) async {
+    final userId = _userId;
+    if (userId == null || !_listening) return;
+
+    _leaveOutcomes.clear();
+    _timeAsRequester.clear();
+    _timeAsEmployee.clear();
+    _clockOutcomes.clear();
+    _salaryOutcomes.clear();
+    _profileOutcomes.clear();
+    _announceOutcomes.clear();
+
+    for (final entry in entries) {
+      final item = _OutcomeItem(
+        entryId: entry.id,
+        title: entry.summary,
+        body: entry.detail.isNotEmpty ? entry.detail : entry.summary,
+        updatedAt: entry.occurredAt,
+      );
+      switch (entry.kind) {
+        case ActivityLogKind.leave:
+          _leaveOutcomes[entry.id] = item;
+        case ActivityLogKind.timeEdit:
+          _timeAsRequester[entry.id] = item;
+        case ActivityLogKind.clock:
+          _clockOutcomes[entry.id] = item;
+        case ActivityLogKind.salaryRate:
+          _salaryOutcomes[entry.id] = item;
+        case ActivityLogKind.timeCardSettings:
+          _profileOutcomes[entry.id] = item;
+        case ActivityLogKind.announcement:
+          _announceOutcomes[entry.id] = item;
+      }
+    }
+
+    notifyListeners();
+    await _syncLocalNotifications(userId);
+  }
+
   void _stop({bool cancelTray = false}) {
     final toCancel = cancelTray
         ? {..._announced, ..._seen, ..._outcomes.keys}
@@ -733,6 +792,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     _listening = false;
     _seeded = false;
     _polling = false;
+    _superAdminMode = false;
     _userId = null;
     _activeCompanyId = null;
     _activeCompanyDocId = null;

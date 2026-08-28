@@ -1,3 +1,4 @@
+import '../core/utils/rtdb_platform.dart';
 import '../models/activity_log_entry.dart';
 import '../models/announcement.dart';
 import '../models/clock_request.dart';
@@ -43,24 +44,44 @@ class ActivityLogRepository {
   final AnnouncementRepository _announcementRepository;
 
   Future<List<ActivityLogEntry>> listResolved() async {
-    final results = await Future.wait([
-      _leaveRepository.listAll(),
-      _timeChangeRepository.listAll(),
-      _safeList(_clockRepository.listAll, const <ClockRequest>[]),
-      _safeList(_salaryRateRepository.listAll, const <SalaryRateChange>[]),
-      _safeList(
+    late List<LeaveRequest> leaves;
+    late List<TimeCardChangeRequest> timeEdits;
+    late List<ClockRequest> clocks;
+    late List<SalaryRateChange> salaryChanges;
+    late List<TimeCardProfileChange> profileChanges;
+    late List<Announcement> announcements;
+
+    if (preferRtdbPolling) {
+      leaves = await _leaveRepository.listAll();
+      timeEdits = await _timeChangeRepository.listAll(hydrate: false);
+      clocks = await _safeList(_clockRepository.listAll, const <ClockRequest>[]);
+      salaryChanges =
+          await _safeList(_salaryRateRepository.listAll, const <SalaryRateChange>[]);
+      profileChanges = await _safeList(
         _timeCardProfileRepository.listAll,
         const <TimeCardProfileChange>[],
-      ),
-      _safeList(_announcementRepository.listAll, const <Announcement>[]),
-    ]);
-
-    final leaves = results[0] as List<LeaveRequest>;
-    final timeEdits = results[1] as List<TimeCardChangeRequest>;
-    final clocks = results[2] as List<ClockRequest>;
-    final salaryChanges = results[3] as List<SalaryRateChange>;
-    final profileChanges = results[4] as List<TimeCardProfileChange>;
-    final announcements = results[5] as List<Announcement>;
+      );
+      announcements =
+          await _safeList(_announcementRepository.listAll, const <Announcement>[]);
+    } else {
+      final results = await Future.wait([
+        _leaveRepository.listAll(),
+        _timeChangeRepository.listAll(),
+        _safeList(_clockRepository.listAll, const <ClockRequest>[]),
+        _safeList(_salaryRateRepository.listAll, const <SalaryRateChange>[]),
+        _safeList(
+          _timeCardProfileRepository.listAll,
+          const <TimeCardProfileChange>[],
+        ),
+        _safeList(_announcementRepository.listAll, const <Announcement>[]),
+      ]);
+      leaves = results[0] as List<LeaveRequest>;
+      timeEdits = results[1] as List<TimeCardChangeRequest>;
+      clocks = results[2] as List<ClockRequest>;
+      salaryChanges = results[3] as List<SalaryRateChange>;
+      profileChanges = results[4] as List<TimeCardProfileChange>;
+      announcements = results[5] as List<Announcement>;
+    }
 
     final logs = <ActivityLogEntry>[
       for (final leave in leaves)
@@ -85,34 +106,82 @@ class ActivityLogRepository {
     String? companyId,
     String? companyDocumentId,
   }) async {
-    final leaves = await _safeList(
-      () => _leaveRepository.listByUserId(userId),
-      const <LeaveRequest>[],
-    );
-    final asRequester = await _safeList(
-      () => _timeChangeRepository.listByRequester(userId),
-      const <TimeCardChangeRequest>[],
-    );
-    final asEmployee = await _safeList(
-      () => _timeChangeRepository.listByEmployeeId(userId),
-      const <TimeCardChangeRequest>[],
-    );
-    final clocks = await _safeList(
-      () => _clockRepository.listForUser(userId),
-      const <ClockRequest>[],
-    );
-    final salaryChanges = await _safeList(
-      () => _salaryRateRepository.listForRecipient(userId),
-      const <SalaryRateChange>[],
-    );
-    final profileChanges = await _safeList(
-      () => _timeCardProfileRepository.listForRecipient(userId),
-      const <TimeCardProfileChange>[],
-    );
-    final announcements = await _safeList(
-      () => _announcementRepository.listForRecipient(userId),
-      const <Announcement>[],
-    );
+    late List<LeaveRequest> leaves;
+    late List<TimeCardChangeRequest> asRequester;
+    late List<TimeCardChangeRequest> asEmployee;
+    late List<ClockRequest> clocks;
+    late List<SalaryRateChange> salaryChanges;
+    late List<TimeCardProfileChange> profileChanges;
+    late List<Announcement> announcements;
+
+    if (preferRtdbPolling) {
+      leaves = await _safeList(
+        () => _leaveRepository.listByUserId(userId),
+        const <LeaveRequest>[],
+      );
+      asRequester = await _safeList(
+        () => _timeChangeRepository.listByRequester(userId),
+        const <TimeCardChangeRequest>[],
+      );
+      asEmployee = await _safeList(
+        () => _timeChangeRepository.listByEmployeeId(userId),
+        const <TimeCardChangeRequest>[],
+      );
+      clocks = await _safeList(
+        () => _clockRepository.listForUser(userId),
+        const <ClockRequest>[],
+      );
+      salaryChanges = await _safeList(
+        () => _salaryRateRepository.listForRecipient(userId),
+        const <SalaryRateChange>[],
+      );
+      profileChanges = await _safeList(
+        () => _timeCardProfileRepository.listForRecipient(userId),
+        const <TimeCardProfileChange>[],
+      );
+      announcements = await _safeList(
+        () => _announcementRepository.listForRecipient(userId),
+        const <Announcement>[],
+      );
+    } else {
+      final results = await Future.wait([
+        _safeList(
+          () => _leaveRepository.listByUserId(userId),
+          const <LeaveRequest>[],
+        ),
+        _safeList(
+          () => _timeChangeRepository.listByRequester(userId),
+          const <TimeCardChangeRequest>[],
+        ),
+        _safeList(
+          () => _timeChangeRepository.listByEmployeeId(userId),
+          const <TimeCardChangeRequest>[],
+        ),
+        _safeList(
+          () => _clockRepository.listForUser(userId),
+          const <ClockRequest>[],
+        ),
+        _safeList(
+          () => _salaryRateRepository.listForRecipient(userId),
+          const <SalaryRateChange>[],
+        ),
+        _safeList(
+          () => _timeCardProfileRepository.listForRecipient(userId),
+          const <TimeCardProfileChange>[],
+        ),
+        _safeList(
+          () => _announcementRepository.listForRecipient(userId),
+          const <Announcement>[],
+        ),
+      ]);
+      leaves = results[0] as List<LeaveRequest>;
+      asRequester = results[1] as List<TimeCardChangeRequest>;
+      asEmployee = results[2] as List<TimeCardChangeRequest>;
+      clocks = results[3] as List<ClockRequest>;
+      salaryChanges = results[4] as List<SalaryRateChange>;
+      profileChanges = results[5] as List<TimeCardProfileChange>;
+      announcements = results[6] as List<Announcement>;
+    }
 
     final seenTimeIds = <String>{};
     final logs = <ActivityLogEntry>[

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_routes.dart';
+import '../../core/navigation/signed_in_nav_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/user_role.dart';
@@ -130,9 +131,7 @@ class SettingsScreen extends StatelessWidget {
                       ? user!.email
                       : 'Edit your profile details',
                   onTap: () {
-                    Navigator.of(context).pushReplacementNamed(
-                      AppRoutes.profile,
-                    );
+                    SignedInNavController.goTo(context, AppRoutes.profile);
                   },
                 ),
               ),

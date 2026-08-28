@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_routes.dart';
+import 'signed_in_nav_controller.dart';
 
-/// Session screens (login, company picker, dashboard) are owned by the auth
-/// gate. Pushing them as named routes duplicates those widgets and their keys.
+/// Signed-in navigation helpers (shell + overlay routes).
 class AppNavigator {
   AppNavigator._();
 
@@ -23,10 +23,34 @@ class AppNavigator {
   static bool isSessionRoute(String route) => sessionRoutes.contains(route);
 
   static void popToRoot(BuildContext context) {
+    final shell = SignedInNavController.maybeOf(context) ??
+        (signedInKey.currentContext != null
+            ? SignedInNavController.maybeOf(signedInKey.currentContext!)
+            : null);
+    shell?.go(AppRoutes.dashboard);
+
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
       navigator.popUntil((route) => route.isFirst);
     }
+  }
+
+  static void _openShellRoute(
+    String route, {
+    Object? arguments,
+    int tries = 0,
+  }) {
+    final context = signedInKey.currentContext;
+    if (context == null) {
+      if (tries < 30) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _openShellRoute(route, arguments: arguments, tries: tries + 1);
+        });
+      }
+      return;
+    }
+
+    SignedInNavController.goTo(context, route, arguments: arguments);
   }
 
   /// Opens Super Admin Requests, optionally focusing one leave/time request.
@@ -34,32 +58,24 @@ class AppNavigator {
     String? requestType,
     String? requestId,
   }) {
-    void attempt([int tries = 0]) {
-      final navigator = signedInKey.currentState;
-      if (navigator == null) {
-        if (tries < 30) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            attempt(tries + 1);
-          });
-        }
-        return;
-      }
-
-      final args = <String, String>{};
-      if (requestType != null && requestType.isNotEmpty) {
-        args['type'] = requestType;
-      }
-      if (requestId != null && requestId.isNotEmpty) {
-        args['id'] = requestId;
-      }
-
-      navigator.pushNamedAndRemoveUntil(
-        AppRoutes.superAdminRequests,
-        (route) => route.isFirst,
-        arguments: args.isEmpty ? null : args,
-      );
+    final args = <String, String>{};
+    if (requestType != null && requestType.isNotEmpty) {
+      args['type'] = requestType;
+    }
+    if (requestId != null && requestId.isNotEmpty) {
+      args['id'] = requestId;
     }
 
-    attempt();
+    _openShellRoute(
+      AppRoutes.superAdminRequests,
+      arguments: args.isEmpty ? null : args,
+    );
+  }
+
+  static void openShellRoute(
+    String route, {
+    Object? arguments,
+  }) {
+    _openShellRoute(route, arguments: arguments);
   }
 }

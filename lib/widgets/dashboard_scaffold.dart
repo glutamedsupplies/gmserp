@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../core/constants/app_constants.dart';
 import '../core/constants/app_routes.dart';
 import '../core/navigation/app_navigator.dart';
+import '../core/navigation/signed_in_nav_controller.dart';
 import '../core/navigation/notification_sync.dart';
 import '../core/navigation/sidebar_destinations.dart';
 import '../core/theme/app_colors.dart';
@@ -79,11 +80,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       Navigator.of(context).pop();
       return;
     }
-    if (ModalRoute.of(context)?.isFirst ?? true) {
-      Navigator.of(context).pushNamed(route);
-    } else {
-      Navigator.of(context).pushReplacementNamed(route);
-    }
+    SignedInNavController.goTo(context, route);
   }
 
   void _redirectIfCompanyRequired() {
@@ -184,10 +181,13 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
         destinationsForRole(companies.effectiveRoleFor(user));
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      syncUserNotificationProviders(context);
-    });
+    final isActivePage = TickerMode.valuesOf(context).enabled;
+    if (isActivePage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+        syncUserNotificationProviders(context);
+      });
+    }
     // Rebuild chrome when appearance/notification prefs change.
     context.watch<SettingsProvider>();
     final pendingCount =
@@ -196,10 +196,11 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
             user?.role == UserRole.admin) &&
         !companies.hasActiveCompanySession &&
         widget.currentRoute != AppRoutes.selectCompany;
-    if (needsCompany && !_redirectScheduled) {
+    if (isActivePage && needsCompany && !_redirectScheduled) {
       _redirectScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _redirectIfCompanyRequired();
+        if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+        _redirectIfCompanyRequired();
       });
     } else if (!needsCompany) {
       _redirectScheduled = false;

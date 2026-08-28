@@ -8,6 +8,7 @@ import '../core/utils/rtdb_platform.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../services/notification_service.dart';
+import '../services/rtdb/rtdb_desktop_limiter.dart';
 import '../services/rtdb/rtdb_paths.dart';
 import '../services/rtdb/rtdb_service.dart';
 
@@ -135,6 +136,16 @@ class PendingRequestsProvider extends ChangeNotifier {
   }
 
   void _startPolling() {
+    if (preferRtdbPolling) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (!_listening) return;
+        unawaited(_pollOnce());
+        _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+          unawaited(_pollOnce());
+        });
+      });
+      return;
+    }
     unawaited(_pollOnce());
     _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       unawaited(_pollOnce());
@@ -142,7 +153,7 @@ class PendingRequestsProvider extends ChangeNotifier {
   }
 
   Future<void> _pollOnce() async {
-    if (!_listening || _polling) return;
+    if (!_listening || _polling || RtdbDesktopLimiter.isHeavyLoading) return;
     _polling = true;
     try {
       if (_includeTimeEdits) {

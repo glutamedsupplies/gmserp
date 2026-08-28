@@ -604,6 +604,12 @@ class CompanyProvider extends ChangeNotifier {
     );
   }
 
+  Future<Map<String, int>> clockDeclineCountsFor({
+    required Iterable<({String companyId, String userId})> members,
+  }) {
+    return _companies.getClockDeclineCounts(members: members);
+  }
+
   Future<bool> unlockEmployeeClockRequests({
     required String companyId,
     required String userId,

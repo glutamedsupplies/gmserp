@@ -2,13 +2,28 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 
 import '../../core/utils/firebase_data.dart';
+import '../../core/utils/rtdb_platform.dart';
 import '../../firebase_options.dart';
+import 'rtdb_desktop_limiter.dart';
+
+class _ChildrenCacheEntry {
+  const _ChildrenCacheEntry(this.at, this.data);
+
+  final DateTime at;
+  final Map<String, Map<String, dynamic>> data;
+}
 
 class RtdbService {
   RtdbService({FirebaseDatabase? database})
       : _database = database ?? _defaultDatabase();
 
   final FirebaseDatabase _database;
+
+  static final Map<String, _ChildrenCacheEntry> _childrenCache = {};
+  static Duration get _childrenCacheTtl => preferRtdbPolling
+      ? const Duration(seconds: 20)
+      : const Duration(seconds: 5);
+
 
   static FirebaseDatabase _defaultDatabase() {
     final url = DefaultFirebaseOptions.currentPlatform.databaseURL;
@@ -21,6 +36,8 @@ class RtdbService {
     );
   }
 
+  static void clearReadCache() => _childrenCache.clear();
+
   DatabaseReference ref(String path) => _database.ref(path);
 
   String newKey(String parentPath) {
@@ -31,7 +48,8 @@ class RtdbService {
     return key;
   }
 
-  Future<DataSnapshot> get(String path) => ref(path).get();
+  Future<DataSnapshot> get(String path) =>
+      RtdbDesktopLimiter.run(() => ref(path).get());
 
   Future<Map<String, dynamic>?> getMap(String path) async {
     final snapshot = await get(path);
@@ -93,23 +111,49 @@ class RtdbService {
   }
 
   Future<Map<String, Map<String, dynamic>>> getChildren(String path) async {
+    if (preferRtdbPolling) {
+      final cached = _childrenCache[path];
+      if (cached != null &&
+          DateTime.now().difference(cached.at) < _childrenCacheTtl) {
+        return cached.data;
+      }
+    }
+
     final snapshot = await get(path);
-    return snapshotChildren(snapshot);
+    final data = snapshotChildren(snapshot);
+    if (preferRtdbPolling) {
+      _childrenCache[path] = _ChildrenCacheEntry(DateTime.now(), data);
+    }
+    return data;
   }
 
-  Future<void> set(String path, Map<String, dynamic> data) async {
-    await ref(path).set(sanitizeForWrite(data));
-  }
+  Future<void> set(String path, Map<String, dynamic> data) =>
+      RtdbDesktopLimiter.run(() async {
+        await ref(path).set(sanitizeForWrite(data));
+        clearReadCache();
+      });
 
-  Future<void> merge(String path, Map<String, dynamic> data) async {
-    await ref(path).update(sanitizeForWrite(data));
-  }
+  Future<void> merge(String path, Map<String, dynamic> data) =>
+      RtdbDesktopLimiter.run(() async {
+        await ref(path).update(sanitizeForWrite(data));
+        clearReadCache();
+      });
 
-  Future<void> remove(String path) async {
-    await ref(path).remove();
-  }
+  Future<void> remove(String path) => RtdbDesktopLimiter.run(() async {
+        await ref(path).remove();
+        clearReadCache();
+      });
 
-  Stream<DatabaseEvent> onValue(String path) => ref(path).onValue;
+  Stream<DatabaseEvent> onValue(String path) {
+    if (preferRtdbPolling) {
+      return Stream.error(
+        UnsupportedError(
+          'RTDB onValue is disabled on desktop. Use get() or getChildren().',
+        ),
+      );
+    }
+    return ref(path).onValue;
+  }
 
   static Map<String, dynamic> sanitizeForWrite(Map<String, dynamic> data) {
     final out = <String, dynamic>{};
