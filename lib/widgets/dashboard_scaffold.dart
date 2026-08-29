@@ -138,6 +138,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       AppRoutes.employeeTimeInOut,
       AppRoutes.employeeTimeCardDetails,
       AppRoutes.employeeRequestLeave,
+      AppRoutes.employeeRequests,
     };
     if (employeeOnlyRoutes.contains(route)) {
       return role == UserRole.employee;

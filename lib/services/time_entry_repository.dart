@@ -283,6 +283,30 @@ class TimeEntryRepository {
     return entries;
   }
 
+  /// Closes an open session from another work date so a backdated clock-in
+  /// approval can still be saved (e.g. Monday pending, Tuesday already open).
+  Future<void> releaseConflictingOpenEntry({
+    required String userId,
+    required String companyId,
+    String? companyDocumentId,
+    required String targetWorkDate,
+  }) async {
+    final open = await getOpenEntry(
+      userId: userId,
+      companyId: companyId,
+      companyDocumentId: companyDocumentId,
+    );
+    if (open == null) return;
+    if (open.workDate == targetWorkDate) {
+      throw StateError(
+        'Employee already has an open time entry for $targetWorkDate.',
+      );
+    }
+
+    final closeAt = open.timeIn.add(const Duration(seconds: 1));
+    await applyApprovedClockOut(entryId: open.id, timeOut: closeAt);
+  }
+
   Future<TimeEntry> applyApprovedClockIn({
     required String userId,
     required String userEmail,
@@ -293,14 +317,12 @@ class TimeEntryRepository {
     required String workDate,
     required DateTime timeIn,
   }) async {
-    final open = await getOpenEntry(
+    await releaseConflictingOpenEntry(
       userId: userId,
       companyId: companyId,
       companyDocumentId: companyDocumentId,
+      targetWorkDate: workDate,
     );
-    if (open != null) {
-      throw StateError('Employee already has an open time entry.');
-    }
     final today = await getEntryForWorkDate(
       userId: userId,
       companyId: companyId,

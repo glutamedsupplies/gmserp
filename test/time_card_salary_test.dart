@@ -1,10 +1,166 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:new_gmserp/models/employee_time_card_profile.dart';
+import 'package:new_gmserp/models/leave_request.dart';
 import 'package:new_gmserp/models/time_card_salary.dart';
 import 'package:new_gmserp/models/time_card_table.dart';
 import 'package:new_gmserp/models/time_entry.dart';
 
 void main() {
   const schedule = TimeCardSchedule.defaults; // 9:00, lunch 12–13, 8h / 480 min
+
+  group('clock-in early window', () {
+    test('allows time in exactly 1 hour before 9:00 AM shift', () {
+      final at = DateTime(2026, 8, 26, 8, 0);
+      expect(
+        isClockInAllowedAt(at: at, globalSchedule: schedule),
+        isTrue,
+      );
+    });
+
+    test('blocks time in before 1 hour window (7:59 AM for 9:00 shift)', () {
+      final at = DateTime(2026, 8, 26, 7, 59);
+      expect(
+        isClockInAllowedAt(at: at, globalSchedule: schedule),
+        isFalse,
+      );
+      expect(
+        clockInTooEarlyMessage(at: at, globalSchedule: schedule),
+        contains('08:00:00 AM'),
+      );
+    });
+
+    test('uses employee schedule when provided', () {
+      final weekly = EmployeeWeeklySchedule({
+        DateTime.monday: const DayShiftSchedule(
+          isWorkDay: true,
+          timeInHour: 10,
+          timeInMinute: 0,
+        ),
+      });
+      final monday = DateTime(2026, 8, 24); // Monday
+      expect(
+        isClockInAllowedAt(
+          at: DateTime(2026, 8, 24, 8, 59),
+          weeklySchedule: weekly,
+          globalSchedule: schedule,
+        ),
+        isFalse,
+      );
+      expect(
+        isClockInAllowedAt(
+          at: DateTime(2026, 8, 24, 9, 0),
+          weeklySchedule: weekly,
+          globalSchedule: schedule,
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  group('clock-in day off and leave', () {
+    test('blocks time in on scheduled day off (Saturday)', () {
+      final at = DateTime(2026, 8, 29, 9, 0); // Saturday
+      expect(
+        clockInBlockReasonFor(at: at, globalSchedule: schedule),
+        ClockInBlockReason.dayOff,
+      );
+      expect(
+        isClockInAllowedAt(at: at, globalSchedule: schedule),
+        isFalse,
+      );
+    });
+
+    test('blocks time in when on approved leave', () {
+      final at = DateTime(2026, 8, 26, 9, 0); // Wednesday
+      final leave = LeaveRequest(
+        id: 'l1',
+        userId: 'u1',
+        companyId: 'c1',
+        companyDocumentId: 'c1',
+        companyName: 'Co',
+        username: 'Alice',
+        userEmail: 'a@b.com',
+        reason: 'Vacation',
+        startDate: '2026-08-26',
+        endDate: '2026-08-28',
+        status: 'approved',
+      );
+      expect(
+        clockInBlockReasonFor(
+          at: at,
+          globalSchedule: schedule,
+          leaves: [leave],
+        ),
+        ClockInBlockReason.onLeave,
+      );
+      expect(
+        isClockInAllowedAt(
+          at: at,
+          globalSchedule: schedule,
+          leaves: [leave],
+        ),
+        isFalse,
+      );
+    });
+
+    test('allows time in when leave is still pending', () {
+      final at = DateTime(2026, 8, 26, 9, 0);
+      final leave = LeaveRequest(
+        id: 'l1',
+        userId: 'u1',
+        companyId: 'c1',
+        companyDocumentId: 'c1',
+        companyName: 'Co',
+        username: 'Alice',
+        userEmail: 'a@b.com',
+        reason: 'Sick',
+        startDate: '2026-08-26',
+        endDate: '2026-08-26',
+        status: 'pending',
+      );
+      expect(
+        clockInBlockReasonFor(
+          at: at,
+          globalSchedule: schedule,
+          leaves: [leave],
+        ),
+        isNull,
+      );
+      expect(
+        isClockInAllowedAt(
+          at: at,
+          globalSchedule: schedule,
+          leaves: [leave],
+        ),
+        isTrue,
+      );
+    });
+
+    test('approved leave blocks even within early clock-in window', () {
+      final at = DateTime(2026, 8, 26, 8, 0);
+      final leave = LeaveRequest(
+        id: 'l1',
+        userId: 'u1',
+        companyId: 'c1',
+        companyDocumentId: 'c1',
+        companyName: 'Co',
+        username: 'Alice',
+        userEmail: 'a@b.com',
+        reason: 'Sick',
+        startDate: '2026-08-26',
+        endDate: '2026-08-26',
+        status: 'approved',
+      );
+      expect(
+        clockInBlockReasonFor(
+          at: at,
+          globalSchedule: schedule,
+          leaves: [leave],
+        ),
+        ClockInBlockReason.onLeave,
+      );
+    });
+  });
 
   group('lateMinutesForClockIn (lunch excluded)', () {
     test('on-time or early is 0', () {

@@ -8,6 +8,7 @@ import '../../screens/company/select_company_screen.dart';
 import '../../screens/dashboard/admin_dashboard_screen.dart';
 import '../../screens/dashboard/attendance_calendar_screen.dart';
 import '../../screens/dashboard/employee_request_leave_screen.dart';
+import '../../screens/dashboard/employee_requests_screen.dart';
 import '../../screens/dashboard/employee_time_card_details_screen.dart';
 import '../../screens/dashboard/employee_time_in_out_screen.dart';
 import '../../screens/dashboard/notifications_screen.dart';
@@ -43,6 +44,8 @@ Widget buildSignedInPage(RouteSettings settings) {
       return const EmployeeGate(child: EmployeeTimeCardDetailsScreen());
     case AppRoutes.employeeRequestLeave:
       return const EmployeeGate(child: EmployeeRequestLeaveScreen());
+    case AppRoutes.employeeRequests:
+      return const EmployeeGate(child: EmployeeRequestsScreen());
     case AppRoutes.timeCardCalendar:
       return const AttendanceCalendarScreen();
     case AppRoutes.notifications:

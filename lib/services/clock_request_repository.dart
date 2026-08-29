@@ -1,7 +1,11 @@
 import '../core/utils/firebase_data.dart';
 import '../models/clock_request.dart';
 import '../models/company_model.dart';
+import '../models/employee_time_card_profile.dart';
+import '../models/leave_request.dart';
 import '../models/staff_assignment.dart';
+import '../models/time_card_schedule.dart';
+import '../models/time_card_salary.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
 import 'company_repository.dart';
@@ -86,6 +90,13 @@ class ClockRequestRepository {
         .toList();
   }
 
+  Future<ClockRequest?> getById(String requestId) async {
+    if (requestId.trim().isEmpty) return null;
+    final data = await _rtdb.getMap(_requestPath(requestId.trim()));
+    if (data == null) return null;
+    return ClockRequest.fromFirestore(id: requestId.trim(), data: data);
+  }
+
   Future<ClockRequest?> findPendingClockIn({
     required String userId,
     required String companyId,
@@ -123,8 +134,28 @@ class ClockRequestRepository {
     required CompanyModel company,
     required String note,
     DateTime? requestedAt,
+    EmployeeWeeklySchedule? weeklySchedule,
+    TimeCardSchedule? globalSchedule,
+    List<LeaveRequest> leaves = const [],
   }) async {
     final at = requestedAt ?? DateTime.now();
+    final global = globalSchedule ?? TimeCardSchedule.defaults;
+    final blockReason = clockInBlockReasonFor(
+      at: at,
+      weeklySchedule: weeklySchedule,
+      globalSchedule: global,
+      leaves: leaves,
+    );
+    if (blockReason != null) {
+      throw StateError(
+        clockInBlockedMessage(
+          at: at,
+          reason: blockReason,
+          weeklySchedule: weeklySchedule,
+          globalSchedule: global,
+        ),
+      );
+    }
     final workDate = formatWorkDate(at);
     final noteText = _requireNote(note);
     await _ensureNotLocked(userId: user.id, companyId: company.id);
@@ -287,9 +318,11 @@ class ClockRequestRepository {
     String reviewerId = '',
     String reviewerName = '',
   }) async {
-    if (!request.isPending) {
+    final latest = await getById(request.id) ?? request;
+    if (!latest.awaitsReview) {
       throw StateError('This request is no longer pending.');
     }
+    request = latest;
 
     final rejectFields = <String, dynamic>{
       'status': 'rejected',
@@ -360,9 +393,11 @@ class ClockRequestRepository {
     String reviewerId = '',
     String reviewerName = '',
   }) async {
-    if (!request.isPending) {
+    final latest = await getById(request.id) ?? request;
+    if (!latest.awaitsReview) {
       throw StateError('This request is no longer pending.');
     }
+    request = latest;
 
     final reviewFields = _reviewerUpdate(
       reviewerId: reviewerId,
@@ -410,6 +445,15 @@ class ClockRequestRepository {
     }
 
     var entryId = request.entryId?.trim() ?? '';
+    if (entryId.isEmpty) {
+      final existing = await _timeEntries.getEntryForWorkDate(
+        userId: request.userId,
+        companyId: request.companyId,
+        companyDocumentId: request.companyDocumentId,
+        workDate: request.workDate,
+      );
+      entryId = existing?.id ?? '';
+    }
     if (entryId.isEmpty) {
       final open = await _timeEntries.getOpenEntry(
         userId: request.userId,

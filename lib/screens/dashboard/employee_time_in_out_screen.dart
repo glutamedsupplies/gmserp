@@ -6,11 +6,15 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
+import '../../models/leave_request.dart';
 import '../../models/staff_assignment.dart';
+import '../../models/time_card_salary.dart';
 import '../../models/time_entry.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
+import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
+import '../../services/leave_request_repository.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
@@ -28,6 +32,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
   DateTime _now = DateTime.now();
   String? _loadedKey;
   int _clockDeclineCount = 0;
+  List<LeaveRequest> _leaves = [];
+  final _leaveRepository = LeaveRequestRepository();
 
   bool get _clockRequestsLocked =>
       _clockDeclineCount >= StaffAssignment.clockDeclineLimit;
@@ -60,6 +66,18 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
           user: user,
           company: company,
         );
+    await context.read<TimeCardSettingsProvider>().ensureLoaded();
+    if (!mounted) return;
+    try {
+      final leaves = await _leaveRepository.listForUserCompany(
+        userId: user.id,
+        companyId: company.id,
+      );
+      if (mounted) setState(() => _leaves = leaves);
+    } catch (_) {
+      if (mounted) setState(() => _leaves = []);
+    }
+    if (!mounted) return;
     final declines = await context.read<CompanyProvider>().clockDeclineCountFor(
           companyId: company.id,
           userId: user.id,
@@ -100,6 +118,30 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       return;
     }
 
+    final companies = context.read<CompanyProvider>();
+    final settings = context.read<TimeCardSettingsProvider>();
+    final weeklySchedule =
+        companies.myAssignment?.timeCardProfile.weeklySchedule;
+    final globalSchedule = settings.schedule;
+    if (!isClockInAllowedAt(
+      at: DateTime.now(),
+      weeklySchedule: weeklySchedule,
+      globalSchedule: globalSchedule,
+      leaves: _leaves,
+    )) {
+      SnackBarHelper.showError(
+        context,
+        clockInBlockedMessageOrNull(
+              at: DateTime.now(),
+              weeklySchedule: weeklySchedule,
+              globalSchedule: globalSchedule,
+              leaves: _leaves,
+            ) ??
+            'Time in is locked right now.',
+      );
+      return;
+    }
+
     final timeEntries = context.read<TimeEntryProvider>();
     if (!timeEntries.canClockInToday) {
       SnackBarHelper.showError(
@@ -128,6 +170,9 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
           user: user,
           company: company,
           note: note,
+          weeklySchedule: weeklySchedule,
+          globalSchedule: globalSchedule,
+          leaves: _leaves,
         );
     if (!mounted) return;
     if (ok) {
@@ -254,9 +299,21 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
     final company = context.watch<CompanyProvider>().selectedCompany;
+    final companies = context.watch<CompanyProvider>();
+    final settings = context.watch<TimeCardSettingsProvider>();
     final timeEntries = context.watch<TimeEntryProvider>();
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
+    final weeklySchedule =
+        companies.myAssignment?.timeCardProfile.weeklySchedule;
+    final globalSchedule = settings.schedule;
+    final clockInBlockReason = clockInBlockReasonFor(
+      at: _now,
+      weeklySchedule: weeklySchedule,
+      globalSchedule: globalSchedule,
+      leaves: _leaves,
+    );
+    final clockInWindowOpen = clockInBlockReason == null;
 
     if (user != null && company != null) {
       final key = '${user.id}:${company.id}';
@@ -266,6 +323,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     } else {
       _loadedKey = null;
       _clockDeclineCount = 0;
+      _leaves = [];
     }
 
     final active = timeEntries.activeEntry;
@@ -273,6 +331,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final completedToday = timeEntries.hasCompletedToday;
     final canClockIn = timeEntries.canClockInToday;
     final canClockOut = timeEntries.canClockOutToday;
+    final clockInBlocked = canClockIn && clockInBlockReason != null;
     final pendingIn = timeEntries.pendingClockIn;
     final pendingOut = timeEntries.pendingClockOut;
     final sessionElapsed = _sessionElapsed(active);
@@ -410,9 +469,11 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                           ? 'Request time out'
                           : pendingIn != null
                               ? 'Time in pending'
-                              : completedToday
-                                  ? 'Completed for today'
-                                  : 'Request time in',
+                                  : completedToday
+                                      ? 'Completed for today'
+                                      : clockInBlocked
+                                          ? 'Time in locked'
+                                          : 'Request time in',
               isLoading: timeEntries.isSaving,
               onPressed: company == null ||
                       timeEntries.isSaving ||
@@ -420,7 +481,7 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                   ? null
                   : canClockOut
                       ? _clockOut
-                      : canClockIn
+                      : canClockIn && clockInWindowOpen
                           ? _clockIn
                           : null,
             ),
@@ -441,9 +502,17 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                                   : 'Submit time out when your shift ends. It saves only after approval.'
                               : pendingIn != null
                                   ? 'Time-in request at ${pendingIn.requestedAtLabel} is waiting for approval.'
-                                  : completedToday
-                                      ? 'You already finished attendance for today.'
-                                      : 'Submit time in with a required note. It saves only after approval.',
+                                  : clockInBlocked
+                                      ? clockInBlockedMessageOrNull(
+                                            at: _now,
+                                            weeklySchedule: weeklySchedule,
+                                            globalSchedule: globalSchedule,
+                                            leaves: _leaves,
+                                          ) ??
+                                          'Time in is locked right now.'
+                                      : completedToday
+                                          ? 'You already finished attendance for today.'
+                                          : 'Submit time in with a required note. It saves only after approval.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: density.captionSize,

@@ -226,6 +226,14 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
 
       try {
         context.read<TimeCardSettingsProvider>().ensureLoaded();
+        await companies.loadMyAssignment(
+          companyId: company.id,
+          userId: user.id,
+        );
+        if (companies.staff.isEmpty) {
+          await companies.loadStaff(company.id);
+        }
+        if (!mounted) return;
         await context.read<TimeEntryProvider>().loadDetailsForCompany(
               user: user,
               company: company,
@@ -297,6 +305,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
 
     try {
       context.read<TimeCardSettingsProvider>().ensureLoaded();
+      await companies.loadStaff(company.id);
+      if (!mounted) return;
       final results = await Future.wait([
         _timeEntriesRepo.listByCompanyId(
           company.id,
@@ -346,8 +356,24 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   }
 
   EmployeeWeeklySchedule? _employeeSchedule(CompanyProvider companies) {
-    if (!_isManager || _employeeId == null) return null;
-    return _selectedStaff(companies)?.timeCardProfile.weeklySchedule;
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return null;
+
+    if (_isManager) {
+      if (_employeeId == null) return null;
+      return _selectedStaff(companies)?.timeCardProfile.weeklySchedule;
+    }
+
+    final mine = companies.myAssignment;
+    if (mine != null && mine.userId == user.id) {
+      return mine.timeCardProfile.weeklySchedule;
+    }
+    for (final member in companies.staff) {
+      if (member.userId == user.id) {
+        return member.timeCardProfile.weeklySchedule;
+      }
+    }
+    return null;
   }
 
   AttendanceStatus _statusForEmployee(
@@ -811,6 +837,14 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                       SizedBox(height: density.cardGap),
                       Text(
                         _scheduleNote(selected, selectedStaff),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                      ),
+                    ] else if (!manager && employeeSchedule != null) ...[
+                      SizedBox(height: density.cardGap),
+                      Text(
+                        'Scheduled: ${employeeSchedule.forDate(selected).rangeLabel}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: colors.textSecondary,
                             ),

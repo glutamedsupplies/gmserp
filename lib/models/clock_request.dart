@@ -52,6 +52,13 @@ class ClockRequest {
   final String reviewedByName;
 
   bool get isPending => status.toLowerCase() == 'pending';
+
+  /// Pending plus legacy/expired rows that Super Admin can still review.
+  bool get awaitsReview {
+    final normalized = status.toLowerCase();
+    return normalized == 'pending' || normalized == 'expired';
+  }
+
   bool get isClockIn => type == typeClockIn;
   bool get isClockOut => type == typeClockOut;
 

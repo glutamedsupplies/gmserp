@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
+import '../../core/navigation/notification_sync.dart';
+import '../../core/utils/active_page_load.dart';
 import '../../core/utils/rtdb_platform.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/activity_log_entry.dart';
@@ -24,7 +26,8 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
+class _NotificationsScreenState extends State<NotificationsScreen>
+    with ActivePageLoad {
   final _repo = ActivityLogRepository();
   final _searchController = TextEditingController();
   late final LazyListPager _pager;
@@ -51,12 +54,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   void initState() {
     super.initState();
     _pager = LazyListPager(onChanged: _onPagerChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_isSuperAdmin) {
-        context.read<CompanyProvider>().loadCompanies();
-      }
-      _load();
-    });
+  }
+
+  @override
+  void onPageActivated() {
+    if (_isSuperAdmin) {
+      context.read<CompanyProvider>().loadCompanies(force: false);
+    }
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!TickerMode.valuesOf(context).enabled) {
+      _loadGeneration++;
+    }
   }
 
   @override
@@ -167,6 +180,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _loading = false;
         _refreshing = false;
       });
+      syncUserNotificationProviders(context);
       await context
           .read<UserOutcomeNotificationsProvider>()
           .applyPersonalActivityEntries(personalEntries);

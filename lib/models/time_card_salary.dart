@@ -1,3 +1,4 @@
+import 'leave_request.dart';
 import 'time_card_table.dart';
 import 'time_entry.dart';
 
@@ -135,6 +136,141 @@ DateTime scheduledShiftStartOn({
     return weeklySchedule.forDate(date).timeInOn(date);
   }
   return globalSchedule.shiftStartOn(date);
+}
+
+/// Minutes before scheduled shift start when time-in requests are allowed.
+const int kClockInEarlyWindowMinutes = 60;
+
+enum ClockInBlockReason {
+  dayOff,
+  onLeave,
+  tooEarly,
+}
+
+ClockInBlockReason? clockInBlockReasonFor({
+  required DateTime at,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+  List<LeaveRequest> leaves = const [],
+}) {
+  final workDate = formatWorkDate(at);
+  if (hasApprovedLeaveOnDate(leaves: leaves, workDate: workDate)) {
+    return ClockInBlockReason.onLeave;
+  }
+  if (!isWorkDayForScheduledClockIn(
+    date: at,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+  )) {
+    return ClockInBlockReason.dayOff;
+  }
+  final earliest = earliestAllowedClockInOn(
+    date: at,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+  );
+  if (at.isBefore(earliest)) {
+    return ClockInBlockReason.tooEarly;
+  }
+  return null;
+}
+
+bool isClockInAllowedAt({
+  required DateTime at,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+  List<LeaveRequest> leaves = const [],
+}) {
+  return clockInBlockReasonFor(
+        at: at,
+        weeklySchedule: weeklySchedule,
+        globalSchedule: globalSchedule,
+        leaves: leaves,
+      ) ==
+      null;
+}
+
+String clockInBlockedMessage({
+  required DateTime at,
+  required ClockInBlockReason reason,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+}) {
+  switch (reason) {
+    case ClockInBlockReason.dayOff:
+      return 'Time in is locked today — this is a scheduled day off.';
+    case ClockInBlockReason.onLeave:
+      return 'Time in is locked while you are on approved leave.';
+    case ClockInBlockReason.tooEarly:
+      return clockInTooEarlyMessage(
+        at: at,
+        weeklySchedule: weeklySchedule,
+        globalSchedule: globalSchedule,
+      );
+  }
+}
+
+String? clockInBlockedMessageOrNull({
+  required DateTime at,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+  List<LeaveRequest> leaves = const [],
+}) {
+  final reason = clockInBlockReasonFor(
+    at: at,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+    leaves: leaves,
+  );
+  if (reason == null) return null;
+  return clockInBlockedMessage(
+    at: at,
+    reason: reason,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+  );
+}
+
+bool isWorkDayForScheduledClockIn({
+  required DateTime date,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+}) {
+  if (weeklySchedule != null) {
+    return weeklySchedule.forDate(date).isWorkDay;
+  }
+  return globalSchedule.workWeek.isWorkDay(date);
+}
+
+DateTime earliestAllowedClockInOn({
+  required DateTime date,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+}) {
+  return scheduledShiftStartOn(
+    date: date,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+  ).subtract(const Duration(minutes: kClockInEarlyWindowMinutes));
+}
+
+String clockInTooEarlyMessage({
+  required DateTime at,
+  EmployeeWeeklySchedule? weeklySchedule,
+  TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
+}) {
+  final shiftStart = scheduledShiftStartOn(
+    date: at,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+  );
+  final earliest = earliestAllowedClockInOn(
+    date: at,
+    weeklySchedule: weeklySchedule,
+    globalSchedule: globalSchedule,
+  );
+  return 'Time in opens at ${formatClockTime(earliest)} '
+      '(1 hour before your scheduled start at ${formatClockTime(shiftStart)}).';
 }
 
 DateTime scheduledShiftEndOn({

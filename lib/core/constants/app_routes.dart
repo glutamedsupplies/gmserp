@@ -12,6 +12,7 @@ class AppRoutes {
   static const String employeeTimeInOut = '/employee/time-card/time-in-out';
   static const String employeeTimeCardDetails = '/employee/time-card/details';
   static const String employeeRequestLeave = '/employee/time-card/request-leave';
+  static const String employeeRequests = '/employee/requests';
   static const String timeCardCalendar = '/time-card/calendar';
   static const String notifications = '/notifications';
   static const String adminDashboard = '/admin';

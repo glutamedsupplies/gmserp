@@ -15,6 +15,7 @@ void main() {
     AppRoutes.employeeTimeInOut,
     AppRoutes.employeeTimeCardDetails,
     AppRoutes.employeeRequestLeave,
+    AppRoutes.employeeRequests,
     AppRoutes.timeCardCalendar,
     AppRoutes.notifications,
     AppRoutes.superAdmin,

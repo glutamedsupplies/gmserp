@@ -39,6 +39,8 @@ class LeaveRequest {
   bool get isActiveLeave =>
       status == 'approved' || status == 'pending';
 
+  bool get isApprovedLeave => status == 'approved';
+
   bool coversWorkDate(String workDate) {
     return workDate.compareTo(startDate) >= 0 &&
         workDate.compareTo(endDate) <= 0;
@@ -75,6 +77,15 @@ bool hasLeaveOnDate({
 }) {
   return leaves.any(
     (leave) => leave.isActiveLeave && leave.coversWorkDate(workDate),
+  );
+}
+
+bool hasApprovedLeaveOnDate({
+  required List<LeaveRequest> leaves,
+  required String workDate,
+}) {
+  return leaves.any(
+    (leave) => leave.isApprovedLeave && leave.coversWorkDate(workDate),
   );
 }
 

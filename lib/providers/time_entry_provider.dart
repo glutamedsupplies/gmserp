@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../models/clock_request.dart';
 import '../models/company_model.dart';
+import '../models/employee_time_card_profile.dart';
+import '../models/leave_request.dart';
+import '../models/time_card_schedule.dart';
 import '../models/time_entry.dart';
 import '../models/user_model.dart';
 import '../services/clock_request_repository.dart';
@@ -199,6 +202,9 @@ class TimeEntryProvider extends ChangeNotifier {
     required UserModel user,
     required CompanyModel company,
     required String note,
+    EmployeeWeeklySchedule? weeklySchedule,
+    TimeCardSchedule? globalSchedule,
+    List<LeaveRequest> leaves = const [],
   }) async {
     isSaving = true;
     errorMessage = null;
@@ -209,6 +215,9 @@ class TimeEntryProvider extends ChangeNotifier {
         user: user,
         company: company,
         note: note,
+        weeklySchedule: weeklySchedule,
+        globalSchedule: globalSchedule,
+        leaves: leaves,
       );
       try {
         await _reloadLists(user: user, company: company);

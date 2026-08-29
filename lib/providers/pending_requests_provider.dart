@@ -286,7 +286,7 @@ class PendingRequestsProvider extends ChangeNotifier {
     for (final entry in children.entries) {
       final data = entry.value;
       final status = data['status']?.toString().toLowerCase() ?? '';
-      if (status != 'pending') continue;
+      if (status != 'pending' && status != 'expired') continue;
       count += 1;
       final created = _readCreatedAt(data);
       final type = data['type']?.toString() ?? 'clockIn';

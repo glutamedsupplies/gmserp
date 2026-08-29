@@ -732,7 +732,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     List<ActivityLogEntry> entries,
   ) async {
     final userId = _userId;
-    if (userId == null || !_listening) return;
+    if (userId == null) return;
 
     _leaveOutcomes.clear();
     _timeAsRequester.clear();

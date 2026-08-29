@@ -159,9 +159,7 @@ AttendanceStatus resolveAttendanceStatus({
   }
 
   final lateThreshold = employeeSchedule != null
-      ? employeeSchedule
-          .forDate(date)
-          .lateThresholdOn(date, schedule.lateGraceMinutes)
+      ? employeeSchedule.forDate(date).lateThresholdOn(date, 0)
       : schedule.lateThresholdOn(date);
 
   // Future work days have no attendance yet.

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/active_page_load.dart';
 import '../../core/utils/rtdb_platform.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/clock_request.dart';
@@ -39,7 +40,8 @@ class SuperAdminRequestsScreen extends StatefulWidget {
       _SuperAdminRequestsScreenState();
 }
 
-class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
+class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
+    with ActivePageLoad {
   final _leaveRepo = LeaveRequestRepository();
   final _timeChangeRepo = TimeCardChangeRequestRepository();
   final _clockRepo = ClockRequestRepository();
@@ -82,16 +84,26 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
         _typeFilter = 'Time in/out';
       }
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CompanyProvider>().loadCompanies(force: false);
-      if (preferRtdbPolling) {
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) _load();
-        });
-      } else {
-        _load();
-      }
-    });
+  }
+
+  @override
+  void onPageActivated() {
+    context.read<CompanyProvider>().loadCompanies(force: false);
+    if (preferRtdbPolling) {
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted && TickerMode.valuesOf(context).enabled) _load();
+      });
+    } else {
+      _load();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!TickerMode.valuesOf(context).enabled) {
+      _loadGeneration++;
+    }
   }
 
   @override
@@ -329,9 +341,18 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
       )) {
         return false;
       }
-      if (_statusFilter != 'All' &&
-          item.status.toLowerCase() != _statusFilter.toLowerCase()) {
-        return false;
+      if (_statusFilter != 'All') {
+        final wanted = _statusFilter.toLowerCase();
+        final actual = item.status.toLowerCase();
+        if (wanted == 'pending') {
+          final reviewable = item.clock?.awaitsReview == true ||
+              (item.clock == null &&
+                  (item.leave?.status.toLowerCase() == 'pending' ||
+                      item.timeEdit?.isPending == true));
+          if (!reviewable) return false;
+        } else if (actual != wanted) {
+          return false;
+        }
       }
       if (query.isEmpty) return true;
       return item.searchText.contains(query);
@@ -518,7 +539,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
     if (!clockOut.isClockOut) return false;
     return _clockRequests.any(
       (item) =>
-          item.isPending &&
+          item.awaitsReview &&
           item.isClockIn &&
           item.userId == clockOut.userId &&
           item.companyId == clockOut.companyId &&
@@ -591,7 +612,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
     final totalPending = [
       ...scopedLeaves.where((r) => r.status.toLowerCase() == 'pending'),
       ...scopedTime.where((r) => r.isPending),
-      ...scopedClock.where((r) => r.isPending),
+      ...scopedClock.where((r) => r.awaitsReview),
     ].length;
 
     return DashboardScaffold(
@@ -775,18 +796,18 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen> {
                           request: clock,
                           highlighted: _isFocused(item),
                           awaitingTimeInApproval: clock.isClockOut &&
-                              clock.isPending &&
+                              clock.awaitsReview &&
                               _hasPendingClockInForOut(clock),
                           showUnlock: locked,
                           onUnlock: locked
                               ? () => _unlockClockRequests(clock)
                               : null,
-                          onApprove: clock.isPending &&
+                          onApprove: clock.awaitsReview &&
                                   !(clock.isClockOut &&
                                       _hasPendingClockInForOut(clock))
                               ? () => _approveClock(clock)
                               : null,
-                          onReject: clock.isPending
+                          onReject: clock.awaitsReview
                               ? () => _rejectClock(clock)
                               : null,
                         );
@@ -1039,6 +1060,8 @@ class _ClockRequestCard extends StatelessWidget {
         request.companyName.isEmpty ? 'Unknown company' : request.companyName;
     final when = request.requestedAt.toLocal();
     final stamp = formatDateTime12h(when);
+    final todayKey = formatWorkDate(DateTime.now());
+    final isPastWorkDate = request.workDate.compareTo(todayKey) < 0;
 
     return Container(
       margin: EdgeInsets.only(bottom: density.cardGap),
@@ -1142,6 +1165,17 @@ class _ClockRequestCard extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: density.captionSize,
                     fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+          if (isPastWorkDate && request.awaitsReview) ...[
+            SizedBox(height: density.cardGap),
+            Text(
+              'Past work date — you can still approve or decline this request.',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: density.captionSize,
                   ),
             ),
           ],

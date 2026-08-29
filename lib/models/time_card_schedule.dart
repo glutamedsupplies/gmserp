@@ -108,7 +108,7 @@ class TimeCardSchedule {
   final int shiftStartHour;
   /// Scheduled shift start minute (0–59).
   final int shiftStartMinute;
-  /// Minutes after shift start before arrival counts as Late.
+  /// Unused; kept for RTDB compatibility. Late status uses shift start with no grace.
   final int lateGraceMinutes;
 
   const TimeCardSchedule({
@@ -120,7 +120,7 @@ class TimeCardSchedule {
     this.workWeek = WorkWeekPattern.monFri,
     this.shiftStartHour = 9,
     this.shiftStartMinute = 0,
-    this.lateGraceMinutes = 15,
+    this.lateGraceMinutes = 0,
   });
 
   static const TimeCardSchedule defaults = TimeCardSchedule();
@@ -156,9 +156,7 @@ class TimeCardSchedule {
     return breakStartOn(date).add(Duration(minutes: minutes));
   }
 
-  DateTime lateThresholdOn(DateTime date) {
-    return shiftStartOn(date).add(Duration(minutes: lateGraceMinutes));
-  }
+  DateTime lateThresholdOn(DateTime date) => shiftStartOn(date);
 
   String get shiftStartLabel =>
       formatHourMinute12h(shiftStartHour, shiftStartMinute);
@@ -176,8 +174,7 @@ class TimeCardSchedule {
       shiftStartHour: parseFirebaseInt(data['shiftStartHour'], 9).clamp(0, 23),
       shiftStartMinute:
           parseFirebaseInt(data['shiftStartMinute'], 0).clamp(0, 59),
-      lateGraceMinutes:
-          parseFirebaseInt(data['lateGraceMinutes'], 15).clamp(0, 240),
+      lateGraceMinutes: 0,
     );
   }
 

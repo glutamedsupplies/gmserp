@@ -71,6 +71,11 @@ List<SidebarDestination> destinationsForRole(UserRole? role) {
           route: AppRoutes.employeeRequestLeave,
         ),
         SidebarDestination(
+          label: 'Requests',
+          icon: Icons.inbox_outlined,
+          route: AppRoutes.employeeRequests,
+        ),
+        SidebarDestination(
           label: 'Switch company',
           icon: Icons.swap_horiz_rounded,
           route: AppRoutes.selectCompany,

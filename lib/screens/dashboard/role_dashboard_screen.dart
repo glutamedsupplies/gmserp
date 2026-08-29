@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/navigation/signed_in_nav_controller.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/active_page_load.dart';
 import '../../models/time_entry.dart';
 import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
@@ -21,14 +22,12 @@ class RoleDashboardScreen extends StatefulWidget {
   State<RoleDashboardScreen> createState() => _RoleDashboardScreenState();
 }
 
-class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
+class _RoleDashboardScreenState extends State<RoleDashboardScreen>
+    with ActivePageLoad {
   bool _loading = true;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
-  }
+  void onPageActivated() => _load();
 
   Future<void> _load() async {
     final user = context.read<AuthProvider>().user;
@@ -211,12 +210,27 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
       _FeatureRow(
         items: [
           _FeatureTile(
+            icon: Icons.inbox_outlined,
+            title: 'Pending requests',
+            body: time.pendingClockIn != null || time.pendingClockOut != null
+                ? 'You have clock requests waiting for approval.'
+                : 'Track leave, time in/out, and time-card edits awaiting review.',
+            highlight:
+                time.pendingClockIn != null || time.pendingClockOut != null,
+            onTap: () => _go(AppRoutes.employeeRequests),
+          ),
+          _FeatureTile(
             icon: Icons.description_outlined,
             title: 'Time card story',
             body:
                 'Review sessions, hours, and history for ${companies.selectedCompany?.name ?? 'this company'}.',
             onTap: () => _go(AppRoutes.employeeTimeCardDetails),
           ),
+        ],
+      ),
+      SizedBox(height: density.cardGap),
+      _FeatureRow(
+        items: [
           _FeatureTile(
             icon: Icons.notifications_outlined,
             title: unseen > 0 ? '$unseen new updates' : 'Your inbox',

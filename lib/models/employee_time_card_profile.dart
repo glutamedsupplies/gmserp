@@ -59,9 +59,7 @@ class DayShiftSchedule {
     return end;
   }
 
-  DateTime lateThresholdOn(DateTime date, int graceMinutes) {
-    return timeInOn(date).add(Duration(minutes: graceMinutes));
-  }
+  DateTime lateThresholdOn(DateTime date, int graceMinutes) => timeInOn(date);
 
   String get timeInLabel => _formatClock(timeInHour, timeInMinute);
 
@@ -281,7 +279,7 @@ class EmployeeTimeCardProfile {
     if (!shift.isWorkDay) {
       return global.lateThresholdOn(date);
     }
-    return shift.lateThresholdOn(date, global.lateGraceMinutes);
+    return shift.lateThresholdOn(date, 0);
   }
 
   Map<String, dynamic> toStaffFields() {
