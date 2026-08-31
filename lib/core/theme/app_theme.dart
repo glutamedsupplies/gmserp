@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
@@ -27,68 +28,81 @@ class AppTheme {
       brightness: brightness,
     );
 
-    // Normal mode fonts are clearly larger than compact across the app.
+    // Inter — clean, modern UI font used across the app.
+    TextStyle font({
+      required double size,
+      required FontWeight weight,
+      required Color color,
+      double? letterSpacing,
+    }) =>
+        GoogleFonts.inter(
+          fontSize: size,
+          fontWeight: weight,
+          color: color,
+          letterSpacing: letterSpacing,
+        );
+
     final textTheme = TextTheme(
-      headlineLarge: TextStyle(
-        fontSize: compact ? 24 : 30,
-        fontWeight: FontWeight.w700,
+      headlineLarge: font(
+        size: compact ? 24 : 30,
+        weight: FontWeight.w700,
         color: colors.textPrimary,
         letterSpacing: -0.5,
       ),
-      headlineMedium: TextStyle(
-        fontSize: compact ? 20 : 26,
-        fontWeight: FontWeight.w700,
+      headlineMedium: font(
+        size: compact ? 20 : 26,
+        weight: FontWeight.w700,
         color: colors.textPrimary,
         letterSpacing: -0.3,
       ),
-      headlineSmall: TextStyle(
-        fontSize: compact ? 18 : 22,
-        fontWeight: FontWeight.w700,
+      headlineSmall: font(
+        size: compact ? 18 : 22,
+        weight: FontWeight.w700,
         color: colors.textPrimary,
       ),
-      titleLarge: TextStyle(
-        fontSize: compact ? 17 : 21,
-        fontWeight: FontWeight.w800,
+      titleLarge: font(
+        size: compact ? 17 : 21,
+        weight: FontWeight.w800,
         color: colors.textPrimary,
       ),
-      titleMedium: TextStyle(
-        fontSize: compact ? 14 : 17,
-        fontWeight: FontWeight.w700,
+      titleMedium: font(
+        size: compact ? 14 : 17,
+        weight: FontWeight.w700,
         color: colors.textPrimary,
       ),
-      titleSmall: TextStyle(
-        fontSize: compact ? 13 : 15,
-        fontWeight: FontWeight.w700,
+      titleSmall: font(
+        size: compact ? 13 : 15,
+        weight: FontWeight.w700,
         color: colors.textPrimary,
       ),
-      bodyLarge: TextStyle(
-        fontSize: compact ? 14 : 16,
-        fontWeight: FontWeight.w400,
+      bodyLarge: font(
+        size: compact ? 14 : 16,
+        weight: FontWeight.w400,
         color: colors.textPrimary,
       ),
-      bodyMedium: TextStyle(
-        fontSize: compact ? 13 : 15,
-        fontWeight: FontWeight.w400,
+      bodyMedium: font(
+        size: compact ? 13 : 15,
+        weight: FontWeight.w400,
         color: colors.textSecondary,
       ),
-      bodySmall: TextStyle(
-        fontSize: compact ? 11 : 13,
-        fontWeight: FontWeight.w400,
+      bodySmall: font(
+        size: compact ? 11 : 13,
+        weight: FontWeight.w400,
         color: colors.textSecondary,
       ),
-      labelLarge: TextStyle(
-        fontSize: compact ? 12 : 14,
-        fontWeight: FontWeight.w700,
+      labelLarge: font(
+        size: compact ? 12 : 14,
+        weight: FontWeight.w700,
         color: colors.textPrimary,
       ),
-      labelMedium: TextStyle(
-        fontSize: compact ? 11 : 13,
-        fontWeight: FontWeight.w600,
+      labelMedium: font(
+        size: compact ? 11 : 13,
+        weight: FontWeight.w600,
         color: colors.textSecondary,
       ),
-      labelSmall: TextStyle(
-        fontSize: compact ? 10 : 12,
-        fontWeight: FontWeight.w600,
+      labelSmall: font(
+        size: compact ? 10 : 12,
+        weight: FontWeight.w600,
         color: colors.textSecondary,
       ),
     );
@@ -102,6 +116,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
+      fontFamily: GoogleFonts.inter().fontFamily,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: colors.background,
       dividerColor: colors.border,
@@ -193,19 +208,20 @@ class AppTheme {
           borderRadius: BorderRadius.circular(inputRadius),
           borderSide: const BorderSide(color: AppColors.error, width: 1.5),
         ),
-        hintStyle: TextStyle(
+        hintStyle: font(
+          size: compact ? 13 : 15,
+          weight: FontWeight.w400,
           color: colors.textHint,
-          fontSize: compact ? 13 : 15,
-          fontWeight: FontWeight.w400,
         ),
-        labelStyle: TextStyle(
+        labelStyle: font(
+          size: compact ? 12 : 14,
+          weight: FontWeight.w500,
           color: colors.textSecondary,
-          fontSize: compact ? 12 : 14,
         ),
-        errorStyle: TextStyle(
+        errorStyle: font(
+          size: compact ? 11 : 12,
+          weight: FontWeight.w400,
           color: AppColors.error,
-          fontSize: compact ? 11 : 12,
-          fontWeight: FontWeight.w400,
         ),
         prefixIconColor: colors.textSecondary,
         suffixIconColor: colors.textSecondary,
@@ -220,35 +236,39 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(buttonRadius),
           ),
-          textStyle: TextStyle(
-            fontSize: compact ? 15 : 17,
-            fontWeight: FontWeight.w600,
+          textStyle: font(
+            size: compact ? 15 : 17,
+            weight: FontWeight.w600,
+            color: AppColors.onPrimary,
             letterSpacing: 0.3,
           ),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          textStyle: TextStyle(
-            fontSize: compact ? 14 : 16,
-            fontWeight: FontWeight.w700,
+          textStyle: font(
+            size: compact ? 14 : 16,
+            weight: FontWeight.w700,
+            color: AppColors.onPrimary,
           ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          textStyle: TextStyle(
-            fontSize: compact ? 14 : 16,
-            fontWeight: FontWeight.w700,
+          textStyle: font(
+            size: compact ? 14 : 16,
+            weight: FontWeight.w700,
+            color: colors.textPrimary,
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-          textStyle: TextStyle(
-            fontSize: compact ? 13 : 15,
-            fontWeight: FontWeight.w600,
+          textStyle: font(
+            size: compact ? 13 : 15,
+            weight: FontWeight.w600,
+            color: isDark ? AppColors.primary : AppColors.primaryDark,
           ),
         ),
       ),
@@ -278,9 +298,9 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(compact ? 10 : 14),
         ),
-        contentTextStyle: TextStyle(
-          fontSize: compact ? 13 : 15,
-          fontWeight: FontWeight.w500,
+        contentTextStyle: font(
+          size: compact ? 13 : 15,
+          weight: FontWeight.w500,
           color: colors.textPrimary,
         ),
       ),

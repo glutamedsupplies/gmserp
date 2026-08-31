@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_theme.dart';
 import '../models/time_card_table.dart';
 
 class TimeCardReportTable extends StatelessWidget {
@@ -108,7 +109,7 @@ class _TableBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = forExport
-        ? ThemeData.light().textTheme
+        ? AppTheme.light().textTheme
         : Theme.of(context).textTheme;
 
     final showEdit = !forExport && onEditRow != null;
