@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -7,6 +9,7 @@ import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../models/company_model.dart';
+import '../../models/employee_day_schedule_override.dart';
 import '../../models/leave_request.dart';
 import '../../models/time_card_table.dart';
 import '../../models/time_card_salary.dart';
@@ -16,6 +19,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
+import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
 import '../../services/time_card_change_request_repository.dart';
 import '../../widgets/app_loading_card.dart';
@@ -34,7 +38,23 @@ class EmployeeTimeCardDetailsScreen extends StatefulWidget {
 }
 
 class _EmployeeTimeCardDetailsScreenState
-    extends State<EmployeeTimeCardDetailsScreen> {
+    extends State<EmployeeTimeCardDetailsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'companies',
+    'timeEntries',
+    'leaveRequests',
+    'timeCardDayOverrides',
+    'timeCardSettings',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    _loadedKey = null;
+    await _loadIfReady();
+  }
+
   Timer? _refreshTimer;
   DateTime _now = DateTime.now();
   String? _loadedKey;
@@ -46,7 +66,9 @@ class _EmployeeTimeCardDetailsScreenState
     DateTime.now().day,
   );
   List<LeaveRequest> _leaves = [];
+  List<EmployeeDayScheduleOverride> _dayOverrides = [];
   final _leaveRepository = LeaveRequestRepository();
+  final _dayOverrideRepo = EmployeeDayScheduleOverrideRepository();
   final _changeRequestRepo = TimeCardChangeRequestRepository();
 
   @override
@@ -107,21 +129,34 @@ class _EmployeeTimeCardDetailsScreenState
       if (!mounted || _loadedKey != key) return;
     }
 
-    context.read<TimeEntryProvider>().loadDetailsForCompany(
-          user: user,
-          company: company,
-        );
+    await context.read<TimeEntryProvider>().loadDetailsForCompany(
+      user: user,
+      company: company,
+    );
 
     try {
-      final leaves = await _leaveRepository.listForUserCompany(
-        userId: user.id,
-        companyId: company.id,
-      );
+      final results = await Future.wait([
+        _leaveRepository.listForUserCompany(
+          userId: user.id,
+          companyId: company.id,
+        ),
+        _dayOverrideRepo.listForUserCompany(
+          userId: user.id,
+          companyId: company.id,
+          companyDocumentId: company.firestoreId,
+        ),
+      ]);
       if (!mounted || _loadedKey != key) return;
-      setState(() => _leaves = leaves);
+      setState(() {
+        _leaves = results[0] as List<LeaveRequest>;
+        _dayOverrides = results[1] as List<EmployeeDayScheduleOverride>;
+      });
     } catch (_) {
       if (!mounted || _loadedKey != key) return;
-      setState(() => _leaves = []);
+      setState(() {
+        _leaves = [];
+        _dayOverrides = [];
+      });
     }
   }
 
@@ -163,6 +198,13 @@ class _EmployeeTimeCardDetailsScreenState
         globalSchedule: globalSchedule,
       ),
     ];
+    final leaveDaysYtdByUserId = {
+      user.id: totalApprovedLeaveDaysForUser(
+        leaves: _leaves,
+        userId: user.id,
+        year: _viewDate.year,
+      ),
+    };
 
     if (!mounted) return;
     Navigator.of(context).push(
@@ -178,6 +220,8 @@ class _EmployeeTimeCardDetailsScreenState
           generatedAt: _now,
           periodDate: _viewDate,
           salaryBreakdowns: salaryBreakdowns,
+          leaveDaysYtdByUserId: leaveDaysYtdByUserId,
+          highlightEmployeeId: user.id,
         ),
       ),
     );
@@ -237,15 +281,12 @@ class _EmployeeTimeCardDetailsScreenState
     var isActive = baselineTimeIn != null && baselineTimeOut == null;
     TimeOfDay timeOut = baselineTimeOut == null
         ? const TimeOfDay(hour: 18, minute: 0)
-        : TimeOfDay(
-            hour: baselineTimeOut.hour,
-            minute: baselineTimeOut.minute,
-          );
+        : TimeOfDay(hour: baselineTimeOut.hour, minute: baselineTimeOut.minute);
 
     final currentSummary = baselineTimeIn == null
         ? 'No prior record on file'
         : '${formatClockTime(baselineTimeIn)} → '
-            '${baselineTimeOut == null ? 'Open' : formatClockTime(baselineTimeOut)}';
+              '${baselineTimeOut == null ? 'Open' : formatClockTime(baselineTimeOut)}';
 
     final noteController = TextEditingController();
     try {
@@ -294,10 +335,8 @@ class _EmployeeTimeCardDetailsScreenState
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Text(
                           'Current: $currentSummary',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
                       ListTile(
@@ -460,6 +499,8 @@ class _EmployeeTimeCardDetailsScreenState
       schedule: schedule,
       leaves: _leaves,
       employeeSchedule: employeeSchedule,
+      dayOverrides: _dayOverrides,
+      employeeId: user?.id ?? '',
     );
     final periodTotal = formatDurationShort(
       totalDurationForRows(
@@ -470,23 +511,14 @@ class _EmployeeTimeCardDetailsScreenState
       ),
     );
     final active = timeEntries.activeEntry;
-    final todayTotal =
-        formatDurationShort(sumEntriesDuration(timeEntries.todayEntries, _now));
+    final todayTotal = formatDurationShort(
+      sumEntriesDuration(timeEntries.todayEntries, _now),
+    );
     final weekTotal = formatDurationShort(
-      sumEntriesInRange(
-        timeEntries.allEntries,
-        startOfWeek(_now),
-        _now,
-        _now,
-      ),
+      sumEntriesInRange(timeEntries.allEntries, startOfWeek(_now), _now, _now),
     );
     final monthTotal = formatDurationShort(
-      sumEntriesInRange(
-        timeEntries.allEntries,
-        startOfMonth(_now),
-        _now,
-        _now,
-      ),
+      sumEntriesInRange(timeEntries.allEntries, startOfMonth(_now), _now, _now),
     );
 
     return DashboardScaffold(
@@ -499,10 +531,9 @@ class _EmployeeTimeCardDetailsScreenState
             company == null
                 ? 'Select a company to view records.'
                 : '${company.name} · ${timeEntries.allEntries.length} entries · '
-                    'Request changes only — edits need admin approval',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                ),
+                      'Request changes only — edits need admin approval',
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: colors.textSecondary),
           ),
           SizedBox(height: CompactPageStyle.of(context).cardGap),
           if (company == null)
@@ -532,9 +563,9 @@ class _EmployeeTimeCardDetailsScreenState
               trailing: Text(
                 'Today $todayTotal',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primaryDark,
-                    ),
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryDark,
+                ),
               ),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
@@ -557,23 +588,23 @@ class _EmployeeTimeCardDetailsScreenState
               viewDate: _viewDate,
               periodLabel: periodSubtitle(_periodFilter, _viewDate),
               totalHours: periodTotal,
-              onFilterChanged: (value) =>
-                  setState(() => _periodFilter = value),
+              onFilterChanged: (value) => setState(() => _periodFilter = value),
               onViewDateChanged: (value) => setState(() => _viewDate = value),
               onViewPressed: user == null
                   ? null
                   : () => _openPngPreview(
-                        user: user,
-                        company: company,
-                        rows: tableRows,
-                        totalHours: periodTotal,
-                        entries: timeEntries.allEntries,
-                        globalSchedule: schedule,
-                      ),
+                      user: user,
+                      company: company,
+                      rows: tableRows,
+                      totalHours: periodTotal,
+                      entries: timeEntries.allEntries,
+                      globalSchedule: schedule,
+                    ),
             ),
             const SizedBox(height: 8),
             TimeCardReportTable(
               rows: tableRows,
+              employeeName: user?.username ?? '',
               compact: true,
               rowActionIcon: Icons.rate_review_outlined,
               onEditRow: (row) {
@@ -650,6 +681,7 @@ class _PeriodFilterBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TimeCardMonthFilter(
+            compact: true,
             viewDate: viewDate,
             onViewDateChanged: onViewDateChanged,
           ),
@@ -660,17 +692,17 @@ class _PeriodFilterBar extends StatelessWidget {
                 child: Text(
                   periodLabel,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: colors.textSecondary,
-                      ),
+                    fontWeight: FontWeight.w600,
+                    color: colors.textSecondary,
+                  ),
                 ),
               ),
               Text(
                 totalHours,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primaryDark,
-                    ),
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primaryDark,
+                ),
               ),
             ],
           ),
@@ -679,6 +711,7 @@ class _PeriodFilterBar extends StatelessWidget {
             children: [
               Expanded(
                 child: Container(
+                  height: 40,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     color: colors.card,
@@ -689,15 +722,16 @@ class _PeriodFilterBar extends StatelessWidget {
                     child: DropdownButton<TimeCardPeriodFilter>(
                       value: filter,
                       isExpanded: true,
+                      isDense: true,
                       borderRadius: BorderRadius.circular(10),
                       icon: Icon(
                         Icons.keyboard_arrow_down_rounded,
                         color: colors.textSecondary,
                       ),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: colors.textPrimary,
-                          ),
+                        fontWeight: FontWeight.w600,
+                        color: colors.textPrimary,
+                      ),
                       items: [
                         for (final option in TimeCardPeriodFilter.values)
                           DropdownMenuItem(
@@ -719,8 +753,8 @@ class _PeriodFilterBar extends StatelessWidget {
                 label: const Text('View'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
+                    horizontal: 12,
+                    vertical: 8,
                   ),
                   backgroundColor: AppColors.primaryDark,
                   foregroundColor: AppColors.onPrimary,
@@ -763,17 +797,16 @@ class _TableFooter extends StatelessWidget {
               filter == TimeCardPeriodFilter.daily
                   ? '$rowCount session(s)'
                   : '$rowCount day(s) with records',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ),
           Text(
             'Total $totalHours',
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primaryDark,
-                ),
+              fontWeight: FontWeight.w800,
+              color: AppColors.primaryDark,
+            ),
           ),
         ],
       ),
@@ -814,9 +847,9 @@ class _ActiveShiftChip extends StatelessWidget {
               'On shift · in ${formatClockTime(entry.timeIn)} · '
               '${formatDurationShort(elapsed)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primaryDark,
-                  ),
+                fontWeight: FontWeight.w600,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
         ],
@@ -837,27 +870,20 @@ class _CompactStatsRow extends StatelessWidget {
     return Row(
       children: [
         for (var i = 0; i < stats.length; i++) ...[
-          if (i > 0)
-            Container(
-              width: 1,
-              height: 28,
-              color: colors.border,
-            ),
+          if (i > 0) Container(width: 1, height: 28, color: colors.border),
           Expanded(
             child: Column(
               children: [
                 Text(
                   stats[i].label,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colors.textSecondary,
-                      ),
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: colors.textSecondary),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   stats[i].value,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
@@ -913,9 +939,8 @@ class _ExpandableTile extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style: Theme.of(context).textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
                     if (trailing != null) ...[
@@ -968,14 +993,17 @@ class _ErrorBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 16),
+          const Icon(
+            Icons.error_outline_rounded,
+            color: AppColors.error,
+            size: 16,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.error,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: AppColors.error),
             ),
           ),
         ],
@@ -1009,9 +1037,8 @@ class _EmptyState extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ),
         ],

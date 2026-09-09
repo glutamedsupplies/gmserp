@@ -355,41 +355,44 @@ class CompactSearchField extends StatelessWidget {
     required this.controller,
     required this.onChanged,
     this.hintText = 'Search…',
+    this.dense = false,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final String hintText;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
+    final isDense = dense || density.compact;
     return TextField(
       controller: controller,
       onChanged: onChanged,
       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontSize: density.bodySize,
+            fontSize: isDense ? 12 : density.bodySize,
             color: colors.textPrimary,
           ),
       decoration: InputDecoration(
-        isDense: density.compact,
-        contentPadding: density.compact
-            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+        isDense: isDense,
+        contentPadding: isDense
+            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 6)
             : const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         hintText: hintText,
         hintStyle: TextStyle(
-          fontSize: density.bodySize,
+          fontSize: isDense ? 12 : density.bodySize,
           color: colors.textHint,
         ),
         prefixIcon: Icon(
           Icons.search_rounded,
-          size: density.compact ? 18 : 22,
+          size: isDense ? 16 : 22,
           color: colors.textHint,
         ),
         prefixIconConstraints: BoxConstraints(
-          minWidth: density.compact ? 36 : 44,
-          minHeight: density.compact ? 32 : 44,
+          minWidth: isDense ? 32 : 44,
+          minHeight: isDense ? 28 : 44,
         ),
         filled: true,
         fillColor: colors.card,

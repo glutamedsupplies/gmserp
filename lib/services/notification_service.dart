@@ -6,10 +6,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// Deep-link target carried in a Super Admin request notification payload.
 class RequestNotificationPayload {
-  const RequestNotificationPayload({
-    required this.type,
-    required this.id,
-  });
+  const RequestNotificationPayload({required this.type, required this.id});
 
   /// `leave` or `time` or `clock`
   final String type;
@@ -47,6 +44,8 @@ class NotificationService {
   static const _outcomeChannelId = 'gmserp_outcomes';
   static const _outcomeChannelName = 'Request outcomes';
   static const _pendingNotificationId = 71001;
+  static const _groupSummaryId = 70001;
+  static const _notificationGroupKey = 'gmserp_notifications';
   static const _leaveReminderIdBase = 72000;
   static const _outcomeNotificationIdBase = 73000;
   static const requestsRoutePayload = 'requests';
@@ -58,6 +57,73 @@ class NotificationService {
 
   bool _initialized = false;
   int _lastNotifiedCount = -1;
+  Future<void> _groupUpdate = Future<void>.value();
+
+  Future<void> _showNotification({
+    required int id,
+    required String? title,
+    required String? body,
+    required NotificationDetails notificationDetails,
+    String? payload,
+  }) async {
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: notificationDetails,
+      payload: payload,
+    );
+    await _updateGroupSummary();
+  }
+
+  Future<void> _updateGroupSummary() {
+    if (kIsWeb || !Platform.isAndroid) return Future<void>.value();
+    // Several providers can post/cancel alerts at the same time.
+    _groupUpdate = _groupUpdate.catchError((Object _) {}).then((_) async {
+      final active = (await _plugin.getActiveNotifications())
+          .where((item) => item.id != _groupSummaryId)
+          .toList();
+      if (active.length <= 2) {
+        await _plugin.cancel(id: _groupSummaryId);
+        return;
+      }
+      final lines = active
+          .map(
+            (item) => [
+              if (item.title?.isNotEmpty == true) item.title!,
+              if (item.body?.isNotEmpty == true) item.body!,
+            ].join(': '),
+          )
+          .toList();
+      await _plugin.show(
+        id: _groupSummaryId,
+        title: 'GMSERP · ${active.length} notifications',
+        body: 'Expand to view your notifications',
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            _outcomeChannelId,
+            _outcomeChannelName,
+            icon: '@drawable/ic_stat_gmserp',
+            groupKey: _notificationGroupKey,
+            setAsGroupSummary: true,
+            groupAlertBehavior: GroupAlertBehavior.children,
+            onlyAlertOnce: true,
+            playSound: false,
+            enableVibration: false,
+            styleInformation: InboxStyleInformation(
+              lines,
+              contentTitle: '${active.length} notifications',
+              summaryText: 'Tap to open notifications',
+            ),
+          ),
+        ),
+        payload: notificationsRoutePayload,
+      );
+    });
+    return _groupUpdate.catchError((Object error) {
+      debugPrint('Could not update notification group: $error');
+    });
+  }
 
   /// Called when the user taps a notification (foreground / background / cold).
   void Function(String? payload)? onNotificationTap;
@@ -89,8 +155,10 @@ class NotificationService {
       onDidReceiveNotificationResponse: _onSelect,
     );
 
-    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
         _channelId,
@@ -139,18 +207,25 @@ class NotificationService {
     await initialize();
 
     if (Platform.isAndroid) {
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       final granted = await android?.requestNotificationsPermission();
       return granted ?? false;
     }
 
     if (Platform.isIOS || Platform.isMacOS) {
-      final ios = _plugin.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
-      final mac = _plugin.resolvePlatformSpecificImplementation<
-          MacOSFlutterLocalNotificationsPlugin>();
-      final granted = await ios?.requestPermissions(
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      final mac = _plugin
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >();
+      final granted =
+          await ios?.requestPermissions(
             alert: true,
             badge: true,
             sound: true,
@@ -191,7 +266,9 @@ class NotificationService {
     }
 
     final increased =
-        announceIncrease && _lastNotifiedCount >= 0 && count > _lastNotifiedCount;
+        announceIncrease &&
+        _lastNotifiedCount >= 0 &&
+        count > _lastNotifiedCount;
     final firstSeed = !announceIncrease || _lastNotifiedCount < 0;
 
     await _showPendingNotification(
@@ -220,7 +297,7 @@ class NotificationService {
     final body =
         'Your leave for $leaveDate at $company is tomorrow. Prepare ahead.';
 
-    await _plugin.show(
+    await _showNotification(
       id: id,
       title: title,
       body: body,
@@ -236,14 +313,17 @@ class NotificationService {
           color: const Color(0xFFA2D929),
           importance: Importance.high,
           priority: Priority.high,
+          groupKey: _notificationGroupKey,
           styleInformation: BigTextStyleInformation(body),
         ),
         iOS: const DarwinNotificationDetails(
+          threadIdentifier: _notificationGroupKey,
           presentAlert: true,
           presentBadge: false,
           presentSound: true,
         ),
         macOS: const DarwinNotificationDetails(
+          threadIdentifier: _notificationGroupKey,
           presentAlert: true,
           presentBadge: false,
           presentSound: true,
@@ -279,7 +359,7 @@ class NotificationService {
     await initialize();
 
     final id = outcomeNotificationId(entryId);
-    await _plugin.show(
+    await _showNotification(
       id: id,
       title: title,
       body: body,
@@ -299,14 +379,17 @@ class NotificationService {
           onlyAlertOnce: !alert,
           playSound: alert,
           enableVibration: alert,
+          groupKey: _notificationGroupKey,
           styleInformation: BigTextStyleInformation(body),
         ),
         iOS: DarwinNotificationDetails(
+          threadIdentifier: _notificationGroupKey,
           presentAlert: alert,
           presentBadge: true,
           presentSound: alert,
         ),
         macOS: DarwinNotificationDetails(
+          threadIdentifier: _notificationGroupKey,
           presentAlert: alert,
           presentBadge: true,
           presentSound: alert,
@@ -321,12 +404,14 @@ class NotificationService {
     await initialize();
     try {
       await _plugin.cancel(id: outcomeNotificationId(entryId));
+      await _updateGroupSummary();
     } catch (_) {}
   }
 
   Future<void> _cancelPendingRequestNotification() async {
     try {
       await _plugin.cancel(id: _pendingNotificationId);
+      await _updateGroupSummary();
     } catch (_) {}
     await _clearDarwinBadge();
     _lastNotifiedCount = 0;
@@ -338,6 +423,7 @@ class NotificationService {
       return;
     }
     await initialize();
+    await _groupUpdate.catchError((Object _) {});
     try {
       await _plugin.cancelAll();
     } catch (_) {}
@@ -360,14 +446,13 @@ class NotificationService {
     final resolvedBody = body?.trim().isNotEmpty == true
         ? body!.trim()
         : (count == 1
-            ? 'You have 1 pending request waiting for review.'
-            : 'You have $label pending requests waiting for review.');
-    final resolvedPayload =
-        (payload != null && payload.trim().isNotEmpty)
-            ? payload.trim()
-            : requestsRoutePayload;
+              ? 'You have 1 pending request waiting for review.'
+              : 'You have $label pending requests waiting for review.');
+    final resolvedPayload = (payload != null && payload.trim().isNotEmpty)
+        ? payload.trim()
+        : requestsRoutePayload;
 
-    await _plugin.show(
+    await _showNotification(
       id: _pendingNotificationId,
       title: resolvedTitle,
       body: resolvedBody,
@@ -387,15 +472,18 @@ class NotificationService {
           onlyAlertOnce: !alert,
           playSound: alert,
           enableVibration: alert,
+          groupKey: _notificationGroupKey,
           styleInformation: BigTextStyleInformation(resolvedBody),
         ),
         iOS: DarwinNotificationDetails(
+          threadIdentifier: _notificationGroupKey,
           presentAlert: alert,
           presentBadge: true,
           presentSound: alert,
           badgeNumber: badge,
         ),
         macOS: DarwinNotificationDetails(
+          threadIdentifier: _notificationGroupKey,
           presentAlert: alert,
           presentBadge: true,
           presentSound: alert,
@@ -409,18 +497,20 @@ class NotificationService {
   Future<void> _clearDarwinBadge() async {
     if (!Platform.isIOS && !Platform.isMacOS) return;
     try {
-      await _plugin.show(
+      await _showNotification(
         id: _pendingNotificationId,
         title: null,
         body: null,
         notificationDetails: const NotificationDetails(
           iOS: DarwinNotificationDetails(
+            threadIdentifier: _notificationGroupKey,
             presentAlert: false,
             presentBadge: true,
             presentSound: false,
             badgeNumber: 0,
           ),
           macOS: DarwinNotificationDetails(
+            threadIdentifier: _notificationGroupKey,
             presentAlert: false,
             presentBadge: true,
             presentSound: false,
@@ -429,6 +519,7 @@ class NotificationService {
         ),
       );
       await _plugin.cancel(id: _pendingNotificationId);
+      await _updateGroupSummary();
     } catch (_) {}
   }
 }

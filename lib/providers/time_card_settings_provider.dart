@@ -1,3 +1,5 @@
+import '../core/utils/realtime_refresh.dart';
+
 import 'package:flutter/material.dart';
 
 import '../models/time_card_schedule.dart';
@@ -5,7 +7,7 @@ import '../services/time_card_settings_repository.dart';
 
 class TimeCardSettingsProvider extends ChangeNotifier {
   TimeCardSettingsProvider({TimeCardSettingsRepository? repository})
-      : _repository = repository ?? TimeCardSettingsRepository();
+    : _repository = repository ?? TimeCardSettingsRepository();
 
   final TimeCardSettingsRepository _repository;
 
@@ -21,7 +23,7 @@ class TimeCardSettingsProvider extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
 

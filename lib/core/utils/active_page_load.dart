@@ -8,6 +8,25 @@ import 'package:flutter/widgets.dart';
 /// while off-screen, which can freeze or error the web app.
 mixin ActivePageLoad<T extends StatefulWidget> on State<T> {
   bool _didActivate = false;
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        if (!mounted) return;
+        _didActivate = false;
+        _scheduleActivateIfNeeded();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -22,7 +41,11 @@ mixin ActivePageLoad<T extends StatefulWidget> on State<T> {
   }
 
   void _scheduleActivateIfNeeded() {
-    if (_didActivate || !TickerMode.valuesOf(context).enabled) return;
+    if (!TickerMode.valuesOf(context).enabled) {
+      _didActivate = false;
+      return;
+    }
+    if (_didActivate) return;
     _didActivate = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -32,8 +55,9 @@ mixin ActivePageLoad<T extends StatefulWidget> on State<T> {
       }
       onPageActivated();
     });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
-  /// Runs once when this page becomes the active sidebar tab.
+  /// Reloads whenever this page becomes active or the app resumes.
   void onPageActivated();
 }

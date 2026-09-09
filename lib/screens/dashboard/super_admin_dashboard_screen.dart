@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -22,10 +24,7 @@ import '../../widgets/user_avatar.dart';
 enum SuperAdminCompanySection { create, list }
 
 class SuperAdminDashboardScreen extends StatefulWidget {
-  const SuperAdminDashboardScreen({
-    super.key,
-    this.section,
-  });
+  const SuperAdminDashboardScreen({super.key, this.section});
 
   final SuperAdminCompanySection? section;
 
@@ -34,7 +33,16 @@ class SuperAdminDashboardScreen extends StatefulWidget {
       _SuperAdminDashboardScreenState();
 }
 
-class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
+class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await context.read<CompanyProvider>().loadCompanies();
+  }
+
   var _formKey = GlobalKey<FormState>();
   final _companyId = TextEditingController();
   final _companyName = TextEditingController();
@@ -100,13 +108,13 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     final id = CompanyId.normalize(_companyId.text);
     final name = _companyName.text.trim();
     final ok = await context.read<CompanyProvider>().createCompany(
-          companyId: id,
-          name: name,
-          password: _companyPassword.text,
-          staffPassword: _staffPassword.text,
-          createdBy: user?.id ?? '',
-          logoBytes: _logoBytes,
-        );
+      companyId: id,
+      name: name,
+      password: _companyPassword.text,
+      staffPassword: _staffPassword.text,
+      createdBy: user?.id ?? '',
+      logoBytes: _logoBytes,
+    );
     if (!mounted) return;
     if (ok) {
       _companyName.clear();
@@ -160,10 +168,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
   }
 
   void _openCompanyUsers(CompanyModel company) {
-    Navigator.of(context).pushNamed(
-      AppRoutes.superAdminCompanyUsers,
-      arguments: company,
-    );
+    Navigator.of(context)
+        .pushNamed(AppRoutes.superAdminCompanyUsers, arguments: company);
   }
 
   Future<void> _deleteCompany(CompanyModel company) async {
@@ -193,7 +199,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
 
     final isCreate =
         (widget.section ?? SuperAdminCompanySection.create) !=
-            SuperAdminCompanySection.list;
+        SuperAdminCompanySection.list;
 
     return DashboardScaffold(
       title: isCreate ? 'Create company' : 'Company lists',
@@ -204,240 +210,238 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
         padding: CompactPageStyle.of(context).pagePadding,
         children: [
           if (isCreate) ...[
-          const CompactPageHeader(
-            title: 'Create company',
-            subtitle:
-                'Company password is for the founder only. Company code is what employees enter to log in.',
-          ),
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                EditablePhoto(
-                  bytes: _logoBytes,
-                  name: _companyName.text.trim().isEmpty
-                      ? 'Company'
-                      : _companyName.text.trim(),
-                  onTap: _pickCreateLogo,
-                  onRemove: _logoBytes == null
-                      ? null
-                      : () => setState(() => _logoBytes = null),
-                ),
-                SizedBox(height: CompactPageStyle.of(context).sectionGap),
-                CustomTextField(
-                  controller: _companyId,
-                  label: 'Company ID',
-                  hint: '8 digits, e.g. 84729103',
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                  inputFormatters: CompanyId.inputFormatters,
-                  validator: CompanyId.validate,
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () {
-                      setState(() => _companyId.text = CompanyId.generate());
-                    },
-                    child: const Text('Generate ID'),
-                  ),
-                ),
-                CustomTextField(
-                  controller: _companyName,
-                  label: 'Company name',
-                  hint: 'e.g. GMS Branch 1',
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => setState(() {}),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Company name is required.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                _AccessSection(
-                  icon: Icons.lock_rounded,
-                  title: 'Company password',
-                  badge: 'Founder only',
-                  description:
-                      'Keep this private. Use it to edit or delete the company. Do not share it with employees.',
-                  children: [
-                    PasswordField(
-                      controller: _companyPassword,
-                      label: 'Company password',
-                      hint: 'Founder password',
-                      textInputAction: TextInputAction.next,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Company password is required.';
-                        }
-                        if (value.trim().length < 4) {
-                          return 'Use at least 4 characters.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    PasswordField(
-                      controller: _confirmPassword,
-                      label: 'Re-enter company password',
-                      hint: 'Type the same company password again',
-                      textInputAction: TextInputAction.next,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Re-enter the company password.';
-                        }
-                        if (value != _companyPassword.text) {
-                          return 'Passwords do not match.';
-                        }
-                        return null;
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _AccessSection(
-                  icon: Icons.pin_rounded,
-                  title: 'Company code',
-                  badge: 'For employees',
-                  highlighted: true,
-                  description:
-                      'Share this with employees. They enter it with the company ID to log in.',
-                  children: [
-                    PasswordField(
-                      controller: _staffPassword,
-                      label: 'Company code',
-                      hint: 'Code employees use to log in',
-                      textInputAction: TextInputAction.next,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Company code is required.';
-                        }
-                        if (value.trim().length < 4) {
-                          return 'Use at least 4 characters.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    PasswordField(
-                      controller: _confirmStaffPassword,
-                      label: 'Re-enter company code',
-                      hint: 'Type the same company code again',
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Re-enter the company code.';
-                        }
-                        if (value != _staffPassword.text) {
-                          return 'Codes do not match.';
-                        }
-                        return null;
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                PrimaryButton(
-                  label: 'Create company',
-                  isLoading: companies.isLoading,
-                  onPressed: _createCompany,
-                ),
-              ],
+            const CompactPageHeader(
+              title: 'Create company',
+              subtitle: 'Company password is for the founder only. Company code is what employees enter to log in.',
             ),
-          ),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
+            Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  EditablePhoto(
+                    bytes: _logoBytes,
+                    name: _companyName.text.trim().isEmpty
+                        ? 'Company'
+                        : _companyName.text.trim(),
+                    onTap: _pickCreateLogo,
+                    onRemove: _logoBytes == null
+                        ? null
+                        : () => setState(() => _logoBytes = null),
+                  ),
+                  SizedBox(height: CompactPageStyle.of(context).sectionGap),
+                  CustomTextField(
+                    controller: _companyId,
+                    label: 'Company ID',
+                    hint: '8 digits, e.g. 84729103',
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    inputFormatters: CompanyId.inputFormatters,
+                    validator: CompanyId.validate,
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        setState(() => _companyId.text = CompanyId.generate());
+                      },
+                      child: const Text('Generate ID'),
+                    ),
+                  ),
+                  CustomTextField(
+                    controller: _companyName,
+                    label: 'Company name',
+                    hint: 'e.g. GMS Branch 1',
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) => setState(() {}),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Company name is required.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  _AccessSection(
+                    icon: Icons.lock_rounded,
+                    title: 'Company password',
+                    badge: 'Founder only',
+                    description: 'Keep this private. Use it to edit or delete the company. Do not share it with employees.',
+                    children: [
+                      PasswordField(
+                        controller: _companyPassword,
+                        label: 'Company password',
+                        hint: 'Founder password',
+                        textInputAction: TextInputAction.next,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Company password is required.';
+                          }
+                          if (value.trim().length < 4) {
+                            return 'Use at least 4 characters.';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      PasswordField(
+                        controller: _confirmPassword,
+                        label: 'Re-enter company password',
+                        hint: 'Type the same company password again',
+                        textInputAction: TextInputAction.next,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Re-enter the company password.';
+                          }
+                          if (value != _companyPassword.text) {
+                            return 'Passwords do not match.';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _AccessSection(
+                    icon: Icons.pin_rounded,
+                    title: 'Company code',
+                    badge: 'For employees',
+                    highlighted: true,
+                    description: 'Share this with employees. They enter it with the company ID to log in.',
+                    children: [
+                      PasswordField(
+                        controller: _staffPassword,
+                        label: 'Company code',
+                        hint: 'Code employees use to log in',
+                        textInputAction: TextInputAction.next,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Company code is required.';
+                          }
+                          if (value.trim().length < 4) {
+                            return 'Use at least 4 characters.';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      PasswordField(
+                        controller: _confirmStaffPassword,
+                        label: 'Re-enter company code',
+                        hint: 'Type the same company code again',
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Re-enter the company code.';
+                          }
+                          if (value != _staffPassword.text) {
+                            return 'Codes do not match.';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  PrimaryButton(
+                    label: 'Create company',
+                    isLoading: companies.isLoading,
+                    onPressed: _createCompany,
+                  ),
+                ],
+              ),
+            ),
           ] else ...[
-          const CompactPageHeader(
-            title: 'Company lists',
-            subtitle:
-                'Tap a company to view its roles and tasks. Edit them under Role lists and Task lists. Use Employee lists to add people.',
-          ),
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          CompactSearchField(
-            controller: _search,
-            onChanged: (_) => setState(() {}),
-            hintText: 'Search by company name or ID',
-          ),
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          if (companies.companies.isEmpty)
-            const Text('No companies yet.')
-          else if (_filteredCompanies(companies).isEmpty)
-            const Text('No companies match that search.')
-          else
-            ..._filteredCompanies(companies).map(
-              (company) => Padding(
-                padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
-                child: Material(
-                  color: colors.inputFill,
-                  borderRadius:
-                      BorderRadius.circular(CompactPageStyle.of(context).radius),
-                  child: InkWell(
-                    borderRadius:
-                        BorderRadius.circular(CompactPageStyle.of(context).radius),
-                    onTap: () => _openCompanyUsers(company),
-                    child: Padding(
-                      padding: CompactPageStyle.of(context).cardPadding,
-                      child: Row(
-                        children: [
-                          UserAvatar(
-                            key: ValueKey(
-                              '${company.id}-${companies.logoRevision}',
+            const CompactPageHeader(
+              title: 'Company lists',
+              subtitle: 'Tap a company to view its roles and tasks. Edit them under Role lists and Task lists. Use Employee lists to add people.',
+            ),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
+            CompactSearchField(
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              hintText: 'Search by company name or ID',
+            ),
+            SizedBox(height: CompactPageStyle.of(context).sectionGap),
+            if (companies.companies.isEmpty)
+              const Text('No companies yet.')
+            else if (_filteredCompanies(companies).isEmpty)
+              const Text('No companies match that search.')
+            else
+              ..._filteredCompanies(companies).map(
+                (company) => Padding(
+                  padding: EdgeInsets.only(
+                    bottom: CompactPageStyle.of(context).cardGap,
+                  ),
+                  child: Material(
+                    color: colors.inputFill,
+                    borderRadius: BorderRadius.circular(
+                      CompactPageStyle.of(context).radius,
+                    ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(
+                        CompactPageStyle.of(context).radius,
+                      ),
+                      onTap: () => _openCompanyUsers(company),
+                      child: Padding(
+                        padding: CompactPageStyle.of(context).cardPadding,
+                        child: Row(
+                          children: [
+                            UserAvatar(
+                              key: ValueKey(
+                                '${company.id}-${companies.logoRevision}',
+                              ),
+                              bytes: companies.logoFor(company.id),
+                              name: company.name,
+                              size: 40,
                             ),
-                            bytes: companies.logoFor(company.id),
-                            name: company.name,
-                            size: 40,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  company.name,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
-                                      ?.copyWith(fontWeight: FontWeight.w700),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'ID: ${company.companyId}',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(color: colors.textSecondary),
-                                ),
-                              ],
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    company.name,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'ID: ${company.companyId}',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(color: colors.textSecondary),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          IconButton(
-                            tooltip: 'Edit',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => _editCompany(company),
-                            icon: Icon(
-                              Icons.edit_rounded,
-                              color: colors.textPrimary,
-                              size: 20,
+                            IconButton(
+                              tooltip: 'Edit',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => _editCompany(company),
+                              icon: Icon(
+                                Icons.edit_rounded,
+                                color: colors.textPrimary,
+                                size: 20,
+                              ),
                             ),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => _deleteCompany(company),
-                            icon: const Icon(
-                              Icons.delete_rounded,
-                              color: AppColors.error,
-                              size: 20,
+                            IconButton(
+                              tooltip: 'Delete',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => _deleteCompany(company),
+                              icon: const Icon(
+                                Icons.delete_rounded,
+                                color: AppColors.error,
+                                size: 20,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         ],
       ),
@@ -491,12 +495,11 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
     final nextPassword = _password.text;
     final nextStaffPassword = _staffPassword.text;
     final ok = await context.read<CompanyProvider>().updateCompany(
-          id: widget.company.id,
-          name: nextName,
-          newPassword: nextPassword.isEmpty ? null : nextPassword,
-          newStaffPassword:
-              nextStaffPassword.isEmpty ? null : nextStaffPassword,
-        );
+      id: widget.company.id,
+      name: nextName,
+      newPassword: nextPassword.isEmpty ? null : nextPassword,
+      newStaffPassword: nextStaffPassword.isEmpty ? null : nextStaffPassword,
+    );
     if (!mounted) return;
     setState(() => _saving = false);
 
@@ -517,9 +520,9 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
       final cropped = await pickAndCropPhoto(context);
       if (cropped == null || !mounted) return;
       final ok = await context.read<CompanyProvider>().saveCompanyLogo(
-            widget.company.id,
-            cropped,
-          );
+        widget.company.id,
+        cropped,
+      );
       if (!mounted) return;
       if (!ok) {
         SnackBarHelper.showError(
@@ -536,8 +539,8 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
 
   Future<void> _removeEditLogo() async {
     final ok = await context.read<CompanyProvider>().removeCompanyLogo(
-          widget.company.id,
-        );
+      widget.company.id,
+    );
     if (!mounted) return;
     if (!ok) {
       SnackBarHelper.showError(
@@ -551,9 +554,7 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
   Future<void> _confirmDelete() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => _DeleteCompanyDialog(
-        company: widget.company,
-      ),
+      builder: (dialogContext) => _DeleteCompanyDialog(company: widget.company),
     );
     if (!mounted || confirmed != true) return;
     Navigator.of(context).pop('__deleted__:${widget.company.name}');
@@ -587,9 +588,8 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
               Text(
                 'Edit company',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
               SizedBox(height: CompactPageStyle.of(context).sectionGap),
               Consumer<CompanyProvider>(
@@ -638,8 +638,7 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
                 icon: Icons.lock_rounded,
                 title: 'Company password',
                 badge: 'Founder only',
-                description:
-                    'Keep this private. Leave blank to keep the current founder password.',
+                description: 'Keep this private. Leave blank to keep the current founder password.',
                 children: [
                   PasswordField(
                     controller: _password,
@@ -679,8 +678,7 @@ class _EditCompanySheetState extends State<_EditCompanySheet> {
                 title: 'Company code',
                 badge: 'For employees',
                 highlighted: true,
-                description:
-                    'Share this with employees. Leave blank to keep the current company code.',
+                description: 'Share this with employees. Leave blank to keep the current company code.',
                 children: [
                   PasswordField(
                     controller: _staffPassword,
@@ -776,9 +774,9 @@ class _DeleteCompanyDialogState extends State<_DeleteCompanyDialog> {
       _error = null;
     });
     final ok = await context.read<CompanyProvider>().deleteCompany(
-          company: widget.company,
-          password: _password.text,
-        );
+      company: widget.company,
+      password: _password.text,
+    );
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).pop(true);
@@ -787,7 +785,8 @@ class _DeleteCompanyDialogState extends State<_DeleteCompanyDialog> {
 
     setState(() {
       _deleting = false;
-      _error = context.read<CompanyProvider>().errorMessage ??
+      _error =
+          context.read<CompanyProvider>().errorMessage ??
           'Incorrect company password.';
     });
   }
@@ -838,54 +837,57 @@ class _DeleteCompanyDialogState extends State<_DeleteCompanyDialog> {
       ),
       actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
       ),
       actions: [
         SizedBox(
           width: double.infinity,
           child: Row(
             children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed:
-                    _deleting ? null : () => Navigator.of(context).pop(false),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _deleting
+                      ? null
+                      : () => Navigator.of(context).pop(false),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    textStyle: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
+                  child: const Text('Cancel'),
                 ),
-                child: const Text('Cancel'),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton(
-                onPressed: _deleting ? null : _delete,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.error,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _deleting ? null : _delete,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.error,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(48),
+                    textStyle: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
+                  child: _deleting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Delete'),
                 ),
-                child: _deleting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('Delete'),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ],
     );
@@ -913,7 +915,9 @@ class _CompanyCreatedDialog extends StatelessWidget {
         child: Material(
           color: colors.card,
           elevation: 0,
-          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+          borderRadius: BorderRadius.circular(
+            CompactPageStyle.of(context).radius,
+          ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
             child: Column(
@@ -936,9 +940,8 @@ class _CompanyCreatedDialog extends StatelessWidget {
                 Text(
                   'Company created',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -946,25 +949,25 @@ class _CompanyCreatedDialog extends StatelessWidget {
                   padding: CompactPageStyle.of(context).summaryPadding,
                   decoration: BoxDecoration(
                     color: colors.inputFill,
-                    borderRadius:
-                        BorderRadius.circular(CompactPageStyle.of(context).radius),
+                    borderRadius: BorderRadius.circular(
+                      CompactPageStyle.of(context).radius,
+                    ),
                   ),
                   child: Text(
                     companyName,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: colors.textPrimary,
-                        ),
+                      fontWeight: FontWeight.w800,
+                      color: colors.textPrimary,
+                    ),
                   ),
                 ),
                 SizedBox(height: CompactPageStyle.of(context).sectionGap),
                 Text(
                   'Share the company ID and company code with employees. Keep the company password to yourself.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colors.textSecondary,
-                      ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: colors.textSecondary),
                 ),
                 const SizedBox(height: 16),
                 PrimaryButton(
@@ -1013,7 +1016,9 @@ class _AccessSection extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
         color: fill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: borderColor),
       ),
       child: Column(
@@ -1026,8 +1031,9 @@ class _AccessSection extends StatelessWidget {
                 height: 36,
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.28),
-                  borderRadius:
-                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderRadius: BorderRadius.circular(
+                    CompactPageStyle.of(context).radius,
+                  ),
                 ),
                 child: Icon(icon, color: colors.textPrimary, size: 20),
               ),
@@ -1035,16 +1041,12 @@ class _AccessSection extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: colors.chip,
                   borderRadius: BorderRadius.circular(999),
@@ -1063,9 +1065,8 @@ class _AccessSection extends StatelessWidget {
           SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             description,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           ...children,

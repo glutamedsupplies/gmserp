@@ -27,6 +27,7 @@ import 'services/leave_reminder_service.dart';
 import 'services/leave_request_repository.dart';
 import 'services/notification_service.dart';
 import 'widgets/app_loading_card.dart';
+import 'widgets/realtime_session.dart';
 import 'models/user_role.dart';
 
 class App extends StatefulWidget {
@@ -90,8 +91,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       _syncNotifications();
       await _syncLeaveRemindersForUser();
 
-      final launchPayload =
-          await NotificationService.instance.consumeLaunchPayload();
+      final launchPayload = await NotificationService.instance
+          .consumeLaunchPayload();
       if (!mounted) return;
       if (launchPayload != null) {
         _handleNotificationTap(launchPayload);
@@ -215,7 +216,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           final media = MediaQuery.of(context);
           return MediaQuery(
             data: media.copyWith(alwaysUse24HourFormat: false),
-            child: child ?? const SizedBox.shrink(),
+            child: RealtimeSession(child: child ?? const SizedBox.shrink()),
           );
         },
         home: const _AuthGate(),

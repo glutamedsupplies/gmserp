@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -18,6 +20,7 @@ import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/lazy_list_pager.dart';
+import '../../widgets/notification_group_header.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -27,7 +30,24 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen>
-    with ActivePageLoad {
+    with ActivePageLoad, RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'leaveRequests',
+    'clockRequests',
+    'timeCardChangeRequests',
+    'salaryRateChanges',
+    'timeCardProfileChanges',
+    'announcements',
+    'users',
+    'companies',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await _load(refresh: true);
+  }
+
   final _repo = ActivityLogRepository();
   final _searchController = TextEditingController();
   late final LazyListPager _pager;
@@ -35,6 +55,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   List<ActivityLogEntry> _items = [];
   bool _loading = true;
   bool _refreshing = false;
+  bool _notificationsExpanded = false;
   String? _error;
   String _companyFilter = 'All';
   String _typeFilter = 'All';
@@ -87,12 +108,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   }
 
   Future<void> _markVisibleSeen() async {
-    final visible = _pager.takeVisible(_filtered());
+    final filtered = _filtered();
+    if (NotificationGroupHeader.shouldGroup(filtered.length) &&
+        !_notificationsExpanded)
+      return;
+    final visible = _pager.takeVisible(filtered);
     if (visible.isEmpty || !mounted) return;
     // Clear header badge for Super Admin + personal inbox for other roles.
     await context.read<UserOutcomeNotificationsProvider>().markLoadedSeen(
-          visible.map((e) => e.id),
-        );
+      visible.map((e) => e.id),
+    );
   }
 
   Future<void> _load({bool refresh = false}) async {
@@ -123,10 +148,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       if (refresh) {
         _refreshing = true;
       } else {
-        _loading = true;
+        if (!isRealtimeRefresh) _loading = true;
       }
       _error = null;
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
     try {
       List<ActivityLogEntry>? items;
@@ -223,10 +248,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     return [_allCompanies, ...sorted];
   }
 
-  bool _matchesCompany(
-    ActivityLogEntry item,
-    CompanyProvider companies,
-  ) {
+  bool _matchesCompany(ActivityLogEntry item, CompanyProvider companies) {
     if (_companyFilter == _allCompanies) return true;
     final selected = _companyFilter.trim().toLowerCase();
     if (item.companyName.trim().toLowerCase() == selected) return true;
@@ -315,10 +337,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     final unseen = outcomes.unseenCount;
     final subtitle = auditMode
         ? 'System logs across every company, plus updates for you '
-            '(salary, announcements, and your request outcomes).'
-            '${unseen > 0 ? ' · $unseen new for you' : ''}'
+              '(salary, announcements, and your request outcomes).'
+              '${unseen > 0 ? ' · $unseen new for you' : ''}'
         : 'Request outcomes, time card updates, and salary changes for you. '
-            'Items are marked seen only after they appear on screen.';
+              'Items are marked seen only after they appear on screen.';
 
     return DashboardScaffold(
       title: title,
@@ -335,8 +357,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                   subtitle: subtitle,
                   trailing: IconButton(
                     tooltip: 'Refresh',
-                    onPressed:
-                        _loading || _refreshing ? null : () => _load(refresh: true),
+                    onPressed: _loading || _refreshing
+                        ? null
+                        : () => _load(refresh: true),
                     icon: _refreshing
                         ? SizedBox(
                             width: 18,
@@ -493,7 +516,31 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               ]),
             ),
           ),
-          if (!_loading && _error == null && filtered.isNotEmpty)
+          if (!_loading &&
+              _error == null &&
+              NotificationGroupHeader.shouldGroup(filtered.length))
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: density.pagePadding.copyWith(top: 0, bottom: 8),
+                child: NotificationGroupHeader(
+                  count: filtered.length,
+                  expanded: _notificationsExpanded,
+                  onChanged: (expanded) {
+                    setState(() => _notificationsExpanded = expanded);
+                    if (expanded) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _markVisibleSeen();
+                      });
+                    }
+                  },
+                ),
+              ),
+            ),
+          if (!_loading &&
+              _error == null &&
+              filtered.isNotEmpty &&
+              (!NotificationGroupHeader.shouldGroup(filtered.length) ||
+                  _notificationsExpanded))
             SliverPadding(
               padding: density.pagePadding.copyWith(top: 0),
               sliver: SliverList(
@@ -539,24 +586,25 @@ class _ActivityRow extends StatelessWidget {
   String get _outcomeLabel => entry.isAnnouncement
       ? 'Sent'
       : entry.isSalaryUpdate || entry.isTimeCardSettingsUpdate
-          ? 'Updated'
-          : entry.isRejected
-              ? (auditStyle ? 'Rejected' : 'Declined')
-              : entry.statusLabel;
+      ? 'Updated'
+      : entry.isRejected
+      ? (auditStyle ? 'Rejected' : 'Declined')
+      : entry.statusLabel;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
-    final statusColor = entry.isAnnouncement ||
+    final statusColor =
+        entry.isAnnouncement ||
             entry.isSalaryUpdate ||
             entry.isTimeCardSettingsUpdate
         ? AppColors.primaryDark
         : entry.isApproved
-            ? AppColors.success
-            : entry.isRejected
-                ? AppColors.error
-                : colors.textSecondary;
+        ? AppColors.success
+        : entry.isRejected
+        ? AppColors.error
+        : colors.textSecondary;
     final kindColor = switch (entry.kind) {
       ActivityLogKind.timeEdit => AppColors.primaryDark,
       ActivityLogKind.clock => const Color(0xFF0F766E),
@@ -611,9 +659,9 @@ class _ActivityRow extends StatelessWidget {
               Text(
                 _formatWhen(entry.occurredAt),
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                ),
               ),
             ],
           ),
@@ -621,10 +669,10 @@ class _ActivityRow extends StatelessWidget {
           Text(
             entry.summary,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: density.cardTitleSize,
-                  fontWeight: FontWeight.w800,
-                  color: colors.textPrimary,
-                ),
+              fontSize: density.cardTitleSize,
+              fontWeight: FontWeight.w800,
+              color: colors.textPrimary,
+            ),
           ),
           if (auditStyle) ...[
             SizedBox(height: density.compact ? 2 : 4),
@@ -632,18 +680,18 @@ class _ActivityRow extends StatelessWidget {
               '${entry.subjectName.isEmpty ? 'Employee' : entry.subjectName}'
               '${entry.companyName.isEmpty ? '' : ' · ${entry.companyName}'}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontSize: density.bodySize,
-                    fontWeight: FontWeight.w600,
-                  ),
+                fontSize: density.bodySize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ] else if (entry.companyName.isNotEmpty) ...[
             SizedBox(height: density.compact ? 2 : 4),
             Text(
               entry.companyName,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontSize: density.bodySize,
-                    fontWeight: FontWeight.w600,
-                  ),
+                fontSize: density.bodySize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           if (entry.kind == ActivityLogKind.timeEdit) ...[
@@ -651,52 +699,52 @@ class _ActivityRow extends StatelessWidget {
               Text(
                 'Date ${entry.workDate}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                ),
               ),
             if (entry.actorName.isNotEmpty)
               Text(
                 'Requested by ${entry.actorName}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                ),
               ),
             if (!auditStyle && entry.subjectName.isNotEmpty)
               Text(
                 'Employee ${entry.subjectName}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                ),
               ),
           ],
           if (entry.kind == ActivityLogKind.clock && entry.workDate.isNotEmpty)
             Text(
               'Date ${entry.workDate}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: density.captionSize,
-                  ),
+                color: colors.textSecondary,
+                fontSize: density.captionSize,
+              ),
             ),
           if (entry.decisionLabel.isNotEmpty)
             Text(
               entry.decisionLabel,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: density.captionSize,
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: colors.textSecondary,
+                fontSize: density.captionSize,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           if (entry.kind == ActivityLogKind.leave &&
               entry.leaveRange.isNotEmpty)
             Text(
               entry.leaveRange,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: density.captionSize,
-                  ),
+                color: colors.textSecondary,
+                fontSize: density.captionSize,
+              ),
             ),
           if (entry.kind == ActivityLogKind.salaryRate ||
               entry.kind == ActivityLogKind.timeCardSettings) ...[
@@ -704,17 +752,17 @@ class _ActivityRow extends StatelessWidget {
               Text(
                 'Employee ${entry.subjectName}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                ),
               ),
             if (entry.actorName.isNotEmpty)
               Text(
                 'Updated by ${entry.actorName}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                ),
               ),
           ],
           if (entry.kind == ActivityLogKind.announcement &&
@@ -722,20 +770,20 @@ class _ActivityRow extends StatelessWidget {
             Text(
               'From ${entry.actorName}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: density.captionSize,
-                  ),
+                color: colors.textSecondary,
+                fontSize: density.captionSize,
+              ),
             ),
           SizedBox(height: density.titleSubtitleGap),
           Text(
             entry.detail,
             softWrap: true,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AppColors.primaryDark,
-                  fontWeight: FontWeight.w600,
-                  fontSize: density.bodySize,
-                  height: 1.35,
-                ),
+              color: AppColors.primaryDark,
+              fontWeight: FontWeight.w600,
+              fontSize: density.bodySize,
+              height: 1.35,
+            ),
           ),
         ],
       ),
@@ -764,10 +812,10 @@ class _MiniChip extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: density.chipLabelSize,
-            ),
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: density.chipLabelSize,
+        ),
       ),
     );
   }
@@ -792,15 +840,19 @@ class _EmptyCard extends StatelessWidget {
       decoration: compactCardDecoration(context),
       child: Column(
         children: [
-          Icon(icon, size: density.compact ? 26 : 30, color: colors.textSecondary),
+          Icon(
+            icon,
+            size: density.compact ? 26 : 30,
+            color: colors.textSecondary,
+          ),
           SizedBox(height: density.cardGap + 2),
           Text(
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: density.bodySize,
-                  color: colors.textSecondary,
-                ),
+              fontSize: density.bodySize,
+              color: colors.textSecondary,
+            ),
           ),
         ],
       ),

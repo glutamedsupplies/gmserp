@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 
@@ -5,6 +7,7 @@ import '../../core/utils/firebase_data.dart';
 import '../../core/utils/rtdb_platform.dart';
 import '../../firebase_options.dart';
 import 'rtdb_desktop_limiter.dart';
+import 'reconnecting_stream.dart';
 
 class _ChildrenCacheEntry {
   const _ChildrenCacheEntry(this.at, this.data);
@@ -15,7 +18,7 @@ class _ChildrenCacheEntry {
 
 class RtdbService {
   RtdbService({FirebaseDatabase? database})
-      : _database = database ?? _defaultDatabase();
+    : _database = database ?? _defaultDatabase();
 
   final FirebaseDatabase _database;
 
@@ -24,21 +27,48 @@ class RtdbService {
       ? const Duration(seconds: 20)
       : const Duration(seconds: 5);
 
-
   static FirebaseDatabase _defaultDatabase() {
     final url = DefaultFirebaseOptions.currentPlatform.databaseURL;
     if (url == null || url.isEmpty) {
       return FirebaseDatabase.instance;
     }
-    return FirebaseDatabase.instanceFor(
-      app: Firebase.app(),
-      databaseURL: url,
-    );
+    return FirebaseDatabase.instanceFor(app: Firebase.app(), databaseURL: url);
   }
 
   static void clearReadCache() => _childrenCache.clear();
 
   DatabaseReference ref(String path) => _database.ref(path);
+
+  /// Initial snapshots refresh cached pages too. Firebase reconnects transient
+  /// network loss; canceled/errored listeners are explicitly reattached.
+  Stream<void> watchChanges(List<String> paths) {
+    late StreamController<void> controller;
+    final subscriptions = <String, StreamSubscription<DatabaseEvent>>{};
+    var stopped = false;
+    void attach(String path) {
+      if (stopped) return;
+      subscriptions[path] = onValue(path).listen(
+        (_) {
+          if (!stopped) controller.add(null);
+        },
+        // onValue retries errors. Keep the visible page's last data meanwhile.
+        onError: (Object error) {},
+      );
+    }
+
+    controller = StreamController<void>(
+      onListen: () {
+        for (final path in paths.toSet()) {
+          attach(path);
+        }
+      },
+      onCancel: () async {
+        stopped = true;
+        await Future.wait(subscriptions.values.map((sub) => sub.cancel()));
+      },
+    );
+    return controller.stream;
+  }
 
   String newKey(String parentPath) {
     final key = ref(parentPath).push().key;
@@ -48,8 +78,9 @@ class RtdbService {
     return key;
   }
 
-  Future<DataSnapshot> get(String path) =>
-      RtdbDesktopLimiter.run(() => ref(path).get());
+  Future<DataSnapshot> get(String path) => RtdbDesktopLimiter.run(
+    () => ref(path).get().timeout(const Duration(seconds: 30)),
+  );
 
   Future<Map<String, dynamic>?> getMap(String path) async {
     final snapshot = await get(path);
@@ -73,7 +104,9 @@ class RtdbService {
   }
 
   /// Like [mapOrListChildren] but deep-converts nested maps.
-  static Map<String, Map<String, dynamic>> mapOrListChildrenDeep(dynamic value) {
+  static Map<String, Map<String, dynamic>> mapOrListChildrenDeep(
+    dynamic value,
+  ) {
     final out = <String, Map<String, dynamic>>{};
     if (value is Map) {
       for (final entry in value.entries) {
@@ -140,9 +173,9 @@ class RtdbService {
       });
 
   Future<void> remove(String path) => RtdbDesktopLimiter.run(() async {
-        await ref(path).remove();
-        clearReadCache();
-      });
+    await ref(path).remove();
+    clearReadCache();
+  });
 
   Stream<DatabaseEvent> onValue(String path) {
     if (preferRtdbPolling) {
@@ -152,7 +185,7 @@ class RtdbService {
         ),
       );
     }
-    return ref(path).onValue;
+    return reconnectingStream(() => ref(path).onValue);
   }
 
   static Map<String, dynamic> sanitizeForWrite(Map<String, dynamic> data) {

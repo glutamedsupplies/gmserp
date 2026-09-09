@@ -10,5 +10,6 @@ abstract final class RtdbPaths {
   static const appConfig = 'appConfig';
   static const salaryRateChanges = 'salaryRateChanges';
   static const timeCardProfileChanges = 'timeCardProfileChanges';
+  static const timeCardDayOverrides = 'timeCardDayOverrides';
   static const announcements = 'announcements';
 }

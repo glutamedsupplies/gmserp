@@ -1,9 +1,12 @@
+import '../core/utils/realtime_refresh.dart';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../models/clock_request.dart';
 import '../models/company_model.dart';
 import '../models/employee_time_card_profile.dart';
+import '../models/employee_day_schedule_override.dart';
 import '../models/leave_request.dart';
 import '../models/time_card_schedule.dart';
 import '../models/time_entry.dart';
@@ -27,8 +30,8 @@ class TimeEntryProvider extends ChangeNotifier {
   TimeEntryProvider({
     TimeEntryRepository? repository,
     ClockRequestRepository? clockRequests,
-  })  : _repository = repository ?? TimeEntryRepository(),
-        _clockRequests = clockRequests ?? ClockRequestRepository();
+  }) : _repository = repository ?? TimeEntryRepository(),
+       _clockRequests = clockRequests ?? ClockRequestRepository();
 
   final TimeEntryRepository _repository;
   final ClockRequestRepository _clockRequests;
@@ -45,33 +48,97 @@ class TimeEntryProvider extends ChangeNotifier {
 
   Duration get todayWorked => sumEntriesDuration(todayEntries);
 
-  Duration get weekWorked =>
-      sumEntriesInRange(allEntries, startOfWeek(DateTime.now()), DateTime.now());
+  Duration get weekWorked => sumEntriesInRange(
+    allEntries,
+    startOfWeek(DateTime.now()),
+    DateTime.now(),
+  );
 
-  Duration get monthWorked =>
-      sumEntriesInRange(allEntries, startOfMonth(DateTime.now()), DateTime.now());
+  Duration get monthWorked => sumEntriesInRange(
+    allEntries,
+    startOfMonth(DateTime.now()),
+    DateTime.now(),
+  );
 
   /// True when today already has a closed attendance session.
-  bool get hasCompletedToday =>
-      todayEntries.any((entry) => !entry.isOpen);
+  bool get hasCompletedToday => todayEntries.any((entry) => !entry.isOpen);
 
   /// True when the employee may submit a new time-in request for today.
   bool get canClockInToday =>
-      activeEntry == null &&
+      (activeEntry == null || hasStaleOpenEntry) &&
       todayEntries.isEmpty &&
       pendingClockIn == null;
 
-  /// True when the employee may submit a time-out request.
-  /// Allowed with an approved open session, or a pending time-in for today.
+  /// Open session from a previous work day (forgot to time out).
+  bool get hasStaleOpenEntry {
+    final entry = activeEntry;
+    if (entry == null) return false;
+    return entry.workDate != formatWorkDate(DateTime.now());
+  }
+
+  /// True when a time-out can be submitted for a prior day's open session.
+  bool get canClockOutStaleSession {
+    if (!hasStaleOpenEntry) return false;
+    final staleDate = activeEntry!.workDate;
+    if (pendingClockOut != null && pendingClockOut!.workDate == staleDate) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Allows direct clock-out for today's approved session, or a correction
+  /// request for a forgotten session from a prior day.
   bool get canClockOutToday =>
-      pendingClockOut == null &&
-      (activeEntry != null || pendingClockIn != null);
+      canClockOutStaleSession ||
+      (!hasStaleOpenEntry && pendingClockOut == null && activeEntry != null);
+
+  Future<bool> clockOut({
+    required UserModel user,
+    required CompanyModel company,
+  }) async {
+    if (isSaving) return false;
+    final entry = activeEntry;
+    if (entry == null ||
+        hasStaleOpenEntry ||
+        entry.userId != user.id ||
+        entry.companyId != company.id) {
+      errorMessage = 'An approved time-in for today is required. Use a correction request for a missed time-out.';
+      notifyListeners();
+      return false;
+    }
+    isSaving = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final closed = await _repository.clockOut(entryId: entry.id);
+      activeEntry = null;
+      todayEntries = [
+        for (final item in todayEntries)
+          if (item.id == closed.id) closed else item,
+      ];
+      try {
+        await _reloadLists(user: user, company: company);
+      } catch (_) {
+        // The clock-out has already been saved.
+      }
+      return true;
+    } catch (error) {
+      errorMessage = _clockRequestErrorMessage(
+        error,
+        'Could not save time out.',
+      );
+      return false;
+    } finally {
+      isSaving = false;
+      notifyListeners();
+    }
+  }
 
   Future<void> loadForCompany({
     required UserModel user,
     required CompanyModel company,
   }) async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
 
@@ -110,7 +177,13 @@ class TimeEntryProvider extends ChangeNotifier {
       todayEntries = results[1] as List<TimeEntry>;
       recentEntries = results[2] as List<TimeEntry>;
       pendingClockIn = results[3] as ClockRequest?;
-      pendingClockOut = results[4] as ClockRequest?;
+      pendingClockOut = await _findRelevantPendingClockOut(
+        userId: user.id,
+        companyId: company.id,
+        todayWorkDate: workDate,
+        openEntry: activeEntry,
+        todayPending: results[4] as ClockRequest?,
+      );
     } catch (_) {
       errorMessage = 'Unable to load time card records.';
       activeEntry = null;
@@ -141,7 +214,7 @@ class TimeEntryProvider extends ChangeNotifier {
     required UserModel user,
     required CompanyModel company,
   }) async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
 
@@ -180,7 +253,13 @@ class TimeEntryProvider extends ChangeNotifier {
       todayEntries = results[1] as List<TimeEntry>;
       allEntries = results[2] as List<TimeEntry>;
       pendingClockIn = results[3] as ClockRequest?;
-      pendingClockOut = results[4] as ClockRequest?;
+      pendingClockOut = await _findRelevantPendingClockOut(
+        userId: user.id,
+        companyId: company.id,
+        todayWorkDate: workDate,
+        openEntry: activeEntry,
+        todayPending: results[4] as ClockRequest?,
+      );
       recentEntries = allEntries.length <= 12
           ? allEntries
           : allEntries.take(12).toList();
@@ -205,6 +284,7 @@ class TimeEntryProvider extends ChangeNotifier {
     EmployeeWeeklySchedule? weeklySchedule,
     TimeCardSchedule? globalSchedule,
     List<LeaveRequest> leaves = const [],
+    List<EmployeeDayScheduleOverride> dayOverrides = const [],
   }) async {
     isSaving = true;
     errorMessage = null;
@@ -218,6 +298,7 @@ class TimeEntryProvider extends ChangeNotifier {
         weeklySchedule: weeklySchedule,
         globalSchedule: globalSchedule,
         leaves: leaves,
+        dayOverrides: dayOverrides,
       );
       try {
         await _reloadLists(user: user, company: company);
@@ -242,6 +323,7 @@ class TimeEntryProvider extends ChangeNotifier {
     required UserModel user,
     required CompanyModel company,
     required String note,
+    DateTime? requestedAt,
   }) async {
     if (!canClockOutToday) {
       errorMessage = pendingClockOut != null
@@ -261,6 +343,7 @@ class TimeEntryProvider extends ChangeNotifier {
         company: company,
         note: note,
         entryId: activeEntry?.id,
+        requestedAt: requestedAt,
       );
       try {
         await _reloadLists(user: user, company: company);
@@ -318,7 +401,31 @@ class TimeEntryProvider extends ChangeNotifier {
     todayEntries = results[1] as List<TimeEntry>;
     recentEntries = results[2] as List<TimeEntry>;
     pendingClockIn = results[3] as ClockRequest?;
-    pendingClockOut = results[4] as ClockRequest?;
+    pendingClockOut = await _findRelevantPendingClockOut(
+      userId: user.id,
+      companyId: company.id,
+      todayWorkDate: workDate,
+      openEntry: activeEntry,
+      todayPending: results[4] as ClockRequest?,
+    );
+  }
+
+  Future<ClockRequest?> _findRelevantPendingClockOut({
+    required String userId,
+    required String companyId,
+    required String todayWorkDate,
+    required TimeEntry? openEntry,
+    required ClockRequest? todayPending,
+  }) async {
+    if (todayPending != null) return todayPending;
+    if (openEntry == null || openEntry.workDate == todayWorkDate) {
+      return null;
+    }
+    return _clockRequests.findPendingClockOut(
+      userId: userId,
+      companyId: companyId,
+      workDate: openEntry.workDate,
+    );
   }
 }
 
@@ -351,8 +458,9 @@ Duration sumEntriesInRange(
   for (final entry in entries) {
     final entryEnd = entry.timeOut ?? now;
     if (entry.timeIn.isBefore(rangeEnd) && entryEnd.isAfter(rangeStart)) {
-      final overlapStart =
-          entry.timeIn.isAfter(rangeStart) ? entry.timeIn : rangeStart;
+      final overlapStart = entry.timeIn.isAfter(rangeStart)
+          ? entry.timeIn
+          : rangeStart;
       final overlapEnd = entryEnd.isBefore(rangeEnd) ? entryEnd : rangeEnd;
       if (overlapEnd.isAfter(overlapStart)) {
         total += overlapEnd.difference(overlapStart);

@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -26,7 +28,18 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    final company = companies.selectedCompany;
+    if (company != null) await companies.loadCompanyUsers(company.id);
+  }
+
   final _searchController = TextEditingController();
   late final LazyListPager _pager;
   String _search = '';
@@ -38,9 +51,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _pager = LazyListPager(onChanged: () {
-      if (mounted) setState(() {});
-    });
+    _pager = LazyListPager(
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
   }
 
@@ -55,7 +70,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final companies = context.read<CompanyProvider>();
     final company = companies.selectedCompany;
     if (company == null) return;
-    _pager.reset();
+    if (!isRealtimeRefresh) _pager.reset();
     await companies.loadCompanyUsers(company.id);
     if (mounted) setState(() {});
   }
@@ -87,7 +102,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final query = _search.trim().toLowerCase();
     final roleFilter = _effectiveRoleFilter(companies);
     final taskFilter = _effectiveTaskFilter(companies);
-    final filteringAssignments = _assignFilter != _AssignFilter.all ||
+    final filteringAssignments =
+        _assignFilter != _AssignFilter.all ||
         roleFilter != 'All' ||
         taskFilter != 'All';
 
@@ -107,7 +123,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         }
 
         if (roleFilter != 'All') {
-          final matchRole = member.jobRole == roleFilter ||
+          final matchRole =
+              member.jobRole == roleFilter ||
               companies.roleById(member.roleId)?.name == roleFilter;
           if (!matchRole) return false;
         }
@@ -193,7 +210,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       };
       final linked = <String>{};
       for (final task in companies.tasks) {
-        final matchesRole = task.roleName == _roleFilter ||
+        final matchesRole =
+            task.roleName == _roleFilter ||
             (task.roleId.isNotEmpty && roleIds.contains(task.roleId));
         if (matchesRole && task.title.trim().isNotEmpty) {
           linked.add(task.title.trim());
@@ -203,7 +221,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         if (companies.memberAccessRole(member) != UserRole.employee) {
           continue;
         }
-        final memberRole = member.jobRole == _roleFilter ||
+        final memberRole =
+            member.jobRole == _roleFilter ||
             companies.roleById(member.roleId)?.name == _roleFilter;
         if (!memberRole) continue;
         linked.addAll(member.tasks.where((task) => task.trim().isNotEmpty));
@@ -275,7 +294,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         selected.tasks.isEmpty
             ? '${member.username} has no role or tasks assigned.'
             : '${member.username} was assigned ${selected.roleName}'
-                '${selected.tasks.isEmpty ? '' : ' • ${selected.tasks.join(', ')}'}.',
+                  '${selected.tasks.isEmpty ? '' : ' • ${selected.tasks.join(', ')}'}.',
       );
     } else {
       SnackBarHelper.showError(
@@ -327,8 +346,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         children: [
           CompactPageHeader(
             title: company?.name ?? 'Staff',
-            subtitle:
-                'Filter staff and assign company roles and tasks to employees only. Admins are not given task assignments.',
+            subtitle: 'Filter staff and assign company roles and tasks to employees only. Admins are not given task assignments.',
             trailing: IconButton(
               tooltip: 'Refresh',
               onPressed: companies.isLoading ? null : _reload,
@@ -353,14 +371,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   value: '${allMembers.length}',
                 ),
                 CompactSummaryItem(label: 'Admins', value: '$adminCount'),
-                CompactSummaryItem(
-                  label: 'Employees',
-                  value: '$employeeCount',
-                ),
-                CompactSummaryItem(
-                  label: 'Assigned',
-                  value: '$assignedCount',
-                ),
+                CompactSummaryItem(label: 'Employees', value: '$employeeCount'),
+                CompactSummaryItem(label: 'Assigned', value: '$assignedCount'),
               ],
             ),
             SizedBox(height: density.sectionGap),
@@ -368,7 +380,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               controller: _searchController,
               onChanged: (value) => setState(() {
                 _search = value;
-                _pager.reset();
+                if (!isRealtimeRefresh) _pager.reset();
               }),
               hintText: 'Search name, email, role, or task',
             ),
@@ -391,7 +403,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           'Employee' => _LevelFilter.employee,
                           _ => _LevelFilter.all,
                         };
-                        _pager.reset();
+                        if (!isRealtimeRefresh) _pager.reset();
                       });
                     },
                   ),
@@ -413,7 +425,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           'Unassigned' => _AssignFilter.unassigned,
                           _ => _AssignFilter.all,
                         };
-                        _pager.reset();
+                        if (!isRealtimeRefresh) _pager.reset();
                       });
                     },
                   ),
@@ -437,7 +449,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         if (!nextTasks.contains(_taskFilter)) {
                           _taskFilter = 'All';
                         }
-                        _pager.reset();
+                        if (!isRealtimeRefresh) _pager.reset();
                       });
                     },
                   ),
@@ -457,7 +469,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         if (!nextRoles.contains(_roleFilter)) {
                           _roleFilter = 'All';
                         }
-                        _pager.reset();
+                        if (!isRealtimeRefresh) _pager.reset();
                       });
                     },
                   ),
@@ -473,8 +485,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             else if (allMembers.isEmpty)
               const _MessageCard(
                 icon: Icons.groups_outlined,
-                message:
-                    'No admins or employees in this company yet. Ask Super Admin to add members.',
+                message: 'No admins or employees in this company yet. Ask Super Admin to add members.',
               )
             else if (members.isEmpty)
               const _MessageCard(
@@ -521,8 +532,8 @@ class _StaffMemberCard extends StatelessWidget {
     final density = CompactPageStyle.of(context);
     final level = accessRole.label;
     final isEmployee = accessRole == UserRole.employee;
-    final assigned = isEmployee &&
-        (member.jobRole.isNotEmpty || member.tasks.isNotEmpty);
+    final assigned =
+        isEmployee && (member.jobRole.isNotEmpty || member.tasks.isNotEmpty);
 
     return Material(
       color: colors.card,
@@ -550,9 +561,7 @@ class _StaffMemberCard extends StatelessWidget {
                             member.username.isEmpty
                                 ? member.email
                                 : member.username,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
+                            style: Theme.of(context).textTheme.titleSmall
                                 ?.copyWith(
                                   fontSize: density.cardTitleSize,
                                   fontWeight: FontWeight.w800,
@@ -570,9 +579,7 @@ class _StaffMemberCard extends StatelessWidget {
                           ),
                           child: Text(
                             level,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
+                            style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(
                                   fontSize: density.chipLabelSize,
                                   fontWeight: FontWeight.w700,
@@ -586,27 +593,27 @@ class _StaffMemberCard extends StatelessWidget {
                       Text(
                         member.email,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              fontSize: density.captionSize,
-                              color: colors.textSecondary,
-                            ),
+                          fontSize: density.captionSize,
+                          color: colors.textSecondary,
+                        ),
                       ),
                     ],
                     SizedBox(height: density.titleSubtitleGap),
                     Text(
                       isEmployee
                           ? (assigned
-                              ? (member.jobRole.isEmpty
-                                  ? 'No role'
-                                  : member.jobRole)
-                              : 'Not assigned yet')
+                                ? (member.jobRole.isEmpty
+                                      ? 'No role'
+                                      : member.jobRole)
+                                : 'Not assigned yet')
                           : 'Admins are not assigned tasks',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontSize: density.bodySize,
-                            fontWeight: FontWeight.w700,
-                            color: assigned
-                                ? AppColors.primaryDark
-                                : colors.textSecondary,
-                          ),
+                        fontSize: density.bodySize,
+                        fontWeight: FontWeight.w700,
+                        color: assigned
+                            ? AppColors.primaryDark
+                            : colors.textSecondary,
+                      ),
                     ),
                     if (isEmployee && member.tasks.isNotEmpty) ...[
                       SizedBox(height: density.compact ? 4 : 6),
@@ -621,14 +628,14 @@ class _StaffMemberCard extends StatelessWidget {
                                 vertical: density.compact ? 3 : 4,
                               ),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.14),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.14,
+                                ),
                                 borderRadius: BorderRadius.circular(99),
                               ),
                               child: Text(
                                 task,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
+                                style: Theme.of(context).textTheme.labelSmall
                                     ?.copyWith(
                                       fontSize: density.chipLabelSize,
                                       fontWeight: FontWeight.w700,
@@ -638,9 +645,7 @@ class _StaffMemberCard extends StatelessWidget {
                           if (member.tasks.length > 4)
                             Text(
                               '+${member.tasks.length - 4}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
+                              style: Theme.of(context).textTheme.labelSmall
                                   ?.copyWith(
                                     fontSize: density.chipLabelSize,
                                     color: colors.textSecondary,
@@ -696,9 +701,9 @@ class _MessageCard extends StatelessWidget {
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: density.bodySize,
-                  color: colors.textSecondary,
-                ),
+              fontSize: density.bodySize,
+              color: colors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -742,8 +747,8 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
     super.initState();
     final existingRole =
         widget.roles.any((role) => role.id == widget.member.roleId)
-            ? widget.member.roleId
-            : widget.roles.first.id;
+        ? widget.member.roleId
+        : widget.roles.first.id;
     _roleId = existingRole;
     final allowed = _tasksForRole(_roleId).map((task) => task.title).toSet();
     _selectedTasks = widget.member.tasks.where(allowed.contains).toSet();
@@ -803,18 +808,18 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
               name,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontSize: density.pageTitleSize,
-                    fontWeight: FontWeight.w800,
-                  ),
+                fontSize: density.pageTitleSize,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             SizedBox(height: density.titleSubtitleGap),
             Text(
               'Pick a role, then select the tasks that belong to it.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: density.bodySize,
-                    color: colors.textSecondary,
-                  ),
+                fontSize: density.bodySize,
+                color: colors.textSecondary,
+              ),
             ),
             SizedBox(height: density.sectionGap),
             DropdownButtonFormField<String>(
@@ -833,24 +838,22 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                   borderRadius: BorderRadius.circular(density.radius),
                 ),
               ),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: density.bodySize,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontSize: density.bodySize),
               items: [
                 for (final item in widget.roles)
-                  DropdownMenuItem(
-                    value: item.id,
-                    child: Text(item.name),
-                  ),
+                  DropdownMenuItem(value: item.id, child: Text(item.name)),
               ],
               onChanged: (value) {
                 if (value == null) return;
                 setState(() {
                   _roleId = value;
-                  final allowed =
-                      _tasksForRole(value).map((task) => task.title).toSet();
-                  _selectedTasks =
-                      _selectedTasks.where(allowed.contains).toSet();
+                  final allowed = _tasksForRole(value)
+                      .map((task) => task.title)
+                      .toSet();
+                  _selectedTasks = _selectedTasks
+                      .where(allowed.contains)
+                      .toSet();
                 });
               },
             ),
@@ -866,9 +869,8 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 child: Text(
                   'No tasks for this role yet. Ask Super Admin to add them under Task lists.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: density.bodySize,
-                      ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(fontSize: density.bodySize),
                 ),
               )
             else
@@ -877,8 +879,7 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: filtered.length,
-                  separatorBuilder: (_, _) =>
-                      SizedBox(height: density.cardGap),
+                  separatorBuilder: (_, _) => SizedBox(height: density.cardGap),
                   itemBuilder: (context, index) {
                     final task = filtered[index];
                     final selected = _selectedTasks.contains(task.title);
@@ -892,8 +893,7 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(density.radius),
                           side: BorderSide(
-                            color:
-                                selected ? AppColors.primary : colors.border,
+                            color: selected ? AppColors.primary : colors.border,
                           ),
                         ),
                         leading: Icon(
@@ -905,10 +905,8 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                         ),
                         title: Text(
                           task.title,
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontSize: density.cardTitleSize,
-                                  ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontSize: density.cardTitleSize),
                         ),
                         subtitle: task.description.isEmpty
                             ? null
@@ -916,12 +914,8 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                                 task.description,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      fontSize: density.captionSize,
-                                    ),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(fontSize: density.captionSize),
                               ),
                         onTap: () => _toggleTask(task.title),
                       ),
@@ -935,9 +929,9 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 '${_selectedTasks.length} task${_selectedTasks.length == 1 ? '' : 's'} selected',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: density.captionSize,
-                      color: colors.textSecondary,
-                    ),
+                  fontSize: density.captionSize,
+                  color: colors.textSecondary,
+                ),
               ),
             ],
             SizedBox(height: density.sectionGap),
@@ -946,13 +940,13 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
               onPressed: role == null
                   ? null
                   : () => Navigator.pop(
-                        context,
-                        _StaffRoleTaskPick(
-                          roleId: role.id,
-                          roleName: role.name,
-                          tasks: _selectedTasks.toList()..sort(),
-                        ),
+                      context,
+                      _StaffRoleTaskPick(
+                        roleId: role.id,
+                        roleName: role.name,
+                        tasks: _selectedTasks.toList()..sort(),
                       ),
+                    ),
             ),
             const SizedBox(height: 4),
             Row(

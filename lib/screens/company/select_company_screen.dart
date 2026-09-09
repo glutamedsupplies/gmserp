@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -23,7 +25,19 @@ class SelectCompanyScreen extends StatefulWidget {
   State<SelectCompanyScreen> createState() => _SelectCompanyScreenState();
 }
 
-class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
+class _SelectCompanyScreenState extends State<SelectCompanyScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final user = context.read<AuthProvider>().user;
+    if (user != null) {
+      await context.read<CompanyProvider>().loadCompaniesForMember(user);
+    }
+  }
+
   final _pageController = PageController(viewportFraction: 0.84);
   int _index = 0;
   bool _opening = false;
@@ -47,7 +61,9 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
     final companies = context.read<CompanyProvider>();
     final currentId = companies.selectedCompany?.id;
     if (currentId == null) return;
-    final index = companies.memberCompanies.indexWhere((item) => item.id == currentId);
+    final index = companies.memberCompanies.indexWhere(
+      (item) => item.id == currentId,
+    );
     if (index < 0) return;
     _didSyncPage = true;
     _index = index;
@@ -150,9 +166,7 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
         backgroundColor: AppColors.of(context).background,
         body: Column(
           children: [
-            _LockedSelectHeader(
-              onBack: canGoBack ? _returnToDashboard : null,
-            ),
+            _LockedSelectHeader(onBack: canGoBack ? _returnToDashboard : null),
             Expanded(
               child: companies.isLoading
                   ? const AppLoadingView(
@@ -162,38 +176,46 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
                   : Column(
                       children: [
                         Padding(
-                          padding: CompactPageStyle.of(context).pagePaddingTopOnly,
+                          padding: CompactPageStyle.of(context)
+                              .pagePaddingTopOnly,
                           child: Column(
                             children: [
                               Text(
                                 'Choose a company',
                                 textAlign: TextAlign.center,
-                                style: (CompactPageStyle.of(context).compact
-                                        ? Theme.of(context).textTheme.titleLarge
-                                        : Theme.of(context)
-                                            .textTheme
-                                            .headlineMedium)
-                                    ?.copyWith(fontWeight: FontWeight.w800),
+                                style:
+                                    (CompactPageStyle.of(context).compact
+                                            ? Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge
+                                            : Theme.of(context)
+                                                  .textTheme
+                                                  .headlineMedium)
+                                        ?.copyWith(fontWeight: FontWeight.w800),
                               ),
                               SizedBox(
-                                height:
-                                    CompactPageStyle.of(context).titleSubtitleGap,
+                                height: CompactPageStyle.of(context)
+                                    .titleSubtitleGap,
                               ),
                               Text(
                                 canGoBack
                                     ? 'Pick another company, or go back to the current one.'
                                     : companies.selectedCompany != null
-                                        ? 'Company session expired. Enter the company code again to reload ${companies.selectedCompany!.name}.'
-                                        : 'Swipe to pick a company, then continue to the dashboard.',
+                                    ? 'Company session expired. Enter the company code again to reload ${companies.selectedCompany!.name}.'
+                                    : 'Swipe to pick a company, then continue to the dashboard.',
                                 textAlign: TextAlign.center,
-                                style: (CompactPageStyle.of(context).compact
-                                        ? Theme.of(context).textTheme.bodySmall
-                                        : Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium)
-                                    ?.copyWith(
-                                  color: AppColors.of(context).textSecondary,
-                                ),
+                                style:
+                                    (CompactPageStyle.of(context).compact
+                                            ? Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                            : Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium)
+                                        ?.copyWith(
+                                          color: AppColors.of(context)
+                                              .textSecondary,
+                                        ),
                               ),
                             ],
                           ),
@@ -231,10 +253,10 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen> {
                                         curve: Curves.easeOutCubic,
                                         child: _CompanyCarouselCard(
                                           company: company,
-                                          logoBytes:
-                                              companies.logoFor(company.id),
-                                          logoRevision:
-                                              companies.logoRevision,
+                                          logoBytes: companies.logoFor(
+                                            company.id,
+                                          ),
+                                          logoRevision: companies.logoRevision,
                                           selected: active,
                                           onTap: () => _openCompany(company),
                                         ),
@@ -410,10 +432,11 @@ class _CompanyCarouselCard extends StatelessWidget {
                       textAlign: TextAlign.center,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: (density.compact
-                              ? Theme.of(context).textTheme.titleLarge
-                              : Theme.of(context).textTheme.headlineMedium)
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                      style:
+                          (density.compact
+                                  ? Theme.of(context).textTheme.titleLarge
+                                  : Theme.of(context).textTheme.headlineMedium)
+                              ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: density.cardGap),
                     Text(
@@ -443,10 +466,7 @@ class _CompanyCarouselCard extends StatelessWidget {
 }
 
 class _CarouselDots extends StatelessWidget {
-  const _CarouselDots({
-    required this.count,
-    required this.index,
-  });
+  const _CarouselDots({required this.count, required this.index});
 
   final int count;
   final int index;
@@ -546,10 +566,7 @@ class _CompanyCodeSheetState extends State<_CompanyCodeSheet> {
               },
             ),
             const SizedBox(height: 20),
-            PrimaryButton(
-              label: 'Open company',
-              onPressed: _submit,
-            ),
+            PrimaryButton(label: 'Open company', onPressed: _submit),
           ],
         ),
       ),

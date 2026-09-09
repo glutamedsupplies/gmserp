@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -6,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/snackbar_helper.dart';
+import '../../models/employee_day_schedule_override.dart';
 import '../../models/leave_request.dart';
 import '../../models/staff_assignment.dart';
 import '../../models/time_card_salary.dart';
@@ -14,6 +17,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
+import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
@@ -27,13 +31,32 @@ class EmployeeTimeInOutScreen extends StatefulWidget {
       _EmployeeTimeInOutScreenState();
 }
 
-class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
+class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'companies',
+    'timeEntries',
+    'clockRequests',
+    'leaveRequests',
+    'timeCardDayOverrides',
+    'timeCardSettings',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    _loadedKey = null;
+    await _loadIfReady();
+  }
+
   Timer? _clockTimer;
   DateTime _now = DateTime.now();
   String? _loadedKey;
   int _clockDeclineCount = 0;
   List<LeaveRequest> _leaves = [];
+  List<EmployeeDayScheduleOverride> _dayOverrides = [];
   final _leaveRepository = LeaveRequestRepository();
+  final _dayOverrideRepo = EmployeeDayScheduleOverrideRepository();
 
   bool get _clockRequestsLocked =>
       _clockDeclineCount >= StaffAssignment.clockDeclineLimit;
@@ -62,26 +85,44 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final key = '${user.id}:${company.id}';
     if (_loadedKey == key) return;
     _loadedKey = key;
-    context.read<TimeEntryProvider>().loadForCompany(
-          user: user,
-          company: company,
-        );
+    await context.read<TimeEntryProvider>().loadForCompany(
+      user: user,
+      company: company,
+    );
+    if (!mounted) return;
     await context.read<TimeCardSettingsProvider>().ensureLoaded();
     if (!mounted) return;
     try {
-      final leaves = await _leaveRepository.listForUserCompany(
-        userId: user.id,
-        companyId: company.id,
-      );
-      if (mounted) setState(() => _leaves = leaves);
+      final results = await Future.wait([
+        _leaveRepository.listForUserCompany(
+          userId: user.id,
+          companyId: company.id,
+        ),
+        _dayOverrideRepo.listForUserCompany(
+          userId: user.id,
+          companyId: company.id,
+          companyDocumentId: company.firestoreId,
+        ),
+      ]);
+      if (mounted) {
+        setState(() {
+          _leaves = results[0] as List<LeaveRequest>;
+          _dayOverrides = results[1] as List<EmployeeDayScheduleOverride>;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _leaves = []);
+      if (mounted) {
+        setState(() {
+          _leaves = [];
+          _dayOverrides = [];
+        });
+      }
     }
     if (!mounted) return;
     final declines = await context.read<CompanyProvider>().clockDeclineCountFor(
-          companyId: company.id,
-          userId: user.id,
-        );
+      companyId: company.id,
+      userId: user.id,
+    );
     if (!mounted) return;
     setState(() => _clockDeclineCount = declines);
   }
@@ -128,6 +169,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       weeklySchedule: weeklySchedule,
       globalSchedule: globalSchedule,
       leaves: _leaves,
+      dayOverrides: _dayOverrides,
+      employeeId: user.id,
     )) {
       SnackBarHelper.showError(
         context,
@@ -136,6 +179,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
               weeklySchedule: weeklySchedule,
               globalSchedule: globalSchedule,
               leaves: _leaves,
+              dayOverrides: _dayOverrides,
+              employeeId: user.id,
             ) ??
             'Time in is locked right now.',
       );
@@ -148,9 +193,9 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
         context,
         timeEntries.pendingClockIn != null
             ? 'Your time-in request is already pending approval.'
-            : timeEntries.activeEntry != null
-                ? 'You are already clocked in.'
-                : 'You already completed time in / time out for today.',
+            : timeEntries.activeEntry != null && !timeEntries.hasStaleOpenEntry
+            ? 'You are already clocked in.'
+            : 'You already completed time in / time out for today.',
       );
       return;
     }
@@ -167,13 +212,14 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     if (note == null || !mounted) return;
 
     final ok = await context.read<TimeEntryProvider>().requestClockIn(
-          user: user,
-          company: company,
-          note: note,
-          weeklySchedule: weeklySchedule,
-          globalSchedule: globalSchedule,
-          leaves: _leaves,
-        );
+      user: user,
+      company: company,
+      note: note,
+      weeklySchedule: weeklySchedule,
+      globalSchedule: globalSchedule,
+      leaves: _leaves,
+      dayOverrides: _dayOverrides,
+    );
     if (!mounted) return;
     if (ok) {
       final pending = context.read<TimeEntryProvider>().pendingClockIn;
@@ -196,6 +242,21 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final user = context.read<AuthProvider>().user;
     final company = context.read<CompanyProvider>().selectedCompany;
     if (user == null || company == null) return;
+
+    final clockProvider = context.read<TimeEntryProvider>();
+    if (clockProvider.activeEntry != null && !clockProvider.hasStaleOpenEntry) {
+      final ok = await clockProvider.clockOut(user: user, company: company);
+      if (!mounted) return;
+      if (ok) {
+        SnackBarHelper.showSuccess(context, 'Time out saved.');
+      } else {
+        SnackBarHelper.showError(
+          context,
+          clockProvider.errorMessage ?? 'Could not save time out.',
+        );
+      }
+      return;
+    }
 
     if (_clockRequestsLocked) {
       SnackBarHelper.showError(
@@ -220,18 +281,40 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
 
     final active = timeEntries.activeEntry;
     final pendingIn = timeEntries.pendingClockIn;
+    DateTime? correctedTimeOut;
+    if (active != null && timeEntries.hasStaleOpenEntry) {
+      final day = DateTime.tryParse(active.workDate);
+      if (day == null) return;
+      final picked = await showTimePicker(
+        context: context,
+        initialTime: const TimeOfDay(hour: 18, minute: 0),
+        helpText: 'Actual time out on ${active.workDate}',
+      );
+      if (picked == null || !mounted) return;
+      correctedTimeOut = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        picked.hour,
+        picked.minute,
+      );
+      if (!correctedTimeOut.isAfter(active.timeIn)) {
+        SnackBarHelper.showError(context, 'Time out must be after time in.');
+        return;
+      }
+    }
     final started = active != null
         ? '\nStarted at ${formatClockTime(active.timeIn)}.'
         : pendingIn != null
-            ? '\nPending time in at ${pendingIn.requestedAtLabel} '
-                '(still waiting for approval).'
-            : '';
+        ? '\nPending time in at ${pendingIn.requestedAtLabel} '
+              '(still waiting for approval).'
+        : '';
 
     final note = await _promptNote(
       title: 'Request time out',
       message:
           'Submit a time-out request for ${company.name}.$started\n\n'
-          'Add a note (required). Time in and time out each need their own '
+          'Add a note describing the missed time-out. Corrections need '
           'approval. After 3 declines, new requests are locked until an admin '
           'edits your time card settings.',
       confirmLabel: 'Request time out',
@@ -239,10 +322,11 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     if (note == null || !mounted) return;
 
     final ok = await context.read<TimeEntryProvider>().requestClockOut(
-          user: user,
-          company: company,
-          note: note,
-        );
+      user: user,
+      company: company,
+      note: note,
+      requestedAt: correctedTimeOut,
+    );
     if (!mounted) return;
     if (ok) {
       final pending = context.read<TimeEntryProvider>().pendingClockOut;
@@ -259,6 +343,30 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             'Could not submit time-out request.',
       );
     }
+  }
+
+  String _formatWorkDateLabel(String workDate) {
+    final parts = workDate.split('-');
+    if (parts.length != 3) return workDate;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) return workDate;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[month - 1]} $day, $year';
   }
 
   String _formatDate(DateTime value) {
@@ -312,6 +420,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       weeklySchedule: weeklySchedule,
       globalSchedule: globalSchedule,
       leaves: _leaves,
+      dayOverrides: _dayOverrides,
+      employeeId: user?.id ?? '',
     );
     final clockInWindowOpen = clockInBlockReason == null;
 
@@ -324,14 +434,23 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
       _loadedKey = null;
       _clockDeclineCount = 0;
       _leaves = [];
+      _dayOverrides = [];
     }
 
     final active = timeEntries.activeEntry;
-    final clockedIn = active != null;
+    final todayWorkDate = formatWorkDate(_now);
+    final clockedInToday = active != null && active.workDate == todayWorkDate;
+    final clockedIn = clockedInToday;
     final completedToday = timeEntries.hasCompletedToday;
     final canClockIn = timeEntries.canClockInToday;
     final canClockOut = timeEntries.canClockOutToday;
+    final canClockOutStale = timeEntries.canClockOutStaleSession;
+    final hasStaleOpen = timeEntries.hasStaleOpenEntry;
+    final staleOpenDate = hasStaleOpen ? active?.workDate : null;
     final clockInBlocked = canClockIn && clockInBlockReason != null;
+    final canSubmitTimeIn =
+        canClockIn && clockInWindowOpen && !_clockRequestsLocked;
+    final canSubmitStaleTimeOut = canClockOutStale && !_clockRequestsLocked;
     final pendingIn = timeEntries.pendingClockIn;
     final pendingOut = timeEntries.pendingClockOut;
     final sessionElapsed = _sessionElapsed(active);
@@ -341,14 +460,16 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
     final statusLabel = pendingOut != null && pendingIn != null
         ? 'In & out pending approval'
         : pendingOut != null
-            ? 'Time out pending approval'
-            : clockedIn
-                ? 'Clocked in'
-                : pendingIn != null
-                    ? 'Time in pending approval'
-                    : completedToday
-                        ? 'Completed for today'
-                        : 'Not clocked in';
+        ? 'Time out pending approval'
+        : clockedIn
+        ? hasStaleOpen
+              ? 'Open session from prior day'
+              : 'Clocked in'
+        : pendingIn != null
+        ? 'Time in pending approval'
+        : completedToday
+        ? 'Completed for today'
+        : 'Not clocked in';
     final displayTimeIn =
         active?.timeIn ?? pendingIn?.requestedAt ?? todayRecord?.timeIn;
     final displayTimeOut =
@@ -364,9 +485,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             title: 'Time in / Time out',
             subtitle: company == null
                 ? 'Select a company to record your attendance.'
-                : 'Submit time in / out for ${company.name}. '
-                    'A note is required. Admin or super admin must approve '
-                    'before it is saved.',
+                : 'Record attendance for ${company.name}. '
+                      'Time in requires approval. Time out saves immediately.',
           ),
           if (_clockRequestsLocked) ...[
             SizedBox(height: density.cardGap),
@@ -386,10 +506,10 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                 'Ask an admin or super admin to edit your time card settings '
                 'or unlock your clock requests.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.error,
-                      fontWeight: FontWeight.w600,
-                      fontSize: density.captionSize,
-                    ),
+                  color: AppColors.error,
+                  fontWeight: FontWeight.w600,
+                  fontSize: density.captionSize,
+                ),
               ),
             ),
           ] else if (_clockDeclineCount > 0) ...[
@@ -399,9 +519,9 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
               '${StaffAssignment.clockDeclineLimit}. '
               'After ${StaffAssignment.clockDeclineLimit}, new requests are locked.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: density.captionSize,
-                  ),
+                color: colors.textSecondary,
+                fontSize: density.captionSize,
+              ),
             ),
           ],
           SizedBox(height: density.sectionGap + 4),
@@ -430,14 +550,14 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
                   value: pendingOut != null && pendingIn != null
                       ? 'Both pending'
                       : pendingOut != null
-                          ? 'Out pending'
-                          : clockedIn
-                              ? 'On shift'
-                              : pendingIn != null
-                                  ? 'In pending'
-                                  : completedToday
-                                      ? 'Done'
-                                      : 'Open',
+                      ? 'Out pending'
+                      : clockedIn
+                      ? 'On shift'
+                      : pendingIn != null
+                      ? 'In pending'
+                      : completedToday
+                      ? 'Done'
+                      : 'Open',
                 ),
               ),
             ],
@@ -454,6 +574,32 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             timeOut: displayTimeOut,
           ),
           SizedBox(height: density.sectionGap + 4),
+          if (hasStaleOpen && staleOpenDate != null) ...[
+            SizedBox(height: density.cardGap),
+            Container(
+              width: double.infinity,
+              padding: density.cardPadding,
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(density.radius),
+                border: Border.all(
+                  color: AppColors.warning.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Text(
+                'You forgot to time out on '
+                '${_formatWorkDateLabel(staleOpenDate)}. '
+                'This day earns no salary until corrected. You can still request time in for today. Submit a time-out correction '
+                'for that prior day when you can — admin should approve the '
+                'prior time-out before approving today\'s time-in.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w600,
+                  fontSize: density.captionSize,
+                ),
+              ),
+            ),
+          ],
           if (timeEntries.isLoading)
             Padding(
               padding: EdgeInsets.symmetric(vertical: density.sectionGap),
@@ -461,63 +607,113 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             )
           else ...[
             PrimaryButton(
-              label: _clockRequestsLocked
+              label: _clockRequestsLocked && !clockedInToday
                   ? 'Requests locked'
-                  : pendingOut != null
-                      ? 'Time out pending'
-                      : canClockOut
-                          ? 'Request time out'
-                          : pendingIn != null
-                              ? 'Time in pending'
-                                  : completedToday
-                                      ? 'Completed for today'
-                                      : clockInBlocked
-                                          ? 'Time in locked'
-                                          : 'Request time in',
-              isLoading: timeEntries.isSaving,
-              onPressed: company == null ||
-                      timeEntries.isSaving ||
-                      _clockRequestsLocked
-                  ? null
+                  : pendingOut != null && !canSubmitTimeIn
+                  ? 'Time out pending'
+                  : canSubmitTimeIn
+                  ? pendingIn != null
+                        ? 'Time in pending'
+                        : completedToday
+                        ? 'Completed for today'
+                        : clockInBlocked
+                        ? 'Time in locked'
+                        : 'Request time in'
                   : canClockOut
-                      ? _clockOut
-                      : canClockIn && clockInWindowOpen
-                          ? _clockIn
-                          : null,
+                  ? hasStaleOpen && staleOpenDate != null
+                        ? 'Request prior day time out'
+                        : 'Time out'
+                  : pendingIn != null
+                  ? 'Time in pending'
+                  : completedToday
+                  ? 'Completed for today'
+                  : clockInBlocked
+                  ? 'Time in locked'
+                  : 'Request time in',
+              isLoading: timeEntries.isSaving,
+              onPressed:
+                  company == null ||
+                      timeEntries.isSaving ||
+                      (_clockRequestsLocked && !clockedInToday)
+                  ? null
+                  : canSubmitTimeIn && !clockInBlocked
+                  ? _clockIn
+                  : canClockOut
+                  ? _clockOut
+                  : null,
             ),
+            if (canSubmitTimeIn &&
+                canSubmitStaleTimeOut &&
+                staleOpenDate != null) ...[
+              SizedBox(height: density.cardGap),
+              OutlinedButton(
+                onPressed:
+                    company == null ||
+                        timeEntries.isSaving ||
+                        _clockRequestsLocked
+                    ? null
+                    : _clockOut,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: Size(double.infinity, density.compact ? 48 : 56),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      density.compact ? 22 : 28,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  'Request time out for '
+                  '${_formatWorkDateLabel(staleOpenDate)}',
+                ),
+              ),
+            ],
             SizedBox(height: density.cardGap + 2),
             Text(
               company == null
                   ? 'Open a company from Switch company before clocking in.'
                   : _clockRequestsLocked
-                      ? 'New time in/out requests are locked until an admin '
-                          'or super admin edits your time card settings.'
-                      : pendingOut != null
-                          ? pendingIn != null
-                              ? 'Time in (${pendingIn.requestedAtLabel}) and time out (${pendingOut.requestedAtLabel}) are waiting for approval.'
-                              : 'Time-out request at ${pendingOut.requestedAtLabel} is waiting for approval.'
-                          : canClockOut
-                              ? pendingIn != null
-                                  ? 'Time in is still pending — you can still request time out now for continuous flow.'
-                                  : 'Submit time out when your shift ends. It saves only after approval.'
-                              : pendingIn != null
-                                  ? 'Time-in request at ${pendingIn.requestedAtLabel} is waiting for approval.'
-                                  : clockInBlocked
-                                      ? clockInBlockedMessageOrNull(
-                                            at: _now,
-                                            weeklySchedule: weeklySchedule,
-                                            globalSchedule: globalSchedule,
-                                            leaves: _leaves,
-                                          ) ??
-                                          'Time in is locked right now.'
-                                      : completedToday
-                                          ? 'You already finished attendance for today.'
-                                          : 'Submit time in with a required note. It saves only after approval.',
+                  ? 'New time in/out requests are locked until an admin '
+                        'or super admin edits your time card settings.'
+                  : pendingOut != null
+                  ? pendingIn != null
+                        ? 'Time in (${pendingIn.requestedAtLabel}) and time out (${pendingOut.requestedAtLabel}) are waiting for approval.'
+                        : 'Time-out request at ${pendingOut.requestedAtLabel} is waiting for approval.'
+                  : canSubmitTimeIn
+                  ? hasStaleOpen && staleOpenDate != null
+                        ? 'Request time in for today. You can also '
+                              'submit a time-out for '
+                              '${_formatWorkDateLabel(staleOpenDate)} '
+                              'using the button below.'
+                        : 'Submit time in with a required note. It saves only after approval.'
+                  : canClockOut
+                  ? hasStaleOpen && staleOpenDate != null
+                        ? 'Submit a time-out request for '
+                              '${_formatWorkDateLabel(staleOpenDate)}. '
+                              'You can also request time in for today — '
+                              'admin should approve the prior time-out first.'
+                        : pendingIn != null
+                        ? 'Time in must be approved before you can clock out.'
+                        : 'Tap Time out when your shift ends. It saves immediately without approval.'
+                  : pendingIn != null
+                  ? 'Time-in request at ${pendingIn.requestedAtLabel} is waiting for approval. You can clock out once approved.'
+                  : clockInBlocked
+                  ? clockInBlockedMessageOrNull(
+                          at: _now,
+                          weeklySchedule: weeklySchedule,
+                          globalSchedule: globalSchedule,
+                          leaves: _leaves,
+                          dayOverrides: _dayOverrides,
+                          employeeId: user?.id ?? '',
+                        ) ??
+                        'Time in is locked right now.'
+                  : completedToday
+                  ? 'You already finished attendance for today.'
+                  : 'Submit time in with a required note. It saves only after approval.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: density.captionSize,
-                    color: colors.textSecondary,
-                  ),
+                fontSize: density.captionSize,
+                color: colors.textSecondary,
+              ),
             ),
           ],
           if (timeEntries.recentEntries.isNotEmpty) ...[
@@ -525,9 +721,9 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen> {
             Text(
               'Recent records',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontSize: density.sectionTitleSize,
-                    fontWeight: FontWeight.w700,
-                  ),
+                fontSize: density.sectionTitleSize,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             SizedBox(height: density.cardGap + 2),
             ...timeEntries.recentEntries.map(
@@ -564,9 +760,7 @@ class _LiveClockCard extends StatelessWidget {
     final density = CompactPageStyle.of(context);
 
     return Container(
-      padding: density.cardPadding.add(
-        EdgeInsets.all(density.compact ? 6 : 8),
-      ),
+      padding: density.cardPadding.add(EdgeInsets.all(density.compact ? 6 : 8)),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -576,10 +770,7 @@ class _LiveClockCard extends StatelessWidget {
                   AppColors.primary.withValues(alpha: 0.28),
                   AppColors.primaryDark.withValues(alpha: 0.14),
                 ]
-              : [
-                  colors.header,
-                  colors.inputFill,
-                ],
+              : [colors.header, colors.inputFill],
         ),
         borderRadius: BorderRadius.circular(density.compact ? 16 : 22),
         border: Border.all(
@@ -614,10 +805,12 @@ class _LiveClockCard extends StatelessWidget {
               Text(
                 clockedIn ? 'ON SHIFT' : 'OFF SHIFT',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w800,
-                      color: clockedIn ? AppColors.primaryDark : colors.textSecondary,
-                    ),
+                  letterSpacing: 1.1,
+                  fontWeight: FontWeight.w800,
+                  color: clockedIn
+                      ? AppColors.primaryDark
+                      : colors.textSecondary,
+                ),
               ),
             ],
           ),
@@ -625,18 +818,17 @@ class _LiveClockCard extends StatelessWidget {
           Text(
             formatClockTime(now),
             style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontSize: density.compact ? 36 : 44,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.5,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+              fontSize: density.compact ? 36 : 44,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             dateLabel,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: colors.textSecondary),
           ),
           if (clockedIn && timeIn != null) ...[
             const SizedBox(height: 18),
@@ -654,24 +846,22 @@ class _LiveClockCard extends StatelessWidget {
                 children: [
                   Text(
                     'Current session',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.textSecondary,
-                        ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     formatDuration(sessionElapsed),
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.primaryDark,
-                        ),
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primaryDark,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Started at ${formatClockTime(timeIn!)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.textSecondary,
-                        ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
                   ),
                 ],
               ),
@@ -721,16 +911,16 @@ class _StatTile extends StatelessWidget {
                 Text(
                   label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: density.captionSize,
-                        color: colors.textSecondary,
-                      ),
+                    fontSize: density.captionSize,
+                    color: colors.textSecondary,
+                  ),
                 ),
                 Text(
                   value,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontSize: density.cardTitleSize,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    fontSize: density.cardTitleSize,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -768,9 +958,7 @@ class _DetailPanel extends StatelessWidget {
     final density = CompactPageStyle.of(context);
 
     return Container(
-      padding: density.cardPadding.add(
-        EdgeInsets.all(density.compact ? 2 : 4),
-      ),
+      padding: density.cardPadding.add(EdgeInsets.all(density.compact ? 2 : 4)),
       decoration: BoxDecoration(
         color: colors.header,
         borderRadius: BorderRadius.circular(density.radius),
@@ -782,20 +970,16 @@ class _DetailPanel extends StatelessWidget {
           Text(
             'Record details',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontSize: density.cardTitleSize,
-                  fontWeight: FontWeight.w700,
-                ),
+              fontSize: density.cardTitleSize,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           SizedBox(height: density.cardGap + 2),
           _DetailRow(label: 'Employee', value: user),
           _DetailRow(label: 'Email', value: email),
           _DetailRow(label: 'Company', value: company),
           _DetailRow(label: 'Company ID', value: companyId),
-          _DetailRow(
-            label: 'Status',
-            value: status,
-            highlight: clockedIn,
-          ),
+          _DetailRow(label: 'Status', value: status, highlight: clockedIn),
           _DetailRow(
             label: 'Time in',
             value: timeIn == null ? '—' : formatClockTime(timeIn!),
@@ -834,18 +1018,17 @@ class _DetailRow extends StatelessWidget {
             width: 92,
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ),
           Expanded(
             child: Text(
               value,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
-                    color: highlight ? AppColors.primaryDark : null,
-                  ),
+                fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+                color: highlight ? AppColors.primaryDark : null,
+              ),
             ),
           ),
         ],
@@ -895,18 +1078,17 @@ class _HistoryTile extends StatelessWidget {
               children: [
                 Text(
                   entry.workDate,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontSize: density.cardTitleSize,
-                      ),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontSize: density.cardTitleSize),
                 ),
                 SizedBox(height: density.compact ? 2 : 4),
                 Text(
                   '${formatClockTime(entry.timeIn)} → '
                   '${entry.timeOut == null ? 'Active' : formatClockTime(entry.timeOut!)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: density.captionSize,
-                        color: colors.textSecondary,
-                      ),
+                    fontSize: density.captionSize,
+                    color: colors.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -914,9 +1096,9 @@ class _HistoryTile extends StatelessWidget {
           Text(
             formatDurationShort(entry.duration),
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontSize: density.cardTitleSize,
-                  fontWeight: FontWeight.w700,
-                ),
+              fontSize: density.cardTitleSize,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -987,10 +1169,7 @@ class _ClockNoteDialogState extends State<_ClockNoteDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(
-            'Cancel',
-            style: TextStyle(color: colors.textSecondary),
-          ),
+          child: Text('Cancel', style: TextStyle(color: colors.textSecondary)),
         ),
         FilledButton(
           onPressed: _submit,

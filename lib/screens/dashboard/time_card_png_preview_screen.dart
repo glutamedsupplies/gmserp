@@ -1,7 +1,9 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:photo_view/photo_view.dart';
 
@@ -25,9 +27,11 @@ abstract final class PngReportColors {
   static const rowHighlight = Color(0xFFF7FBEA);
   static const late = Color(0xFFD97706);
   static const leave = AppColors.primaryDark;
+
   /// Complementary to GMS green — used for salary amounts on light backgrounds.
   static const salary = Color(0xFF7C3AED);
   static const salaryDark = Color(0xFF6D28D9);
+
   /// Lighter purple for salary text on the dark total-salary card.
   static const salaryOnDark = Color(0xFFE9D5FF);
 }
@@ -48,6 +52,8 @@ class TimeCardPngPreviewScreen extends StatefulWidget {
     required this.generatedAt,
     DateTime? periodDate,
     this.salaryBreakdowns = const [],
+    this.leaveDaysYtdByUserId = const {},
+    this.highlightEmployeeId,
   }) : periodDate = periodDate ?? generatedAt;
 
   final String employeeName;
@@ -60,6 +66,8 @@ class TimeCardPngPreviewScreen extends StatefulWidget {
   final DateTime generatedAt;
   final DateTime periodDate;
   final List<EmployeeSalaryBreakdown> salaryBreakdowns;
+  final Map<String, int> leaveDaysYtdByUserId;
+  final String? highlightEmployeeId;
 
   @override
   State<TimeCardPngPreviewScreen> createState() =>
@@ -71,6 +79,7 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
   final _photoController = PhotoViewController();
   int _previewGeneration = 0;
   Uint8List? _pngBytes;
+  Size? _previewImageSize;
   bool _capturing = false;
   bool _saving = false;
 
@@ -90,6 +99,48 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
     _photoController.reset();
   }
 
+  Widget _withWheelZoom(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) => Listener(
+        onPointerSignal: (event) {
+          final imageSize = _previewImageSize;
+          if (event is! PointerScrollEvent ||
+              event.scrollDelta.dy == 0 ||
+              imageSize == null) {
+            return;
+          }
+          GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+            final viewport = constraints.biggest;
+            final contained = math.min(
+              viewport.width / imageSize.width,
+              viewport.height / imageSize.height,
+            );
+            final covered = math.max(
+              viewport.width / imageSize.width,
+              viewport.height / imageSize.height,
+            );
+            final current = _photoController.scale ?? contained;
+            if (current <= 0) return;
+            final next =
+                (current *
+                        math.exp(
+                          -event.scrollDelta.dy.clamp(-300, 300) * 0.002,
+                        ))
+                    .clamp(contained * 0.6, covered * 4.5);
+            final focal = event.localPosition - viewport.center(Offset.zero);
+            _photoController.updateMultiple(
+              scale: next,
+              position:
+                  focal -
+                  (focal - _photoController.position) * (next / current),
+            );
+          });
+        },
+        child: child,
+      ),
+    );
+  }
+
   Future<void> _capture() async {
     if (_capturing) return;
     setState(() {
@@ -103,8 +154,9 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
     await WidgetsBinding.instance.endOfFrame;
 
     try {
-      final boundary = _captureKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
+      final boundary =
+          _captureKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
       if (boundary == null || !boundary.hasSize) return;
 
       final image = await boundary.toImage(pixelRatio: 2.5);
@@ -112,6 +164,10 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
       if (!mounted || byteData == null) return;
       setState(() {
         _pngBytes = byteData.buffer.asUint8List();
+        _previewImageSize = Size(
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
         _previewGeneration++;
       });
       _resetZoom();
@@ -172,6 +228,8 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
       generatedAtLabel: _formatGeneratedAt(widget.generatedAt),
       periodDate: widget.periodDate,
       salaryBreakdowns: widget.salaryBreakdowns,
+      leaveDaysYtdByUserId: widget.leaveDaysYtdByUserId,
+      highlightEmployeeId: widget.highlightEmployeeId,
     );
   }
 
@@ -227,65 +285,64 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
                         ),
                       )
                     : _pngBytes == null
-                        ? const Center(
-                            child: Text(
-                              'Preview unavailable',
-                              style: TextStyle(color: Colors.white70),
-                            ),
-                          )
-                        : Column(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Text(
-                                      'Pinch / scroll to zoom · drag to pan',
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    TextButton(
-                                      onPressed: _resetZoom,
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: Colors.white70,
-                                        visualDensity: VisualDensity.compact,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                        ),
-                                      ),
-                                      child: const Text('Reset'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: PhotoView(
-                                  key: ValueKey(_previewGeneration),
-                                  controller: _photoController,
-                                  imageProvider: MemoryImage(_pngBytes!),
-                                  backgroundDecoration: const BoxDecoration(
-                                    color: Colors.transparent,
+                    ? const Center(
+                        child: Text(
+                          'Preview unavailable',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      )
+                    : Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  'Pinch / scroll to zoom · drag to pan',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
                                   ),
-                                  initialScale:
-                                      PhotoViewComputedScale.contained,
-                                  minScale:
-                                      PhotoViewComputedScale.contained * 0.6,
-                                  maxScale:
-                                      PhotoViewComputedScale.covered * 4.5,
-                                  basePosition: Alignment.center,
-                                  tightMode: false,
-                                  filterQuality: FilterQuality.high,
-                                  enablePanAlways: true,
-                                  gestureDetectorBehavior:
-                                      HitTestBehavior.opaque,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                TextButton(
+                                  onPressed: _resetZoom,
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.white70,
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                  child: const Text('Reset'),
+                                ),
+                              ],
+                            ),
                           ),
+                          Expanded(
+                            child: _withWheelZoom(
+                              PhotoView(
+                                key: ValueKey(_previewGeneration),
+                                controller: _photoController,
+                                imageProvider: MemoryImage(_pngBytes!),
+                                backgroundDecoration: const BoxDecoration(
+                                  color: Colors.transparent,
+                                ),
+                                initialScale: PhotoViewComputedScale.contained,
+                                minScale:
+                                    PhotoViewComputedScale.contained * 0.6,
+                                maxScale: PhotoViewComputedScale.covered * 4.5,
+                                basePosition: Alignment.center,
+                                tightMode: false,
+                                filterQuality: FilterQuality.high,
+                                enablePanAlways: true,
+                                gestureDetectorBehavior: HitTestBehavior.opaque,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
               ),
               SafeArea(
                 top: false,
@@ -350,6 +407,8 @@ class _PortraitReportCard extends StatelessWidget {
     required this.generatedAtLabel,
     required this.periodDate,
     this.salaryBreakdowns = const [],
+    this.leaveDaysYtdByUserId = const {},
+    this.highlightEmployeeId,
   });
 
   final String employeeName;
@@ -363,9 +422,23 @@ class _PortraitReportCard extends StatelessWidget {
   final DateTime generatedAt;
   final DateTime periodDate;
   final List<EmployeeSalaryBreakdown> salaryBreakdowns;
+  final Map<String, int> leaveDaysYtdByUserId;
+  final String? highlightEmployeeId;
 
   @override
   Widget build(BuildContext context) {
+    final metaEmployeeId =
+        highlightEmployeeId ??
+        (salaryBreakdowns.length == 1
+            ? salaryBreakdowns.first.employeeId
+            : null);
+    final leaveDaysPeriod = metaEmployeeId == null
+        ? null
+        : leaveDaysInTableRows(rows, employeeId: metaEmployeeId);
+    final leaveDaysYtd = metaEmployeeId == null
+        ? null
+        : leaveDaysYtdByUserId[metaEmployeeId] ?? 0;
+
     return Container(
       width: _kPortraitWidth,
       color: PngReportColors.page,
@@ -388,6 +461,9 @@ class _PortraitReportCard extends StatelessWidget {
             generatedAtLabel: generatedAtLabel,
             rowCount: rows.length,
             daysWithData: rows.where((r) => r.hasData).length,
+            leaveDaysPeriod: leaveDaysPeriod,
+            leaveDaysYtd: leaveDaysYtd,
+            leaveYear: periodDate.year,
           ),
           if (salaryBreakdowns.isNotEmpty) ...[
             const SizedBox(height: 18),
@@ -396,6 +472,7 @@ class _PortraitReportCard extends StatelessWidget {
               breakdowns: salaryBreakdowns,
               periodDate: periodDate,
               employeeName: employeeName,
+              leaveDaysYtdByUserId: leaveDaysYtdByUserId,
             ),
           ],
           const SizedBox(height: 18),
@@ -511,18 +588,21 @@ class _SalarySection extends StatelessWidget {
     required this.breakdowns,
     required this.periodDate,
     required this.employeeName,
+    this.leaveDaysYtdByUserId = const {},
   });
 
   final TimeCardPeriodFilter filter;
   final List<EmployeeSalaryBreakdown> breakdowns;
   final DateTime periodDate;
   final String employeeName;
+  final Map<String, int> leaveDaysYtdByUserId;
 
   @override
   Widget build(BuildContext context) {
     final multi = breakdowns.length > 1;
     final grandNet = totalNetSalary(breakdowns);
-    final periodLabel = '${filter.label} · ${periodSubtitle(filter, periodDate)}';
+    final periodLabel =
+        '${filter.label} · ${periodSubtitle(filter, periodDate)}';
     final single = !multi && breakdowns.length == 1 ? breakdowns.first : null;
     final displayTotal = multi ? grandNet : (single?.netPay ?? grandNet);
     final hasAnyRate = breakdowns.any((item) => item.hasRate);
@@ -535,8 +615,9 @@ class _SalarySection extends StatelessWidget {
             child: _TotalSalaryHero(
               amount: displayTotal,
               periodLabel: periodLabel,
-              employeeLabel:
-                  multi ? '${breakdowns.length} employees' : employeeName,
+              employeeLabel: multi
+                  ? '${breakdowns.length} employees'
+                  : employeeName,
               hasRate: hasAnyRate,
             ),
           ),
@@ -545,6 +626,8 @@ class _SalarySection extends StatelessWidget {
             child: _SalaryBreakdownPanel(
               breakdowns: breakdowns,
               multi: multi,
+              leaveDaysYtdByUserId: leaveDaysYtdByUserId,
+              leaveYear: periodDate.year,
             ),
           ),
         ],
@@ -557,10 +640,14 @@ class _SalaryBreakdownPanel extends StatelessWidget {
   const _SalaryBreakdownPanel({
     required this.breakdowns,
     required this.multi,
+    this.leaveDaysYtdByUserId = const {},
+    required this.leaveYear,
   });
 
   final List<EmployeeSalaryBreakdown> breakdowns;
   final bool multi;
+  final Map<String, int> leaveDaysYtdByUserId;
+  final int leaveYear;
 
   @override
   Widget build(BuildContext context) {
@@ -599,6 +686,8 @@ class _SalaryBreakdownPanel extends StatelessWidget {
             _SalaryBreakdownCard(
               breakdown: breakdowns[i],
               showEmployeeName: multi,
+              leaveDaysYtd: leaveDaysYtdByUserId[breakdowns[i].employeeId] ?? 0,
+              leaveYear: leaveYear,
             ),
           ],
           const SizedBox(height: 12),
@@ -695,9 +784,7 @@ class _TotalSalaryHero extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            hasRate
-                ? EmployeeSalaryBreakdown.formatMoney(amount)
-                : '—',
+            hasRate ? EmployeeSalaryBreakdown.formatMoney(amount) : '—',
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 42,
@@ -709,7 +796,9 @@ class _TotalSalaryHero extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            hasRate ? 'Total net for this period' : 'Set daily rate in Time card settings',
+            hasRate
+                ? 'Total net for this period'
+                : 'Set daily rate in Time card settings',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -727,10 +816,14 @@ class _SalaryBreakdownCard extends StatelessWidget {
   const _SalaryBreakdownCard({
     required this.breakdown,
     required this.showEmployeeName,
+    required this.leaveDaysYtd,
+    required this.leaveYear,
   });
 
   final EmployeeSalaryBreakdown breakdown;
   final bool showEmployeeName;
+  final int leaveDaysYtd;
+  final int leaveYear;
 
   @override
   Widget build(BuildContext context) {
@@ -768,6 +861,16 @@ class _SalaryBreakdownCard extends StatelessWidget {
       _SalaryLine(
         'Payable Days',
         '${breakdown.payableDays}',
+        valueColor: _SalaryValueColor.neutral,
+      ),
+      _SalaryLine(
+        'Leave days (period)',
+        '${breakdown.excuseDays}',
+        valueColor: _SalaryValueColor.neutral,
+      ),
+      _SalaryLine(
+        'Leave days ($leaveYear)',
+        '$leaveDaysYtd',
         valueColor: _SalaryValueColor.neutral,
       ),
       _SalaryLine(
@@ -823,12 +926,6 @@ class _SalaryBreakdownCard extends StatelessWidget {
       if (breakdown.absentDays > 0)
         _SalaryLine(
           'Absent (${breakdown.absentDays} day${breakdown.absentDays == 1 ? '' : 's'})',
-          EmployeeSalaryBreakdown.formatMoney(0),
-          valueColor: _SalaryValueColor.red,
-        ),
-      if (breakdown.excuseDays > 0)
-        _SalaryLine(
-          'On leave (${breakdown.excuseDays} day${breakdown.excuseDays == 1 ? '' : 's'})',
           EmployeeSalaryBreakdown.formatMoney(0),
           valueColor: _SalaryValueColor.red,
         ),
@@ -957,6 +1054,9 @@ class _MetaGrid extends StatelessWidget {
     required this.generatedAtLabel,
     required this.rowCount,
     required this.daysWithData,
+    this.leaveDaysPeriod,
+    this.leaveDaysYtd,
+    this.leaveYear,
   });
 
   final String employeeName;
@@ -966,16 +1066,27 @@ class _MetaGrid extends StatelessWidget {
   final String generatedAtLabel;
   final int rowCount;
   final int daysWithData;
+  final int? leaveDaysPeriod;
+  final int? leaveDaysYtd;
+  final int? leaveYear;
+
+  String? get _leaveDaysLabel {
+    if (leaveDaysPeriod == null || leaveDaysYtd == null || leaveYear == null) {
+      return null;
+    }
+    return '$leaveDaysPeriod this period · $leaveDaysYtd in $leaveYear';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final items = [
+    final items = <_MetaItem>[
       _MetaItem('Employee', employeeName),
       _MetaItem('Email', employeeEmail),
       _MetaItem('Company', companyName),
       _MetaItem('Company ID', companyId),
       _MetaItem('Generated', generatedAtLabel),
       _MetaItem('Records', '$daysWithData / $rowCount days'),
+      if (_leaveDaysLabel != null) _MetaItem('Leave days', _leaveDaysLabel!),
     ];
 
     return Container(
@@ -1077,9 +1188,7 @@ class _ExportTable extends StatelessWidget {
         ),
         for (final row in rows)
           TableRow(
-            decoration: BoxDecoration(
-              color: row.isToday ? _highlight : null,
-            ),
+            decoration: BoxDecoration(color: row.isToday ? _highlight : null),
             children: [
               _Cell(row.workDate, bold: row.isToday || row.hasData),
               _Cell(row.weekday, muted: true),

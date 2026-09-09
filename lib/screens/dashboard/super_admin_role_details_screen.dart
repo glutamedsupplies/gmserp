@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -12,10 +14,7 @@ import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
 
 class SuperAdminRoleDetailsScreen extends StatefulWidget {
-  const SuperAdminRoleDetailsScreen({
-    super.key,
-    required this.listing,
-  });
+  const SuperAdminRoleDetailsScreen({super.key, required this.listing});
 
   final CompanyRoleListing listing;
 
@@ -25,7 +24,33 @@ class SuperAdminRoleDetailsScreen extends StatefulWidget {
 }
 
 class _SuperAdminRoleDetailsScreenState
-    extends State<SuperAdminRoleDetailsScreen> {
+    extends State<SuperAdminRoleDetailsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    await companies.loadAllRoles();
+    if (!mounted) return;
+    for (final item in companies.allRoles) {
+      if (item.company.id == widget.listing.company.id &&
+          item.role.id == _role.id) {
+        final clean =
+            _name.text == _role.name && _description.text == _role.description;
+        setState(() {
+          _role = item.role;
+          if (clean && !_saving) {
+            _name.text = _role.name;
+            _description.text = _role.description;
+          }
+        });
+        break;
+      }
+    }
+  }
+
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
   late final TextEditingController _description;
@@ -81,7 +106,8 @@ class _SuperAdminRoleDetailsScreenState
         }
       }
       setState(() {
-        _role = updated ??
+        _role =
+            updated ??
             _role.copyWith(
               name: _name.text.trim(),
               description: _description.text.trim(),
@@ -118,7 +144,9 @@ class _SuperAdminRoleDetailsScreenState
             padding: CompactPageStyle.of(context).summaryPadding,
             decoration: BoxDecoration(
               color: colors.header,
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               border: Border.all(color: colors.border),
             ),
             child: Row(
@@ -128,8 +156,9 @@ class _SuperAdminRoleDetailsScreenState
                   height: 36,
                   decoration: BoxDecoration(
                     color: AppColors.primary.withValues(alpha: 0.22),
-                    borderRadius:
-                        BorderRadius.circular(CompactPageStyle.of(context).radius),
+                    borderRadius: BorderRadius.circular(
+                      CompactPageStyle.of(context).radius,
+                    ),
                   ),
                   child: const Icon(
                     Icons.badge_outlined,
@@ -141,9 +170,8 @@ class _SuperAdminRoleDetailsScreenState
                 Expanded(
                   child: Text(
                     '$taskCount ${taskCount == 1 ? 'task' : 'tasks'} linked to this role',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                    style: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -152,16 +180,14 @@ class _SuperAdminRoleDetailsScreenState
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             'Edit role',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Change the role name or details, then save.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Form(

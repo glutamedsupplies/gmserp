@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -50,7 +52,16 @@ extension _TaskLinkFilterUi on _TaskLinkFilter {
   }
 }
 
-class _SuperAdminRoleListsScreenState extends State<SuperAdminRoleListsScreen> {
+class _SuperAdminRoleListsScreenState extends State<SuperAdminRoleListsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await context.read<CompanyProvider>().loadAllRoles();
+  }
+
   final _search = TextEditingController();
   String? _companyFilter;
   _TaskLinkFilter _taskLinkFilter = _TaskLinkFilter.all;
@@ -78,10 +89,7 @@ class _SuperAdminRoleListsScreenState extends State<SuperAdminRoleListsScreen> {
     return counts;
   }
 
-  int _taskCountForRole(
-    Map<String, int> lookup,
-    CompanyRoleListing item,
-  ) {
+  int _taskCountForRole(Map<String, int> lookup, CompanyRoleListing item) {
     return lookup['${item.company.id}:${item.role.id}'] ?? 0;
   }
 
@@ -162,9 +170,7 @@ class _SuperAdminRoleListsScreenState extends State<SuperAdminRoleListsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete role'),
-        content: Text(
-          'Delete "${item.role.name}" from ${item.company.name}?',
-        ),
+        content: Text('Delete "${item.role.name}" from ${item.company.name}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -230,7 +236,8 @@ class _SuperAdminRoleListsScreenState extends State<SuperAdminRoleListsScreen> {
     final roles = _filtered(companies, taskCounts);
     final total = companies.allRoles.length;
     final hasSearch = _search.text.trim().isNotEmpty;
-    final hasFilters = _companyFilter != null ||
+    final hasFilters =
+        _companyFilter != null ||
         _taskLinkFilter != _TaskLinkFilter.all ||
         hasSearch;
     final companyFilterName = _selectedCompanyName(companies);
@@ -249,8 +256,7 @@ class _SuperAdminRoleListsScreenState extends State<SuperAdminRoleListsScreen> {
                 children: [
                   const CompactPageHeader(
                     title: 'Role lists',
-                    subtitle:
-                        'Every job role across companies. Filter by company or tasks, then tap to edit.',
+                    subtitle: 'Every job role across companies. Filter by company or tasks, then tap to edit.',
                   ),
                   SizedBox(height: CompactPageStyle.of(context).sectionGap),
                   _SummaryCard(
@@ -399,18 +405,18 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final countLabel =
-        hasFilters ? 'Showing $showing of $total' : '$total roles';
-    final filterParts = [
-      ?companyFilter,
-      ?taskFilter,
-    ];
+    final countLabel = hasFilters
+        ? 'Showing $showing of $total'
+        : '$total roles';
+    final filterParts = [?companyFilter, ?taskFilter];
 
     return Container(
       padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Row(
@@ -420,7 +426,9 @@ class _SummaryCard extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
             ),
             child: const Icon(
               Icons.badge_outlined,
@@ -435,17 +443,15 @@ class _SummaryCard extends StatelessWidget {
               children: [
                 Text(
                   countLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 if (filterParts.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
                     filterParts.join(' • '),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.textSecondary,
-                        ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -486,7 +492,9 @@ class _FilterDropdownShell extends StatelessWidget {
       color: colors.inputFill,
       borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         onTap: enabled ? onTap : null,
         child: InputDecorator(
           decoration: InputDecoration(
@@ -496,15 +504,21 @@ class _FilterDropdownShell extends StatelessWidget {
             fillColor: colors.inputFill,
             contentPadding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             suffixIcon: Icon(
@@ -518,11 +532,7 @@ class _FilterDropdownShell extends StatelessWidget {
               if (leading != null)
                 leading!
               else
-                Icon(
-                  icon,
-                  size: 18,
-                  color: colors.textSecondary,
-                ),
+                Icon(icon, size: 18, color: colors.textSecondary),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -530,10 +540,10 @@ class _FilterDropdownShell extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: muted || !enabled
-                            ? colors.textHint
-                            : colors.textPrimary,
-                      ),
+                    color: muted || !enabled
+                        ? colors.textHint
+                        : colors.textPrimary,
+                  ),
                 ),
               ),
             ],
@@ -669,17 +679,15 @@ class _CompanyFilterPickerSheetState extends State<_CompanyFilterPickerSheet> {
             Text(
               'Filter by company',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Search by company name or ID.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             SizedBox(height: CompactPageStyle.of(context).sectionGap),
             TextField(
@@ -728,11 +736,15 @@ class _CompanyFilterPickerSheetState extends State<_CompanyFilterPickerSheet> {
                             color: allSelected
                                 ? AppColors.primary.withValues(alpha: 0.16)
                                 : colors.inputFill,
-                            borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+                            borderRadius: BorderRadius.circular(
+                              CompactPageStyle.of(context).radius,
+                            ),
                             child: ListTile(
                               dense: true,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+                                borderRadius: BorderRadius.circular(
+                                  CompactPageStyle.of(context).radius,
+                                ),
                                 side: BorderSide(
                                   color: allSelected
                                       ? AppColors.primary
@@ -762,11 +774,15 @@ class _CompanyFilterPickerSheetState extends State<_CompanyFilterPickerSheet> {
                           color: selected
                               ? AppColors.primary.withValues(alpha: 0.16)
                               : colors.inputFill,
-                          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+                          borderRadius: BorderRadius.circular(
+                            CompactPageStyle.of(context).radius,
+                          ),
                           child: ListTile(
                             dense: true,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+                              borderRadius: BorderRadius.circular(
+                                CompactPageStyle.of(context).radius,
+                              ),
                               side: BorderSide(
                                 color: selected
                                     ? AppColors.primary
@@ -791,8 +807,7 @@ class _CompanyFilterPickerSheetState extends State<_CompanyFilterPickerSheet> {
                                     size: 20,
                                   )
                                 : null,
-                            onTap: () =>
-                                Navigator.pop(context, company.id),
+                            onTap: () => Navigator.pop(context, company.id),
                           ),
                         );
                       },
@@ -871,17 +886,15 @@ class _TaskLinkFilterPickerSheet extends StatelessWidget {
             Text(
               'Filter by tasks',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Show roles based on linked tasks.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             SizedBox(height: CompactPageStyle.of(context).sectionGap),
             for (var index = 0; index < options.length; index++) ...[
@@ -922,16 +935,12 @@ class _TaskLinkFilterOption extends StatelessWidget {
       child: ListTile(
         dense: true,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
-          side: BorderSide(
-            color: selected ? AppColors.primary : colors.border,
+          borderRadius: BorderRadius.circular(
+            CompactPageStyle.of(context).radius,
           ),
+          side: BorderSide(color: selected ? AppColors.primary : colors.border),
         ),
-        leading: Icon(
-          filter.icon,
-          color: colors.textSecondary,
-          size: 22,
-        ),
+        leading: Icon(filter.icon, color: colors.textSecondary, size: 22),
         title: Text(filter.label),
         trailing: selected
             ? const Icon(
@@ -972,7 +981,9 @@ class _RoleCard extends StatelessWidget {
         color: colors.card,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+          borderRadius: BorderRadius.circular(
+            CompactPageStyle.of(context).radius,
+          ),
           side: BorderSide(color: colors.border),
         ),
         clipBehavior: Clip.antiAlias,
@@ -983,11 +994,7 @@ class _RoleCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                UserAvatar(
-                  bytes: logoBytes,
-                  name: item.company.name,
-                  size: 36,
-                ),
+                UserAvatar(bytes: logoBytes, name: item.company.name, size: 36),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -995,9 +1002,8 @@ class _RoleCard extends StatelessWidget {
                     children: [
                       Text(
                         role.name,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style: Theme.of(context).textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1005,9 +1011,8 @@ class _RoleCard extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           role.description,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: colors.textSecondary,
-                              ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.textSecondary),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1061,11 +1066,7 @@ class _RoleCard extends StatelessWidget {
 }
 
 class _MiniChip extends StatelessWidget {
-  const _MiniChip({
-    required this.label,
-    required this.fill,
-    this.bold = false,
-  });
+  const _MiniChip({required this.label, required this.fill, this.bold = false});
 
   final String label;
   final Color fill;
@@ -1115,7 +1116,9 @@ class _EmptyState extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -1124,17 +1127,15 @@ class _EmptyState extends StatelessWidget {
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
           if (onAction != null) ...[
             const SizedBox(height: 12),
@@ -1177,11 +1178,8 @@ class _AddRoleSheetState extends State<_AddRoleSheet> {
   void _save() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     FocusScope.of(context).unfocus();
-    Navigator.of(context).pop((
-      _companyId,
-      _name.text.trim(),
-      _description.text.trim(),
-    ));
+    Navigator.of(context)
+        .pop((_companyId, _name.text.trim(), _description.text.trim()));
   }
 
   @override
@@ -1212,17 +1210,15 @@ class _AddRoleSheetState extends State<_AddRoleSheet> {
               Text(
                 'Add role',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
               SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
               Text(
                 'Create a job role for a company. Tasks can be linked to it later.',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colors.textSecondary),
               ),
               SizedBox(height: CompactPageStyle.of(context).sectionGap),
               DropdownButtonFormField<String>(
@@ -1231,10 +1227,7 @@ class _AddRoleSheetState extends State<_AddRoleSheet> {
                 decoration: const InputDecoration(labelText: 'Company'),
                 items: [
                   for (final item in widget.companies)
-                    DropdownMenuItem(
-                      value: item.id,
-                      child: Text(item.name),
-                    ),
+                    DropdownMenuItem(value: item.id, child: Text(item.name)),
                 ],
                 onChanged: (value) {
                   if (value == null) return;
@@ -1264,10 +1257,7 @@ class _AddRoleSheetState extends State<_AddRoleSheet> {
                 onFieldSubmitted: (_) => _save(),
               ),
               const SizedBox(height: 20),
-              PrimaryButton(
-                label: 'Save role',
-                onPressed: _save,
-              ),
+              PrimaryButton(label: 'Save role', onPressed: _save),
             ],
           ),
         ),

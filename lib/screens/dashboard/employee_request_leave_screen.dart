@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -23,8 +25,17 @@ class EmployeeRequestLeaveScreen extends StatefulWidget {
       _EmployeeRequestLeaveScreenState();
 }
 
-class _EmployeeRequestLeaveScreenState
-    extends State<EmployeeRequestLeaveScreen> {
+class _EmployeeRequestLeaveScreenState extends State<EmployeeRequestLeaveScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['leaveRequests', 'companies'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    _takenCompanyKey = null;
+    await _ensureTakenDatesLoaded();
+  }
+
   var _formKey = GlobalKey<FormState>();
   final _reason = TextEditingController();
   final _repository = LeaveRequestRepository();
@@ -160,7 +171,7 @@ class _EmployeeRequestLeaveScreenState
         : (_endDate ?? _startDate ?? DateTime.now());
     final initial =
         _firstSelectableOnOrAfter(preferred, lastDate) ??
-            _firstSelectableOnOrAfter(firstDate, lastDate);
+        _firstSelectableOnOrAfter(firstDate, lastDate);
     if (initial == null) {
       SnackBarHelper.showInfo(
         context,
@@ -193,8 +204,7 @@ class _EmployeeRequestLeaveScreenState
         if (_endDate != null && _endDate!.isBefore(picked)) {
           _endDate = picked;
         }
-        if (_endDate != null &&
-            _rangeContainsTaken(_startDate!, _endDate!)) {
+        if (_endDate != null && _rangeContainsTaken(_startDate!, _endDate!)) {
           _endDate = null;
           SnackBarHelper.showInfo(
             context,
@@ -202,8 +212,7 @@ class _EmployeeRequestLeaveScreenState
           );
         }
       } else {
-        if (_startDate != null &&
-            _rangeContainsTaken(_startDate!, picked)) {
+        if (_startDate != null && _rangeContainsTaken(_startDate!, picked)) {
           SnackBarHelper.showInfo(
             context,
             'That range includes a date already on leave. Pick another end date.',
@@ -309,7 +318,7 @@ class _EmployeeRequestLeaveScreenState
                 subtitle: company == null
                     ? 'Select a company first, then submit a leave request.'
                     : 'Leave for ${company.name} appears as On Leave on your time card. '
-                        'Dates already approved or pending are marked Taken and cannot be reused.',
+                          'Dates already approved or pending are marked Taken and cannot be reused.',
               ),
               SizedBox(height: density.sectionGap + 6),
               if (company != null) ...[
@@ -324,9 +333,7 @@ class _EmployeeRequestLeaveScreenState
                           Expanded(
                             child: Text(
                               'Taken leave dates',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
+                              style: Theme.of(context).textTheme.titleSmall
                                   ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                           ),
@@ -342,10 +349,8 @@ class _EmployeeRequestLeaveScreenState
                       if (!_loadingTaken && _activeLeaves.isEmpty)
                         Text(
                           'No approved or pending leave yet. All dates are available.',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: colors.textSecondary,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.textSecondary),
                         )
                       else
                         for (final leave in _activeLeaves) ...[
@@ -361,12 +366,14 @@ class _EmployeeRequestLeaveScreenState
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: leave.status.toLowerCase() ==
-                                            'approved'
-                                        ? AppColors.success
-                                            .withValues(alpha: 0.14)
-                                        : AppColors.primaryDark
-                                            .withValues(alpha: 0.12),
+                                    color:
+                                        leave.status.toLowerCase() == 'approved'
+                                        ? AppColors.success.withValues(
+                                            alpha: 0.14,
+                                          )
+                                        : AppColors.primaryDark.withValues(
+                                            alpha: 0.12,
+                                          ),
                                     borderRadius: BorderRadius.circular(99),
                                   ),
                                   child: Text(
@@ -377,7 +384,8 @@ class _EmployeeRequestLeaveScreenState
                                         .textTheme
                                         .labelSmall
                                         ?.copyWith(
-                                          color: leave.status.toLowerCase() ==
+                                          color:
+                                              leave.status.toLowerCase() ==
                                                   'approved'
                                               ? AppColors.success
                                               : AppColors.primaryDark,
@@ -392,12 +400,8 @@ class _EmployeeRequestLeaveScreenState
                                     leave.startDate == leave.endDate
                                         ? leave.startDate
                                         : '${leave.startDate} → ${leave.endDate}',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(fontWeight: FontWeight.w700),
                                   ),
                                 ),
                               ],
@@ -444,8 +448,9 @@ class _EmployeeRequestLeaveScreenState
                     PrimaryButton(
                       label: 'Submit request',
                       isLoading: _submitting,
-                      onPressed:
-                          _submitting || company == null ? null : _submit,
+                      onPressed: _submitting || company == null
+                          ? null
+                          : _submit,
                     ),
                   ],
                 ),

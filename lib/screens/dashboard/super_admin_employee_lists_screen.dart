@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -31,7 +33,20 @@ class SuperAdminEmployeeListsScreen extends StatefulWidget {
 enum _MemberRoleFilter { all, admin, employee }
 
 class _SuperAdminEmployeeListsScreenState
-    extends State<SuperAdminEmployeeListsScreen> {
+    extends State<SuperAdminEmployeeListsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    await companies.loadCompanies();
+    if (mounted && _companyId != null) {
+      await companies.loadCompanyUsers(_companyId!);
+    }
+  }
+
   final _search = TextEditingController();
   late final LazyListPager _pager;
   String? _companyId;
@@ -67,7 +82,7 @@ class _SuperAdminEmployeeListsScreenState
       _companyId = companyId;
       _search.clear();
       _roleFilter = _MemberRoleFilter.all;
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
     await context.read<CompanyProvider>().loadCompanyUsers(companyId);
   }
@@ -113,8 +128,7 @@ class _SuperAdminEmployeeListsScreenState
     return staff.where((member) {
       if (!_matchesRoleFilter(companies, member)) return false;
       if (query.isEmpty) return true;
-      final level =
-          companies.memberAccessRole(member).label.toLowerCase();
+      final level = companies.memberAccessRole(member).label.toLowerCase();
       return member.username.toLowerCase().contains(query) ||
           member.email.toLowerCase().contains(query) ||
           member.userId.toLowerCase().contains(query) ||
@@ -241,17 +255,15 @@ class _SuperAdminEmployeeListsScreenState
                 Text(
                   'Access in ${company.name}',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'This only affects ${member.username} in this company — not their access in other companies.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colors.textSecondary,
-                      ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: colors.textSecondary),
                 ),
                 const SizedBox(height: 14),
                 for (final level in [UserRole.employee, UserRole.admin])
@@ -395,8 +407,7 @@ class _SuperAdminEmployeeListsScreenState
         children: [
           const CompactPageHeader(
             title: 'Employee lists',
-            subtitle:
-                'Select a company, add admins and employees, then tap to assign role and tasks.',
+            subtitle: 'Select a company, add admins and employees, then tap to assign role and tasks.',
           ),
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (companies.companies.isEmpty)
@@ -426,9 +437,9 @@ class _SuperAdminEmployeeListsScreenState
             Text(
               'Role',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.of(context).textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: AppColors.of(context).textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             SingleChildScrollView(
@@ -440,7 +451,7 @@ class _SuperAdminEmployeeListsScreenState
                     selected: _roleFilter == _MemberRoleFilter.all,
                     onSelected: () => setState(() {
                       _roleFilter = _MemberRoleFilter.all;
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                   ),
                   const SizedBox(width: 8),
@@ -449,7 +460,7 @@ class _SuperAdminEmployeeListsScreenState
                     selected: _roleFilter == _MemberRoleFilter.admin,
                     onSelected: () => setState(() {
                       _roleFilter = _MemberRoleFilter.admin;
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                   ),
                   const SizedBox(width: 8),
@@ -458,7 +469,7 @@ class _SuperAdminEmployeeListsScreenState
                     selected: _roleFilter == _MemberRoleFilter.employee,
                     onSelected: () => setState(() {
                       _roleFilter = _MemberRoleFilter.employee;
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                   ),
                 ],
@@ -471,15 +482,16 @@ class _SuperAdminEmployeeListsScreenState
                   child: CompactSearchField(
                     controller: _search,
                     onChanged: (_) => setState(() {
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                     hintText: 'Search name, email, role, or task',
                   ),
                 ),
                 const SizedBox(width: 10),
                 FilledButton.icon(
-                  onPressed:
-                      companies.isLoading || company == null ? null : _addEmployee,
+                  onPressed: companies.isLoading || company == null
+                      ? null
+                      : _addEmployee,
                   icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
                   label: const Text('Add'),
                 ),
@@ -495,7 +507,8 @@ class _SuperAdminEmployeeListsScreenState
               _EmptyState(
                 icon: Icons.groups_outlined,
                 title: 'No members yet',
-                message: 'Add an admin or employee to this company to get started.',
+                message:
+                    'Add an admin or employee to this company to get started.',
                 actionLabel: 'Add member',
                 onAction: company == null ? null : _addEmployee,
               )
@@ -509,7 +522,7 @@ class _SuperAdminEmployeeListsScreenState
                   _search.clear();
                   setState(() {
                     _roleFilter = _MemberRoleFilter.all;
-                    _pager.reset();
+                    if (!isRealtimeRefresh) _pager.reset();
                   });
                 },
               )
@@ -568,7 +581,9 @@ class _SummaryCard extends StatelessWidget {
       padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Row(
@@ -578,7 +593,9 @@ class _SummaryCard extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
             ),
             child: const Icon(
               Icons.badge_outlined,
@@ -593,18 +610,16 @@ class _SummaryCard extends StatelessWidget {
               children: [
                 Text(
                   companyName,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '$countLabel  •  $assigned assigned',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colors.textSecondary,
-                      ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: colors.textSecondary),
                 ),
               ],
             ),
@@ -662,7 +677,9 @@ class _CompanySearchDropdown extends StatelessWidget {
       color: colors.inputFill,
       borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         onTap: () => _openPicker(context),
         child: InputDecorator(
           decoration: InputDecoration(
@@ -672,11 +689,15 @@ class _CompanySearchDropdown extends StatelessWidget {
             fillColor: colors.inputFill,
             contentPadding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             suffixIcon: Icon(
@@ -708,10 +729,10 @@ class _CompanySearchDropdown extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: selected == null
-                            ? colors.textHint
-                            : colors.textPrimary,
-                      ),
+                    color: selected == null
+                        ? colors.textHint
+                        : colors.textPrimary,
+                  ),
                 ),
               ),
             ],
@@ -783,17 +804,15 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
             Text(
               'Select company',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Search by company name or ID.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             SizedBox(height: CompactPageStyle.of(context).sectionGap),
             TextField(
@@ -804,8 +823,10 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 hintText: 'Search companies...',
                 hintStyle: TextStyle(fontSize: 12, color: colors.textHint),
                 prefixIcon: Icon(
@@ -813,8 +834,10 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                   size: 18,
                   color: colors.textHint,
                 ),
-                prefixIconConstraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 32),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 32,
+                ),
                 suffixIcon: _query.text.isEmpty
                     ? null
                     : IconButton(
@@ -828,13 +851,15 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                 filled: true,
                 fillColor: colors.card,
                 border: OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderRadius: BorderRadius.circular(
+                    CompactPageStyle.of(context).radius,
+                  ),
                   borderSide: BorderSide(color: colors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderRadius: BorderRadius.circular(
+                    CompactPageStyle.of(context).radius,
+                  ),
                   borderSide: BorderSide(color: colors.border),
                 ),
               ),
@@ -856,8 +881,9 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                   : ListView.separated(
                       shrinkWrap: true,
                       itemCount: items.length,
-                      separatorBuilder: (context, index) =>
-                          SizedBox(height: CompactPageStyle.of(context).cardGap),
+                      separatorBuilder: (context, index) => SizedBox(
+                        height: CompactPageStyle.of(context).cardGap,
+                      ),
                       itemBuilder: (context, index) {
                         final company = items[index];
                         final selected = company.id == widget.selectedId;
@@ -865,8 +891,9 @@ class _CompanyPickerSheetState extends State<_CompanyPickerSheet> {
                           color: selected
                               ? AppColors.primary.withValues(alpha: 0.16)
                               : colors.inputFill,
-                          borderRadius:
-                              BorderRadius.circular(CompactPageStyle.of(context).radius),
+                          borderRadius: BorderRadius.circular(
+                            CompactPageStyle.of(context).radius,
+                          ),
                           child: ListTile(
                             dense: true,
                             shape: RoundedRectangleBorder(
@@ -932,8 +959,7 @@ class _EmployeeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final name =
-        member.username.isEmpty ? 'Unnamed employee' : member.username;
+    final name = member.username.isEmpty ? 'Unnamed employee' : member.username;
 
     return Padding(
       padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
@@ -941,7 +967,9 @@ class _EmployeeCard extends StatelessWidget {
         color: colors.card,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+          borderRadius: BorderRadius.circular(
+            CompactPageStyle.of(context).radius,
+          ),
           side: BorderSide(color: colors.border),
         ),
         clipBehavior: Clip.antiAlias,
@@ -952,11 +980,7 @@ class _EmployeeCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                UserAvatar(
-                  name: name,
-                  bytes: null,
-                  size: 36,
-                ),
+                UserAvatar(name: name, bytes: null, size: 36),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -967,27 +991,21 @@ class _EmployeeCard extends StatelessWidget {
                           Expanded(
                             child: Text(
                               name,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
+                              style: Theme.of(context).textTheme.titleSmall
                                   ?.copyWith(fontWeight: FontWeight.w700),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 6),
-                          _MiniChip(
-                            label: levelLabel,
-                            fill: colors.chip,
-                          ),
+                          _MiniChip(label: levelLabel, fill: colors.chip),
                         ],
                       ),
                       const SizedBox(height: 2),
                       Text(
                         member.email,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colors.textSecondary),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1006,12 +1024,11 @@ class _EmployeeCard extends StatelessWidget {
                             bold: member.jobRole.isNotEmpty,
                           ),
                           if (member.tasks.isEmpty)
-                            _MiniChip(
-                              label: 'No tasks',
-                              fill: colors.inputFill,
-                            )
+                            _MiniChip(label: 'No tasks', fill: colors.inputFill)
                           else
-                            ...member.tasks.take(3).map(
+                            ...member.tasks
+                                .take(3)
+                                .map(
                                   (task) => _MiniChip(
                                     label: task,
                                     fill: colors.inputFill,
@@ -1089,9 +1106,7 @@ class _RoleFilterChip extends StatelessWidget {
       onSelected: (_) => onSelected(),
       selectedColor: AppColors.primary.withValues(alpha: 0.28),
       backgroundColor: colors.inputFill,
-      side: BorderSide(
-        color: selected ? AppColors.primary : colors.border,
-      ),
+      side: BorderSide(color: selected ? AppColors.primary : colors.border),
       labelStyle: TextStyle(
         color: colors.textPrimary,
         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
@@ -1101,11 +1116,7 @@ class _RoleFilterChip extends StatelessWidget {
 }
 
 class _MiniChip extends StatelessWidget {
-  const _MiniChip({
-    required this.label,
-    required this.fill,
-    this.bold = false,
-  });
+  const _MiniChip({required this.label, required this.fill, this.bold = false});
 
   final String label;
   final Color fill;
@@ -1155,7 +1166,9 @@ class _EmptyState extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -1164,17 +1177,15 @@ class _EmptyState extends StatelessWidget {
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
           if (onAction != null && actionLabel != null) ...[
             SizedBox(height: CompactPageStyle.of(context).sectionGap),
@@ -1212,7 +1223,12 @@ class _AddEmployeeSheetState extends State<_AddEmployeeSheet> {
     final density = CompactPageStyle.of(context);
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          12,
+          16,
+          16 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1231,9 +1247,8 @@ class _AddEmployeeSheetState extends State<_AddEmployeeSheet> {
             Text(
               _selected == null ? 'Add member' : 'Access for this company',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             SizedBox(height: density.titleSubtitleGap),
             Text(
@@ -1241,9 +1256,8 @@ class _AddEmployeeSheetState extends State<_AddEmployeeSheet> {
                   ? 'Choose an account, then set Admin or Employee for this company only.'
                   : 'Account role elsewhere does not carry over — pick access for this company.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             SizedBox(height: density.sectionGap),
             if (_selected == null)
@@ -1344,10 +1358,7 @@ class _AddEmployeeSheetState extends State<_AddEmployeeSheet> {
                 label: 'Add as ${_accessLevel.label}',
                 onPressed: () => Navigator.pop(
                   context,
-                  _AddMemberPick(
-                    user: _selected!,
-                    accessLevel: _accessLevel,
-                  ),
+                  _AddMemberPick(user: _selected!, accessLevel: _accessLevel),
                 ),
               ),
             ],
@@ -1394,8 +1405,8 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
     super.initState();
     final existingRole =
         widget.roles.any((role) => role.id == widget.member.roleId)
-            ? widget.member.roleId
-            : widget.roles.first.id;
+        ? widget.member.roleId
+        : widget.roles.first.id;
     _roleId = existingRole;
     final matching = _tasksForRole(_roleId);
     final allowed = matching.map((task) => task.title).toSet();
@@ -1454,17 +1465,15 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
             Text(
               name,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
             Text(
               'Pick a role, then select tasks.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             SizedBox(height: CompactPageStyle.of(context).sectionGap),
             DropdownButtonFormField<String>(
@@ -1475,29 +1484,31 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
               decoration: InputDecoration(
                 labelText: 'Role',
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 border: OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderRadius: BorderRadius.circular(
+                    CompactPageStyle.of(context).radius,
+                  ),
                 ),
               ),
               style: Theme.of(context).textTheme.bodySmall,
               items: [
                 for (final item in widget.roles)
-                  DropdownMenuItem(
-                    value: item.id,
-                    child: Text(item.name),
-                  ),
+                  DropdownMenuItem(value: item.id, child: Text(item.name)),
               ],
               onChanged: (value) {
                 if (value == null) return;
                 setState(() {
                   _roleId = value;
-                  final allowed =
-                      _tasksForRole(value).map((task) => task.title).toSet();
-                  _selectedTasks =
-                      _selectedTasks.where(allowed.contains).toSet();
+                  final allowed = _tasksForRole(value)
+                      .map((task) => task.title)
+                      .toSet();
+                  _selectedTasks = _selectedTasks
+                      .where(allowed.contains)
+                      .toSet();
                 });
               },
             ),
@@ -1507,8 +1518,9 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                 padding: CompactPageStyle.of(context).cardPadding,
                 decoration: BoxDecoration(
                   color: colors.inputFill,
-                  borderRadius:
-                      BorderRadius.circular(CompactPageStyle.of(context).radius),
+                  borderRadius: BorderRadius.circular(
+                    CompactPageStyle.of(context).radius,
+                  ),
                   border: Border.all(color: colors.border),
                 ),
                 child: Text(
@@ -1532,8 +1544,9 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
                       color: selected
                           ? AppColors.primary.withValues(alpha: 0.16)
                           : colors.inputFill,
-                      borderRadius:
-                          BorderRadius.circular(CompactPageStyle.of(context).radius),
+                      borderRadius: BorderRadius.circular(
+                        CompactPageStyle.of(context).radius,
+                      ),
                       child: ListTile(
                         dense: true,
                         shape: RoundedRectangleBorder(
@@ -1574,9 +1587,8 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
               Text(
                 '${_selectedTasks.length} selected',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colors.textSecondary),
               ),
             ],
             SizedBox(height: CompactPageStyle.of(context).sectionGap),
@@ -1585,13 +1597,13 @@ class _AssignEmployeeSheetState extends State<_AssignEmployeeSheet> {
               onPressed: role == null
                   ? null
                   : () => Navigator.pop(
-                        context,
-                        _StaffRoleTaskPick(
-                          roleId: role.id,
-                          roleName: role.name,
-                          tasks: _selectedTasks.toList()..sort(),
-                        ),
+                      context,
+                      _StaffRoleTaskPick(
+                        roleId: role.id,
+                        roleName: role.name,
+                        tasks: _selectedTasks.toList()..sort(),
                       ),
+                    ),
             ),
             const SizedBox(height: 4),
             Row(

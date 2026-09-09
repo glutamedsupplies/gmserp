@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -27,9 +29,20 @@ class SuperAdminUsersScreen extends StatefulWidget {
   State<SuperAdminUsersScreen> createState() => _SuperAdminUsersScreenState();
 }
 
-class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
+class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await context.read<CompanyProvider>().loadUsersPage();
+    if (mounted && _companyFilter != null) await _reloadStaffForFilter();
+  }
+
   final _search = TextEditingController();
   late final LazyListPager _pager;
+
   /// Selected company key — matches [CompanyModel.id] (same as other list screens).
   String? _companyFilter;
   UserRole? _levelFilter;
@@ -64,10 +77,9 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
   }
 
   List<UserModel> _superAdmins(List<UserModel> users) {
-    return users.where(_isSuperAdmin).toList()
-      ..sort(
-        (a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()),
-      );
+    return users.where(_isSuperAdmin).toList()..sort(
+      (a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()),
+    );
   }
 
   String _companyKey(String value) {
@@ -146,8 +158,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
     final loadKey = company?.id ?? filter;
 
     try {
-      final loaded =
-          await provider.fetchStaffForCompany(loadKey);
+      final loaded = await provider.fetchStaffForCompany(loadKey);
       if (!mounted || _companyFilter != filter) return;
       setState(() {
         _companyStaff = loaded;
@@ -164,7 +175,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       _companyFilter = companyId;
       _companyStaff = [];
       _loadingCompanyStaff = companyId != null;
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
     if (companyId == null) return;
     await _reloadStaffForFilter();
@@ -179,8 +190,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
 
     for (final user in companies.users) {
       if (userId.isNotEmpty && user.id == userId) return user;
-      if (email.isNotEmpty &&
-          user.email.trim().toLowerCase() == email) {
+      if (email.isNotEmpty && user.email.trim().toLowerCase() == email) {
         return user;
       }
     }
@@ -189,8 +199,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
 
     return UserModel(
       id: userId.isNotEmpty ? userId : email,
-      username:
-          assignment.username.isNotEmpty ? assignment.username : email,
+      username: assignment.username.isNotEmpty ? assignment.username : email,
       email: assignment.email,
       phoneNumber: '',
       role: UserRole.user,
@@ -231,7 +240,9 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
         if (user != null) addUser(user);
       }
       for (final user in companies.users) {
-        if (assignments.any((assignment) => _staffMatchesUser(assignment, user))) {
+        if (assignments.any(
+          (assignment) => _staffMatchesUser(assignment, user),
+        )) {
           addUser(user);
         }
       }
@@ -270,7 +281,9 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
         if (user != null) countUser(user);
       }
       for (final user in companies.users) {
-        if (assignments.any((assignment) => _staffMatchesUser(assignment, user))) {
+        if (assignments.any(
+          (assignment) => _staffMatchesUser(assignment, user),
+        )) {
           countUser(user);
         }
       }
@@ -303,7 +316,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       _loadingCompanyStaff = false;
       _levelFilter = null;
       _search.clear();
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
   }
 
@@ -350,7 +363,11 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
         return SimpleDialog(
           title: const Text('Set user level'),
           children: [
-            for (final role in [UserRole.user, UserRole.employee, UserRole.admin])
+            for (final role in [
+              UserRole.user,
+              UserRole.employee,
+              UserRole.admin,
+            ])
               SimpleDialogOption(
                 onPressed: () => Navigator.pop(context, role),
                 child: Text(
@@ -362,8 +379,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       },
     );
     if (selected == null || !mounted) return;
-    if (selected == user.role &&
-        !RolePolicy.hasCompanyAccess(selected)) {
+    if (selected == user.role && !RolePolicy.hasCompanyAccess(selected)) {
       return;
     }
 
@@ -425,7 +441,8 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
       if (!synced) {
         SnackBarHelper.showError(
           context,
-          provider.errorMessage ?? 'Level updated but company assignment failed.',
+          provider.errorMessage ??
+              'Level updated but company assignment failed.',
         );
         return;
       }
@@ -452,7 +469,10 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
     if (!mounted) return;
 
     String message;
-    if (RolePolicy.clearsCompanyMembership(previous: user.role, next: selected)) {
+    if (RolePolicy.clearsCompanyMembership(
+      previous: user.role,
+      next: selected,
+    )) {
       message =
           '${selected.label} level applied. Company tasks and assignments were removed.';
     } else if (RolePolicy.hasCompanyAccess(selected) && companyIds != null) {
@@ -495,8 +515,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                 children: [
                   const CompactPageHeader(
                     title: 'User levels',
-                    subtitle:
-                        'Set account levels and filter by company or account level.',
+                    subtitle: 'Set account levels and filter by company or account level.',
                   ),
                   if (superAdmins.isNotEmpty) ...[
                     SizedBox(height: CompactPageStyle.of(context).sectionGap),
@@ -546,7 +565,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                           selected: _levelFilter,
                           onSelected: (level) => setState(() {
                             _levelFilter = level;
-                            _pager.reset();
+                            if (!isRealtimeRefresh) _pager.reset();
                           }),
                         ),
                       ),
@@ -556,7 +575,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
                   CompactSearchField(
                     controller: _search,
                     onChanged: (_) => setState(() {
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                     hintText: 'Search name, email, or level',
                   ),
@@ -582,16 +601,12 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
           else if (companies.errorMessage != null && companies.users.isEmpty)
             SliverPadding(
               padding: CompactPageStyle.of(context).listPadding,
-              sliver: SliverToBoxAdapter(
-                child: Text(companies.errorMessage!),
-              ),
+              sliver: SliverToBoxAdapter(child: Text(companies.errorMessage!)),
             )
           else if (regularTotal == 0 && superAdmins.isEmpty)
             SliverPadding(
               padding: CompactPageStyle.of(context).listPadding,
-              sliver: SliverToBoxAdapter(
-                child: Text('No users found.'),
-              ),
+              sliver: SliverToBoxAdapter(child: Text('No users found.')),
             )
           else if (_loadingCompanyStaff)
             SliverPadding(
@@ -608,8 +623,7 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen> {
               padding: CompactPageStyle.of(context).listPadding,
               sliver: SliverToBoxAdapter(
                 child: _EmptyState(
-                  message:
-                      'No users match these filters. Try another company, level, or search.',
+                  message: 'No users match these filters. Try another company, level, or search.',
                   actionLabel: 'Clear filters',
                   onAction: _clearFilters,
                 ),
@@ -655,9 +669,9 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       title,
       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            color: AppColors.of(context).textSecondary,
-            fontWeight: FontWeight.w600,
-          ),
+        color: AppColors.of(context).textSecondary,
+        fontWeight: FontWeight.w600,
+      ),
     );
   }
 }
@@ -680,18 +694,18 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final countLabel =
-        hasFilters ? 'Showing $showing of $total' : '$total users';
-    final filterParts = [
-      ?companyFilter,
-      ?levelFilter,
-    ];
+    final countLabel = hasFilters
+        ? 'Showing $showing of $total'
+        : '$total users';
+    final filterParts = [?companyFilter, ?levelFilter];
 
     return Container(
       padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Row(
@@ -701,7 +715,9 @@ class _SummaryCard extends StatelessWidget {
             height: 32,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
             ),
             child: const Icon(
               Icons.manage_accounts_outlined,
@@ -716,17 +732,15 @@ class _SummaryCard extends StatelessWidget {
               children: [
                 Text(
                   countLabel,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 if (filterParts.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
                     filterParts.join(' • '),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.textSecondary,
-                        ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -761,9 +775,13 @@ class _UserLevelTile extends StatelessWidget {
       padding: EdgeInsets.only(bottom: CompactPageStyle.of(context).cardGap),
       child: Material(
         color: colors.card,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+          borderRadius: BorderRadius.circular(
+            CompactPageStyle.of(context).radius,
+          ),
           onTap: onTap,
           child: Padding(
             padding: CompactPageStyle.of(context).cardPadding,
@@ -784,9 +802,8 @@ class _UserLevelTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         subtitle,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colors.textSecondary),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -828,13 +845,18 @@ class _EmptyState extends StatelessWidget {
       padding: CompactPageStyle.of(context).cardPadding,
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
-          Icon(Icons.filter_alt_off_rounded,
-              size: 28, color: colors.textSecondary),
+          Icon(
+            Icons.filter_alt_off_rounded,
+            size: 28,
+            color: colors.textSecondary,
+          ),
           SizedBox(height: CompactPageStyle.of(context).cardGap),
           Text(
             message,
@@ -876,7 +898,9 @@ class _FilterDropdownShell extends StatelessWidget {
       color: colors.inputFill,
       borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         onTap: enabled ? onTap : null,
         child: InputDecorator(
           decoration: InputDecoration(
@@ -886,15 +910,21 @@ class _FilterDropdownShell extends StatelessWidget {
             fillColor: colors.inputFill,
             contentPadding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
               borderSide: BorderSide(color: colors.border),
             ),
             suffixIcon: Icon(
@@ -916,10 +946,10 @@ class _FilterDropdownShell extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: muted || !enabled
-                            ? colors.textHint
-                            : colors.textPrimary,
-                      ),
+                    color: muted || !enabled
+                        ? colors.textHint
+                        : colors.textPrimary,
+                  ),
                 ),
               ),
             ],
@@ -1117,7 +1147,8 @@ class _CompanyFilterPickerSheetState extends State<_CompanyFilterPickerSheet> {
                           );
                         }
                         final company = items[index - 1];
-                        final selected = company.firestoreId == widget.selectedId ||
+                        final selected =
+                            company.firestoreId == widget.selectedId ||
                             company.id == widget.selectedId;
                         return _PickerTile(
                           selected: selected,
@@ -1149,11 +1180,7 @@ class _AccountLevelFilterDropdown extends StatelessWidget {
   final UserRole? selected;
   final ValueChanged<UserRole?> onSelected;
 
-  static const _levels = [
-    UserRole.user,
-    UserRole.employee,
-    UserRole.admin,
-  ];
+  static const _levels = [UserRole.user, UserRole.employee, UserRole.admin];
 
   Future<void> _openPicker(BuildContext context) async {
     final picked = await showModalBottomSheet<String>(
@@ -1418,9 +1445,8 @@ class _CompanyMultiSelectSheetState extends State<_CompanyMultiSelectSheet> {
             Text(
               '${_selected.length} selected',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             const SizedBox(height: 10),
             PrimaryButton(
@@ -1463,10 +1489,10 @@ class _PickerTile extends StatelessWidget {
       child: ListTile(
         dense: true,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
-          side: BorderSide(
-            color: selected ? AppColors.primary : colors.border,
+          borderRadius: BorderRadius.circular(
+            CompactPageStyle.of(context).radius,
           ),
+          side: BorderSide(color: selected ? AppColors.primary : colors.border),
         ),
         leading: leading,
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),

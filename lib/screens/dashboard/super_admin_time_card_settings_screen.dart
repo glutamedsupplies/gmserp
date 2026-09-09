@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -26,7 +28,26 @@ class SuperAdminTimeCardSettingsScreen extends StatefulWidget {
 }
 
 class _SuperAdminTimeCardSettingsScreenState
-    extends State<SuperAdminTimeCardSettingsScreen> {
+    extends State<SuperAdminTimeCardSettingsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    await companies.loadCompanies();
+    if (!mounted) return;
+    final company = _activeCompany(
+      companies,
+      _isSuperAdmin(context.read<AuthProvider>().user?.role),
+    );
+    if (company != null) {
+      await companies.loadUsers();
+      await companies.loadStaff(company.id);
+    }
+  }
+
   late final LazyListPager _pager;
   String? _companyId;
   String? _employeeFilterId;
@@ -62,8 +83,11 @@ class _SuperAdminTimeCardSettingsScreenState
     if (_isSuperAdmin(auth?.role)) {
       await companies.loadCompanies();
       if (!mounted) return;
-      final initial = companies.selectedCompany?.id ??
-          (companies.companies.isNotEmpty ? companies.companies.first.id : null);
+      final initial =
+          companies.selectedCompany?.id ??
+          (companies.companies.isNotEmpty
+              ? companies.companies.first.id
+              : null);
       if (initial != null) {
         await _selectCompany(initial, resetEmployeeFilter: false);
       }
@@ -87,7 +111,7 @@ class _SuperAdminTimeCardSettingsScreenState
         _employeeFilterId = null;
         _expandedUserId = null;
       }
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
     final companies = context.read<CompanyProvider>();
     companies.loadUsers();
@@ -129,13 +153,13 @@ class _SuperAdminTimeCardSettingsScreenState
     required EmployeeTimeCardProfile profile,
   }) async {
     final ok = await context.read<CompanyProvider>().saveStaffTimeCardProfile(
-          companyId: company.id,
-          userId: member.userId,
-          profile: profile,
-          company: company,
-          member: member,
-          actor: context.read<AuthProvider>().user,
-        );
+      companyId: company.id,
+      userId: member.userId,
+      profile: profile,
+      company: company,
+      member: member,
+      actor: context.read<AuthProvider>().user,
+    );
     if (!mounted) return;
     if (ok) {
       final warning = context.read<CompanyProvider>().errorMessage;
@@ -163,8 +187,12 @@ class _SuperAdminTimeCardSettingsScreenState
     final companies = context.watch<CompanyProvider>();
     final isSuperAdmin = _isSuperAdmin(auth?.role);
     final company = _activeCompany(companies, isSuperAdmin);
-    final allStaff = company == null ? <StaffAssignment>[] : _allStaff(companies);
-    final staff = company == null ? <StaffAssignment>[] : _visibleStaff(companies);
+    final allStaff = company == null
+        ? <StaffAssignment>[]
+        : _allStaff(companies);
+    final staff = company == null
+        ? <StaffAssignment>[]
+        : _visibleStaff(companies);
     final visible = _pager.takeVisible(staff);
     final hasMore = _pager.hasMore(staff.length);
 
@@ -180,15 +208,14 @@ class _SuperAdminTimeCardSettingsScreenState
             subtitle: isSuperAdmin
                 ? 'Choose a company and employee, then set daily rate and weekly schedule.'
                 : company == null
-                    ? 'Select a company to set employee rates and schedules.'
-                    : 'Set daily rate and weekly time in / time out for ${company.name}.',
+                ? 'Select a company to set employee rates and schedules.'
+                : 'Set daily rate and weekly time in / time out for ${company.name}.',
           ),
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           if (!isSuperAdmin && company == null)
             const _HintCard(
               icon: Icons.business_outlined,
-              message:
-                  'Open a company from Switch company to manage employee schedules.',
+              message: 'Open a company from Switch company to manage employee schedules.',
             )
           else if (isSuperAdmin && companies.companies.isEmpty)
             const _HintCard(
@@ -209,7 +236,7 @@ class _SuperAdminTimeCardSettingsScreenState
                 setState(() {
                   _employeeFilterId = userId;
                   _expandedUserId = userId;
-                  _pager.reset();
+                  if (!isRealtimeRefresh) _pager.reset();
                 });
               },
             ),
@@ -297,7 +324,9 @@ class _FilterBar extends StatelessWidget {
       padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -372,7 +401,9 @@ class _DropdownShell extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: child,
@@ -394,7 +425,9 @@ class _HintCard extends StatelessWidget {
       padding: CompactPageStyle.of(context).cardPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Row(
@@ -404,9 +437,8 @@ class _HintCard extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ),
         ],
@@ -460,8 +492,8 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
     _rateController = TextEditingController(
       text: profile.dailyRate > 0
           ? (profile.dailyRate == profile.dailyRate.roundToDouble()
-              ? profile.dailyRate.toStringAsFixed(0)
-              : profile.dailyRate.toStringAsFixed(2))
+                ? profile.dailyRate.toStringAsFixed(0)
+                : profile.dailyRate.toStringAsFixed(2))
           : '',
     );
     _week = profile.weeklySchedule;
@@ -474,19 +506,13 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
     super.dispose();
   }
 
-  Future<void> _pickTime({
-    required int weekday,
-    required bool isTimeIn,
-  }) async {
+  Future<void> _pickTime({required int weekday, required bool isTimeIn}) async {
     final current = _week.forWeekday(weekday);
     final initial = TimeOfDay(
       hour: isTimeIn ? current.timeInHour : current.timeOutHour,
       minute: isTimeIn ? current.timeInMinute : current.timeOutMinute,
     );
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initial,
-    );
+    final picked = await showTimePicker(context: context, initialTime: initial);
     if (picked == null || !mounted) return;
     setState(() {
       final current = _week.forWeekday(weekday);
@@ -526,10 +552,7 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
     }
     setState(() => _saving = true);
     await widget.onSave(
-      EmployeeTimeCardProfile(
-        dailyRate: rate,
-        weeklySchedule: _week,
-      ),
+      EmployeeTimeCardProfile(dailyRate: rate, weeklySchedule: _week),
     );
     if (mounted) setState(() => _saving = false);
   }
@@ -543,7 +566,9 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
       duration: const Duration(milliseconds: 180),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(
           color: widget.expanded ? AppColors.primaryDark : colors.border,
           width: widget.expanded ? 1.4 : 1,
@@ -553,7 +578,9 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
         children: [
           InkWell(
             onTap: widget.onToggle,
-            borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+            borderRadius: BorderRadius.circular(
+              CompactPageStyle.of(context).radius,
+            ),
             child: Padding(
               padding: CompactPageStyle.of(context).cardPadding,
               child: Row(
@@ -579,20 +606,16 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                       children: [
                         Text(
                           widget.member.username,
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '${profile.rateLabel} · ${profile.weeklySchedule.summaryLabel}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: colors.textSecondary,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.textSecondary),
                         ),
                       ],
                     ),
@@ -617,19 +640,17 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                 children: [
                   Text(
                     'Daily salary rate',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                    style: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   SizedBox(height: CompactPageStyle.of(context).cardGap),
                   TextField(
                     controller: _rateController,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                        RegExp(r'[0-9.]'),
-                      ),
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                     ],
                     style: Theme.of(context).textTheme.bodySmall,
                     decoration: InputDecoration(
@@ -643,8 +664,9 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                       filled: true,
                       fillColor: colors.inputFill,
                       border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(CompactPageStyle.of(context).radius),
+                        borderRadius: BorderRadius.circular(
+                          CompactPageStyle.of(context).radius,
+                        ),
                       ),
                     ),
                   ),
@@ -653,9 +675,8 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                     children: [
                       Text(
                         'Weekly schedule',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const Spacer(),
                       _PresetChip(
@@ -682,8 +703,8 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
                             day,
                             enabled
                                 ? (current.isWorkDay
-                                    ? current
-                                    : DayShiftSchedule.nineToSix)
+                                      ? current
+                                      : DayShiftSchedule.nineToSix)
                                 : DayShiftSchedule.off,
                           );
                         });
@@ -730,9 +751,9 @@ class _PresetChip extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AppColors.primaryDark,
-                  fontWeight: FontWeight.w800,
-                ),
+              color: AppColors.primaryDark,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ),
@@ -762,7 +783,9 @@ class _DayRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Row(
@@ -772,11 +795,9 @@ class _DayRow extends StatelessWidget {
             child: Text(
               label,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: shift.isWorkDay
-                        ? colors.textPrimary
-                        : colors.textHint,
-                  ),
+                fontWeight: FontWeight.w800,
+                color: shift.isWorkDay ? colors.textPrimary : colors.textHint,
+              ),
             ),
           ),
           Switch.adaptive(
@@ -790,30 +811,20 @@ class _DayRow extends StatelessWidget {
             Expanded(
               child: Text(
                 'Off',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textHint,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colors.textHint),
               ),
             )
           else ...[
             Expanded(
-              child: _TimeChip(
-                label: shift.timeInLabel,
-                onTap: onPickIn,
-              ),
+              child: _TimeChip(label: shift.timeInLabel, onTap: onPickIn),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                '–',
-                style: TextStyle(color: colors.textSecondary),
-              ),
+              child: Text('–', style: TextStyle(color: colors.textSecondary)),
             ),
             Expanded(
-              child: _TimeChip(
-                label: shift.timeOutLabel,
-                onTap: onPickOut,
-              ),
+              child: _TimeChip(label: shift.timeOutLabel, onTap: onPickOut),
             ),
           ],
         ],
@@ -849,9 +860,9 @@ class _TimeChip extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primaryDark,
-                ),
+              fontWeight: FontWeight.w700,
+              color: AppColors.primaryDark,
+            ),
           ),
         ),
       ),

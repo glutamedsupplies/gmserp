@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -27,7 +29,26 @@ class SuperAdminAnnouncementsScreen extends StatefulWidget {
 }
 
 class _SuperAdminAnnouncementsScreenState
-    extends State<SuperAdminAnnouncementsScreen> {
+    extends State<SuperAdminAnnouncementsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'announcements',
+    'companies',
+    'users',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    await companies.loadCompanies();
+    if (!mounted) return;
+    await _loadHistory();
+    if (mounted && _companyId != null) {
+      await companies.loadCompanyUsers(_companyId!);
+    }
+  }
+
   final _repo = AnnouncementRepository();
   final _subjectController = TextEditingController();
   final _messageController = TextEditingController();
@@ -45,9 +66,11 @@ class _SuperAdminAnnouncementsScreenState
   @override
   void initState() {
     super.initState();
-    _pager = LazyListPager(onChanged: () {
-      if (mounted) setState(() {});
-    });
+    _pager = LazyListPager(
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final companies = context.read<CompanyProvider>();
       await companies.loadCompanies();
@@ -69,9 +92,9 @@ class _SuperAdminAnnouncementsScreenState
 
   Future<void> _loadHistory() async {
     setState(() {
-      _loadingHistory = true;
+      if (!isRealtimeRefresh) _loadingHistory = true;
       _historyError = null;
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
     try {
       final items = await _repo.listAll();
@@ -94,7 +117,7 @@ class _SuperAdminAnnouncementsScreenState
     setState(() {
       _companyId = companyId;
       _specificIds.clear();
-      _loadingStaff = true;
+      if (!isRealtimeRefresh) _loadingStaff = true;
     });
     await context.read<CompanyProvider>().loadCompanyUsers(companyId);
     if (!mounted) return;
@@ -137,8 +160,9 @@ class _SuperAdminAnnouncementsScreenState
     }
   }
 
-  List<String> _audienceOptions() =>
-      [for (final option in AnnouncementAudience.values) option.label];
+  List<String> _audienceOptions() => [
+    for (final option in AnnouncementAudience.values) option.label,
+  ];
 
   String _audienceDropdownValue() => _audience.label;
 
@@ -155,12 +179,8 @@ class _SuperAdminAnnouncementsScreenState
     });
   }
 
-  String _memberPickerLabel(
-    StaffAssignment member,
-    CompanyProvider companies,
-  ) {
-    final name =
-        member.username.isEmpty ? member.email : member.username;
+  String _memberPickerLabel(StaffAssignment member, CompanyProvider companies) {
+    final name = member.username.isEmpty ? member.email : member.username;
     final access = companies.memberAccessRole(member).label;
     return '$name · $access';
   }
@@ -209,10 +229,10 @@ class _SuperAdminAnnouncementsScreenState
     setState(() => _specificIds.add(member.userId));
   }
 
-  List<StaffAssignment> _selectedMembers(
-    List<StaffAssignment> staff,
-  ) {
-    return staff.where((member) => _specificIds.contains(member.userId)).toList();
+  List<StaffAssignment> _selectedMembers(List<StaffAssignment> staff) {
+    return staff
+        .where((member) => _specificIds.contains(member.userId))
+        .toList();
   }
 
   Future<void> _send() async {
@@ -280,8 +300,12 @@ class _SuperAdminAnnouncementsScreenState
     final density = CompactPageStyle.of(context);
     final colors = AppColors.of(context);
     final company = _company(companies);
-    final staff = company == null ? <StaffAssignment>[] : _companyStaff(companies);
-    final recipientCount = company == null ? 0 : _resolveRecipients(companies).length;
+    final staff = company == null
+        ? <StaffAssignment>[]
+        : _companyStaff(companies);
+    final recipientCount = company == null
+        ? 0
+        : _resolveRecipients(companies).length;
     final visibleHistory = _pager.takeVisible(_sent);
     final hasMoreHistory = _pager.hasMore(_sent.length);
 
@@ -294,8 +318,7 @@ class _SuperAdminAnnouncementsScreenState
         children: [
           const CompactPageHeader(
             title: 'Create announcement',
-            subtitle:
-                'Choose a company and audience, then send a subject and message to their Notifications.',
+            subtitle: 'Choose a company and audience, then send a subject and message to their Notifications.',
           ),
           SizedBox(height: density.sectionGap),
           if (companies.companies.isEmpty)
@@ -362,9 +385,7 @@ class _SuperAdminAnnouncementsScreenState
                         InputChip(
                           label: Text(
                             _memberPickerLabel(member, companies),
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
+                            style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(fontSize: density.chipLabelSize),
                           ),
                           onDeleted: () => setState(
@@ -394,9 +415,9 @@ class _SuperAdminAnnouncementsScreenState
             Text(
               'Message',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontSize: density.cardTitleSize,
-                    fontWeight: FontWeight.w600,
-                  ),
+                fontSize: density.cardTitleSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             SizedBox(height: density.compact ? 6 : 8),
             TextField(
@@ -404,9 +425,8 @@ class _SuperAdminAnnouncementsScreenState
               minLines: 4,
               maxLines: 6,
               textInputAction: TextInputAction.newline,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontSize: density.bodySize,
-                  ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontSize: density.bodySize),
               decoration: InputDecoration(
                 hintText: 'Write the announcement message…',
                 filled: true,
@@ -426,11 +446,10 @@ class _SuperAdminAnnouncementsScreenState
               recipientCount == 0
                   ? 'No recipients selected'
                   : 'Will notify $recipientCount '
-                      '${recipientCount == 1 ? 'person' : 'people'}',
+                        '${recipientCount == 1 ? 'person' : 'people'}',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             SizedBox(height: density.cardGap),
             PrimaryButton(
@@ -443,9 +462,8 @@ class _SuperAdminAnnouncementsScreenState
                 Expanded(
                   child: Text(
                     'Sent announcements',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
                 IconButton(
@@ -516,17 +534,15 @@ class _HistoryCard extends StatelessWidget {
           SizedBox(height: density.titleSubtitleGap),
           Text(
             item.subject,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w800),
           ),
           if (item.companyName.isNotEmpty) ...[
             SizedBox(height: density.compact ? 2 : 4),
             Text(
               item.companyName,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ],
           SizedBox(height: density.titleSubtitleGap),
@@ -534,9 +550,8 @@ class _HistoryCard extends StatelessWidget {
             item.message,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
         ],
       ),
@@ -565,10 +580,10 @@ class _Chip extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: density.chipLabelSize,
-            ),
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: density.chipLabelSize,
+        ),
       ),
     );
   }
@@ -593,15 +608,19 @@ class _HintCard extends StatelessWidget {
       decoration: compactCardDecoration(context),
       child: Column(
         children: [
-          Icon(icon, size: density.compact ? 26 : 30, color: colors.textSecondary),
+          Icon(
+            icon,
+            size: density.compact ? 26 : 30,
+            color: colors.textSecondary,
+          ),
           SizedBox(height: density.cardGap + 2),
           Text(
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: density.bodySize,
-                  color: colors.textSecondary,
-                ),
+              fontSize: density.bodySize,
+              color: colors.textSecondary,
+            ),
           ),
         ],
       ),

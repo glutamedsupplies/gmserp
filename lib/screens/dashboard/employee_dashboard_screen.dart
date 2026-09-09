@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,7 +17,21 @@ class EmployeeDashboardScreen extends StatefulWidget {
       _EmployeeDashboardScreenState();
 }
 
-class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
+class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    final user = context.read<AuthProvider>().user;
+    final company = companies.selectedCompany;
+    if (company != null && user != null) {
+      await companies.loadMyAssignment(companyId: company.id, userId: user.id);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -56,7 +72,9 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           SizedBox(height: density.cardGap),
-          Text('Role: ${assignment?.jobRole.isNotEmpty == true ? assignment!.jobRole : 'Not assigned yet'}'),
+          Text(
+            'Role: ${assignment?.jobRole.isNotEmpty == true ? assignment!.jobRole : 'Not assigned yet'}',
+          ),
           SizedBox(height: density.titleSubtitleGap),
           Text(
             assignment?.tasks.isNotEmpty == true

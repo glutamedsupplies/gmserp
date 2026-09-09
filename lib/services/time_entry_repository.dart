@@ -18,8 +18,7 @@ class TimeEntryRepository {
     final children = await _rtdb.getChildren(RtdbPaths.timeEntries);
     return children.entries
         .map(
-          (entry) =>
-              TimeEntry.fromFirestore(id: entry.key, data: entry.value),
+          (entry) => TimeEntry.fromFirestore(id: entry.key, data: entry.value),
         )
         .toList();
   }
@@ -182,6 +181,12 @@ class TimeEntryRepository {
 
     final now = DateTime.now();
     final durationSeconds = now.difference(entry.timeIn).inSeconds;
+    if (entry.workDate != formatWorkDate(now)) {
+      throw StateError('Use a time-out correction request for a previous day.');
+    }
+    if (!now.isAfter(entry.timeIn)) {
+      throw StateError('Time out must be after time in.');
+    }
 
     final update = <String, dynamic>{
       'status': TimeEntryStatus.closed.storageValue,
@@ -191,10 +196,7 @@ class TimeEntryRepository {
     };
     await _rtdb.merge(path, update);
 
-    return TimeEntry.fromFirestore(
-      id: entryId,
-      data: {...data, ...update},
-    );
+    return TimeEntry.fromFirestore(id: entryId, data: {...data, ...update});
   }
 
   Future<List<TimeEntry>> listForWorkDate({
@@ -283,8 +285,8 @@ class TimeEntryRepository {
     return entries;
   }
 
-  /// Closes an open session from another work date so a backdated clock-in
-  /// approval can still be saved (e.g. Monday pending, Tuesday already open).
+  /// Ensures no other-day open session blocks a new clock-in approval.
+  /// Prior-day sessions must be closed via an approved time-out first.
   Future<void> releaseConflictingOpenEntry({
     required String userId,
     required String companyId,
@@ -303,8 +305,10 @@ class TimeEntryRepository {
       );
     }
 
-    final closeAt = open.timeIn.add(const Duration(seconds: 1));
-    await applyApprovedClockOut(entryId: open.id, timeOut: closeAt);
+    throw StateError(
+      'Employee still has an open session from ${open.workDate}. '
+      'Approve their time-out for that day before approving this time-in.',
+    );
   }
 
   Future<TimeEntry> applyApprovedClockIn({

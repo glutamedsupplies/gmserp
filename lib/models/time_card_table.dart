@@ -1,3 +1,4 @@
+import 'employee_day_schedule_override.dart';
 import 'employee_time_card_profile.dart';
 import 'leave_request.dart';
 import 'time_card_schedule.dart';
@@ -55,6 +56,21 @@ class TimeCardTableRow {
   final bool hasData;
 
   bool get hasEmployee => employeeName.trim().isNotEmpty;
+}
+
+/// Leave days shown on the time card table for the filtered period.
+int leaveDaysInTableRows(List<TimeCardTableRow> rows, {String? employeeId}) {
+  final dates = <String>{};
+  for (final row in rows) {
+    if (row.status != 'On Leave') continue;
+    if (employeeId != null &&
+        employeeId.isNotEmpty &&
+        row.employeeId != employeeId) {
+      continue;
+    }
+    dates.add(row.workDate);
+  }
+  return dates.length;
 }
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -141,6 +157,8 @@ AttendanceStatus resolveAttendanceStatus({
   required TimeCardSchedule schedule,
   required List<LeaveRequest> leaves,
   EmployeeWeeklySchedule? employeeSchedule,
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
+  String employeeId = '',
 }) {
   final workDate = formatWorkDate(date);
   final dayStart = DateTime(date.year, date.month, date.day);
@@ -148,6 +166,15 @@ AttendanceStatus resolveAttendanceStatus({
 
   if (hasLeaveOnDate(leaves: leaves, workDate: workDate)) {
     return AttendanceStatus.onLeave;
+  }
+
+  if (employeeId.isNotEmpty &&
+      isForcedEmployeeDayOff(
+        overrides: dayOverrides,
+        userId: employeeId,
+        workDate: workDate,
+      )) {
+    return AttendanceStatus.offDay;
   }
 
   final isWorkDay = employeeSchedule != null
@@ -194,6 +221,7 @@ TimeCardTableRow _rowForDate({
   required TimeCardSchedule schedule,
   required List<LeaveRequest> leaves,
   EmployeeWeeklySchedule? employeeSchedule,
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
   String employeeId = '',
   String employeeName = '',
 }) {
@@ -206,6 +234,8 @@ TimeCardTableRow _rowForDate({
     schedule: schedule,
     leaves: leaves,
     employeeSchedule: employeeSchedule,
+    dayOverrides: dayOverrides,
+    employeeId: employeeId,
   );
 
   if (entries.isEmpty) {
@@ -244,10 +274,8 @@ TimeCardTableRow _rowForDate({
   final latestOut = hasOpen
       ? null
       : closed.isEmpty
-          ? null
-          : closed.map((e) => e.timeOut!).reduce(
-                (a, b) => a.isAfter(b) ? a : b,
-              );
+      ? null
+      : closed.map((e) => e.timeOut!).reduce((a, b) => a.isAfter(b) ? a : b);
 
   return TimeCardTableRow(
     workDate: workDate,
@@ -255,10 +283,10 @@ TimeCardTableRow _rowForDate({
     sessionCount: entries.length,
     timeIn: formatClockTime(earliest),
     timeOut: hasOpen
-        ? 'Active'
+        ? (isToday ? 'Active' : '—')
         : latestOut == null
-            ? '—'
-            : formatClockTime(latestOut),
+        ? '—'
+        : formatClockTime(latestOut),
     duration: formatDurationShort(sumEntriesDuration(entries, now)),
     status: status.label,
     employeeId: employeeId,
@@ -285,7 +313,9 @@ TimeCardTableRow _rowForSessions({
     weekday: weekdayLabel(date),
     sessionCount: 1,
     timeIn: formatClockTime(entry.timeIn),
-    timeOut: entry.timeOut == null ? 'Active' : formatClockTime(entry.timeOut!),
+    timeOut: entry.timeOut == null
+        ? (isToday ? 'Active' : '—')
+        : formatClockTime(entry.timeOut!),
     duration: formatDurationShort(entryDuration(entry, now)),
     status: status.label,
     employeeId: employeeId,
@@ -303,6 +333,8 @@ List<TimeCardTableRow> buildTimeCardTableRows({
   TimeCardSchedule schedule = TimeCardSchedule.defaults,
   List<LeaveRequest> leaves = const [],
   EmployeeWeeklySchedule? employeeSchedule,
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
+  String employeeId = '',
 }) {
   final grouped = groupEntriesByWorkDate(allEntries);
   final periodDate = viewDate ?? now;
@@ -320,6 +352,8 @@ List<TimeCardTableRow> buildTimeCardTableRows({
       schedule: schedule,
       leaves: leaves,
       employeeSchedule: employeeSchedule,
+      dayOverrides: dayOverrides,
+      employeeId: employeeId,
     );
     if (todayEntries.isEmpty) {
       rows.add(
@@ -331,6 +365,8 @@ List<TimeCardTableRow> buildTimeCardTableRows({
           schedule: schedule,
           leaves: leaves,
           employeeSchedule: employeeSchedule,
+          dayOverrides: dayOverrides,
+          employeeId: employeeId,
         ),
       );
     } else {
@@ -363,6 +399,8 @@ List<TimeCardTableRow> buildTimeCardTableRows({
         schedule: schedule,
         leaves: leaves,
         employeeSchedule: employeeSchedule,
+        dayOverrides: dayOverrides,
+        employeeId: employeeId,
       ),
     );
   }
@@ -404,6 +442,7 @@ class StaffTimeCardSource {
     required this.entries,
     required this.leaves,
     this.weeklySchedule,
+    this.dayOverrides = const [],
   });
 
   final String userId;
@@ -411,6 +450,7 @@ class StaffTimeCardSource {
   final List<TimeEntry> entries;
   final List<LeaveRequest> leaves;
   final EmployeeWeeklySchedule? weeklySchedule;
+  final List<EmployeeDayScheduleOverride> dayOverrides;
 }
 
 /// Builds attendance rows for one or more staff members (admin view).
@@ -436,6 +476,8 @@ List<TimeCardTableRow> buildStaffTimeCardTableRows({
       schedule: schedule,
       leaves: member.leaves,
       employeeSchedule: member.weeklySchedule,
+      dayOverrides: member.dayOverrides,
+      employeeId: member.userId,
     );
     for (final row in memberRows) {
       rows.add(

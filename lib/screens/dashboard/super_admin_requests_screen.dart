@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -41,7 +43,22 @@ class SuperAdminRequestsScreen extends StatefulWidget {
 }
 
 class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
-    with ActivePageLoad {
+    with ActivePageLoad, RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'leaveRequests',
+    'clockRequests',
+    'timeCardChangeRequests',
+    'companies',
+    'users',
+    'timeEntries',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await _load();
+  }
+
   final _leaveRepo = LeaveRequestRepository();
   final _timeChangeRepo = TimeCardChangeRequestRepository();
   final _clockRepo = ClockRequestRepository();
@@ -69,9 +86,11 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
   @override
   void initState() {
     super.initState();
-    _pager = LazyListPager(onChanged: () {
-      if (mounted) setState(() {});
-    });
+    _pager = LazyListPager(
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     _focusType = widget.focusRequestType?.trim().toLowerCase();
     _focusId = widget.focusRequestId?.trim();
     if (_focusId != null && _focusId!.isNotEmpty) {
@@ -124,7 +143,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
           } else if (_focusType == 'clock') {
             _typeFilter = 'Time in/out';
           }
-          _pager.reset();
+          if (!isRealtimeRefresh) _pager.reset();
         });
         _scrollToFocus();
       }
@@ -142,16 +161,17 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
   String _declineKey(String companyId, String userId) => '$companyId|$userId';
 
   bool _isClockLocked(ClockRequest request) {
-    final count = _clockDeclines[_declineKey(request.companyId, request.userId)];
+    final count =
+        _clockDeclines[_declineKey(request.companyId, request.userId)];
     return (count ?? 0) >= StaffAssignment.clockDeclineLimit;
   }
 
   Future<void> _load() async {
     final generation = ++_loadGeneration;
     setState(() {
-      _loading = true;
+      if (!isRealtimeRefresh) _loading = true;
       _error = null;
-      _pager.reset();
+      if (!isRealtimeRefresh) _pager.reset();
     });
     try {
       await RtdbDesktopLimiter.runHeavy(() async {
@@ -193,8 +213,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
           return;
         }
         final companyProvider = context.read<CompanyProvider>();
-        final declines =
-            await companyProvider.clockDeclineCountsFor(members: pairs);
+        final declines = await companyProvider.clockDeclineCountsFor(
+          members: pairs,
+        );
         if (generation != _loadGeneration || !mounted) return;
         setState(() {
           _clockDeclines
@@ -345,7 +366,8 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
         final wanted = _statusFilter.toLowerCase();
         final actual = item.status.toLowerCase();
         if (wanted == 'pending') {
-          final reviewable = item.clock?.awaitsReview == true ||
+          final reviewable =
+              item.clock?.awaitsReview == true ||
               (item.clock == null &&
                   (item.leave?.status.toLowerCase() == 'pending' ||
                       item.timeEdit?.isPending == true));
@@ -393,11 +415,11 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
       if (!mounted) return;
       // Approving a time-card edit unlocks clock requests after 3 declines.
       await context.read<CompanyProvider>().unlockEmployeeClockRequests(
-            companyId: request.companyDocumentId.isNotEmpty
-                ? request.companyDocumentId
-                : request.companyId,
-            userId: request.employeeId,
-          );
+        companyId: request.companyDocumentId.isNotEmpty
+            ? request.companyDocumentId
+            : request.companyId,
+        userId: request.employeeId,
+      );
       if (!mounted) return;
       SnackBarHelper.showSuccess(
         context,
@@ -446,7 +468,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
         context,
         request.isClockIn
             ? 'Time in approved and saved.'
-                '${_hasPendingClockOutFor(request) ? ' Approve time out next for that day.' : ''}'
+                  '${_hasPendingClockOutFor(request) ? ' Approve time out next for that day.' : ''}'
             : 'Time out approved and saved.',
       );
       await _load();
@@ -461,8 +483,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
 
   Future<void> _rejectClock(ClockRequest request) async {
     final reviewer = _reviewer();
-    final alsoDeclineOut =
-        request.isClockIn && _hasPendingClockOutFor(request);
+    final alsoDeclineOut = request.isClockIn && _hasPendingClockOutFor(request);
     try {
       await _clockRepo.reject(
         request,
@@ -472,9 +493,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
       if (!mounted) return;
       final companyProvider = context.read<CompanyProvider>();
       final declines = await companyProvider.clockDeclineCountFor(
-            companyId: request.companyId,
-            userId: request.userId,
-          );
+        companyId: request.companyId,
+        userId: request.userId,
+      );
       if (!mounted) return;
       final locked = declines >= StaffAssignment.clockDeclineLimit;
       setState(() {
@@ -483,14 +504,14 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
       });
       final base = request.isClockIn
           ? (alsoDeclineOut
-              ? 'Time in declined. Matching time out for that day was also declined.'
-              : 'Time in declined. No time card changes were made.')
+                ? 'Time in declined. Matching time out for that day was also declined.'
+                : 'Time in declined. No time card changes were made.')
           : 'Time out declined. No time card changes were made.';
       final suffix = locked
           ? ' Employee is now locked after $declines declines — unlock or edit their time card settings.'
           : declines > 0
-              ? ' Declines: $declines/${StaffAssignment.clockDeclineLimit}.'
-              : '';
+          ? ' Declines: $declines/${StaffAssignment.clockDeclineLimit}.'
+          : '';
       SnackBarHelper.showSuccess(context, '$base$suffix');
       await _load();
     } catch (e) {
@@ -503,7 +524,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
   }
 
   Future<void> _unlockClockRequests(ClockRequest request) async {
-    final ok = await context.read<CompanyProvider>().unlockEmployeeClockRequests(
+    final ok = await context
+        .read<CompanyProvider>()
+        .unlockEmployeeClockRequests(
           companyId: request.companyId,
           userId: request.userId,
         );
@@ -535,6 +558,18 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
     );
   }
 
+  bool _hasPendingPriorDayClockOutFor(ClockRequest clockIn) {
+    if (!clockIn.isClockIn) return false;
+    return _clockRequests.any(
+      (item) =>
+          item.awaitsReview &&
+          item.isClockOut &&
+          item.userId == clockIn.userId &&
+          item.companyId == clockIn.companyId &&
+          item.workDate.compareTo(clockIn.workDate) < 0,
+    );
+  }
+
   bool _hasPendingClockInForOut(ClockRequest clockOut) {
     if (!clockOut.isClockOut) return false;
     return _clockRequests.any(
@@ -550,7 +585,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
   (String, String) _reviewer() {
     final user = context.read<AuthProvider>().user;
     if (user == null) return ('', 'Unknown');
-    final name = user.username.trim().isNotEmpty ? user.username.trim() : user.email;
+    final name = user.username.trim().isNotEmpty
+        ? user.username.trim()
+        : user.email;
     return (user.id, name.isEmpty ? 'Admin' : name);
   }
 
@@ -567,8 +604,8 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
     final companyFilter = lockedCompany != null
         ? lockedCompany.name
         : (companyOptions.contains(_companyFilter)
-            ? _companyFilter
-            : _allCompanies);
+              ? _companyFilter
+              : _allCompanies);
     if (!isAdminOnly && companyFilter != _companyFilter) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -584,27 +621,27 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
     final hasMore = _pager.hasMore(filtered.length);
 
     bool inScope(_UnifiedRequest item) => _matchesCompany(
-          item,
-          companies,
-          companyFilter: companyFilter,
-          lockedCompany: lockedCompany,
-        );
+      item,
+      companies,
+      companyFilter: companyFilter,
+      lockedCompany: lockedCompany,
+    );
 
     final scopedLeaves = lockedCompany == null
         ? _leaveRequests
         : _leaveRequests
-            .where((r) => inScope(_UnifiedRequest.leave(r)))
-            .toList();
+              .where((r) => inScope(_UnifiedRequest.leave(r)))
+              .toList();
     final scopedTime = lockedCompany == null
         ? _timeRequests
         : _timeRequests
-            .where((r) => inScope(_UnifiedRequest.timeEdit(r)))
-            .toList();
+              .where((r) => inScope(_UnifiedRequest.timeEdit(r)))
+              .toList();
     final scopedClock = lockedCompany == null
         ? _clockRequests
         : _clockRequests
-            .where((r) => inScope(_UnifiedRequest.clock(r)))
-            .toList();
+              .where((r) => inScope(_UnifiedRequest.clock(r)))
+              .toList();
 
     final pendingCount = filtered
         .where((item) => item.status.toLowerCase() == 'pending')
@@ -626,8 +663,8 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
             title: 'Requests',
             subtitle: isAdminOnly
                 ? (lockedCompany == null
-                    ? 'Select a company to review requests for your workplace.'
-                    : 'Review leave, time in/out, and time-card change requests for ${lockedCompany.name}.')
+                      ? 'Select a company to review requests for your workplace.'
+                      : 'Review leave, time in/out, and time-card change requests for ${lockedCompany.name}.')
                 : 'Review leave, employee time in/out, and admin time-card change requests.',
           ),
           SizedBox(height: density.sectionGap),
@@ -659,7 +696,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
                 hint: 'Company',
                 onChanged: (value) => setState(() {
                   _companyFilter = value;
-                  _pager.reset();
+                  if (!isRealtimeRefresh) _pager.reset();
                 }),
               ),
               SizedBox(height: density.cardGap),
@@ -673,7 +710,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
                     hint: 'Type',
                     onChanged: (value) => setState(() {
                       _typeFilter = value;
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                   ),
                 ),
@@ -685,7 +722,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
                     hint: 'Status',
                     onChanged: (value) => setState(() {
                       _statusFilter = value;
-                      _pager.reset();
+                      if (!isRealtimeRefresh) _pager.reset();
                     }),
                   ),
                 ),
@@ -708,7 +745,7 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
               controller: _searchController,
               onChanged: (value) => setState(() {
                 _search = value;
-                _pager.reset();
+                if (!isRealtimeRefresh) _pager.reset();
               }),
               hintText: isAdminOnly
                   ? 'Search employee, admin, or reason'
@@ -720,9 +757,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
                 'Showing requests for $companyFilter'
                 '${pendingCount > 0 ? ' · $pendingCount pending' : ''}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
             if (isAdminOnly && lockedCompany != null) ...[
@@ -731,9 +768,9 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
                 'Company: ${lockedCompany.name}'
                 '${pendingCount > 0 ? ' · $pendingCount pending' : ''}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
             SizedBox(height: density.sectionGap),
@@ -795,14 +832,20 @@ class _SuperAdminRequestsScreenState extends State<SuperAdminRequestsScreen>
                         return _ClockRequestCard(
                           request: clock,
                           highlighted: _isFocused(item),
-                          awaitingTimeInApproval: clock.isClockOut &&
+                          awaitingTimeInApproval:
+                              clock.isClockOut &&
                               clock.awaitsReview &&
                               _hasPendingClockInForOut(clock),
+                          awaitingPriorDayClockOut:
+                              clock.isClockIn &&
+                              clock.awaitsReview &&
+                              _hasPendingPriorDayClockOutFor(clock),
                           showUnlock: locked,
                           onUnlock: locked
                               ? () => _unlockClockRequests(clock)
                               : null,
-                          onApprove: clock.awaitsReview &&
+                          onApprove:
+                              clock.awaitsReview &&
                                   !(clock.isClockOut &&
                                       _hasPendingClockInForOut(clock))
                               ? () => _approveClock(clock)
@@ -953,20 +996,17 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         _statusLabel(status),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: density.chipLabelSize,
-            ),
+          color: color,
+          fontWeight: FontWeight.w800,
+          fontSize: density.chipLabelSize,
+        ),
       ),
     );
   }
 }
 
 class _RequestActions extends StatelessWidget {
-  const _RequestActions({
-    required this.onApprove,
-    required this.onReject,
-  });
+  const _RequestActions({required this.onApprove, required this.onReject});
 
   final VoidCallback? onApprove;
   final VoidCallback? onReject;
@@ -1038,6 +1078,7 @@ class _ClockRequestCard extends StatelessWidget {
     required this.onReject,
     this.highlighted = false,
     this.awaitingTimeInApproval = false,
+    this.awaitingPriorDayClockOut = false,
     this.showUnlock = false,
     this.onUnlock,
   });
@@ -1047,6 +1088,7 @@ class _ClockRequestCard extends StatelessWidget {
   final VoidCallback? onReject;
   final bool highlighted;
   final bool awaitingTimeInApproval;
+  final bool awaitingPriorDayClockOut;
   final bool showUnlock;
   final VoidCallback? onUnlock;
 
@@ -1056,8 +1098,9 @@ class _ClockRequestCard extends StatelessWidget {
     final density = CompactPageStyle.of(context);
     final name = request.username.isEmpty ? 'Employee' : request.username;
     final email = request.userEmail.isEmpty ? '—' : request.userEmail;
-    final company =
-        request.companyName.isEmpty ? 'Unknown company' : request.companyName;
+    final company = request.companyName.isEmpty
+        ? 'Unknown company'
+        : request.companyName;
     final when = request.requestedAt.toLocal();
     final stamp = formatDateTime12h(when);
     final todayKey = formatWorkDate(DateTime.now());
@@ -1092,9 +1135,9 @@ class _ClockRequestCard extends StatelessWidget {
               child: Text(
                 'From notification',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AppColors.primaryDark,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  color: AppColors.primaryDark,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           Row(
@@ -1107,25 +1150,25 @@ class _ClockRequestCard extends StatelessWidget {
                     Text(
                       request.typeLabel,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: AppColors.primaryDark,
-                            fontWeight: FontWeight.w800,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       name,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontSize: density.cardTitleSize,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        fontSize: density.cardTitleSize,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     Text(
                       email,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: colors.textSecondary,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: colors.textSecondary,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                   ],
                 ),
@@ -1137,35 +1180,35 @@ class _ClockRequestCard extends StatelessWidget {
           Text(
             company,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontSize: density.bodySize,
-                  fontWeight: FontWeight.w600,
-                ),
+              fontSize: density.bodySize,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             'Work date ${request.workDate}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: density.chipLabelSize,
-                ),
+              color: colors.textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: density.chipLabelSize,
+            ),
           ),
           Text(
             'Requested time $stamp',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AppColors.primaryDark,
-                  fontWeight: FontWeight.w700,
-                  fontSize: density.captionSize,
-                ),
+              color: AppColors.primaryDark,
+              fontWeight: FontWeight.w700,
+              fontSize: density.captionSize,
+            ),
           ),
           if (request.note.trim().isNotEmpty) ...[
             SizedBox(height: density.cardGap),
             Text(
               'Note: ${request.note.trim()}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: density.captionSize,
-                    fontWeight: FontWeight.w600,
-                  ),
+                fontSize: density.captionSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           if (isPastWorkDate && request.awaitsReview) ...[
@@ -1173,10 +1216,10 @@ class _ClockRequestCard extends StatelessWidget {
             Text(
               'Past work date — you can still approve or decline this request.',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: density.captionSize,
-                  ),
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w700,
+                fontSize: density.captionSize,
+              ),
             ),
           ],
           if (awaitingTimeInApproval) ...[
@@ -1184,10 +1227,21 @@ class _ClockRequestCard extends StatelessWidget {
             Text(
               'Approve time in for this day first, then approve time out.',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: density.captionSize,
-                  ),
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w700,
+                fontSize: density.captionSize,
+              ),
+            ),
+          ],
+          if (awaitingPriorDayClockOut) ...[
+            SizedBox(height: density.cardGap),
+            Text(
+              'Approve the prior day\'s time-out before this time-in.',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: AppColors.warning,
+                fontWeight: FontWeight.w700,
+                fontSize: density.captionSize,
+              ),
             ),
           ],
           if (showUnlock && onUnlock != null) ...[
@@ -1227,8 +1281,9 @@ class _LeaveRequestCard extends StatelessWidget {
     final density = CompactPageStyle.of(context);
     final name = request.username.isEmpty ? 'Employee' : request.username;
     final email = request.userEmail.isEmpty ? '—' : request.userEmail;
-    final company =
-        request.companyName.isEmpty ? 'Unknown company' : request.companyName;
+    final company = request.companyName.isEmpty
+        ? 'Unknown company'
+        : request.companyName;
 
     return Container(
       margin: EdgeInsets.only(bottom: density.cardGap),
@@ -1237,9 +1292,7 @@ class _LeaveRequestCard extends StatelessWidget {
         color: colors.card,
         borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(
-          color: highlighted
-              ? AppColors.primaryDark
-              : colors.border,
+          color: highlighted ? AppColors.primaryDark : colors.border,
           width: highlighted ? 2 : 1,
         ),
         boxShadow: highlighted
@@ -1261,9 +1314,9 @@ class _LeaveRequestCard extends StatelessWidget {
               child: Text(
                 'From notification',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AppColors.primaryDark,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  color: AppColors.primaryDark,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           Row(
@@ -1276,25 +1329,25 @@ class _LeaveRequestCard extends StatelessWidget {
                     Text(
                       'Leave request',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: AppColors.primaryDark,
-                            fontWeight: FontWeight.w800,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       name,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontSize: density.cardTitleSize,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        fontSize: density.cardTitleSize,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     Text(
                       email,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: colors.textSecondary,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: colors.textSecondary,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                   ],
                 ),
@@ -1306,27 +1359,27 @@ class _LeaveRequestCard extends StatelessWidget {
           Text(
             company,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontSize: density.bodySize,
-                  fontWeight: FontWeight.w600,
-                ),
+              fontSize: density.bodySize,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             '${request.startDate} → ${request.endDate}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: density.chipLabelSize,
-                ),
+              color: colors.textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: density.chipLabelSize,
+            ),
           ),
           if (request.createdAt != null) ...[
             const SizedBox(height: 2),
             Text(
               'Requested ${_formatRequestWhen(request.createdAt!)}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: density.chipLabelSize,
-                  ),
+                color: colors.textSecondary,
+                fontSize: density.chipLabelSize,
+              ),
             ),
           ],
           if (request.reason.trim().isNotEmpty) ...[
@@ -1362,12 +1415,15 @@ class _TimeEditRequestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
-    final employee =
-        request.employeeName.isEmpty ? 'Employee' : request.employeeName;
-    final company =
-        request.companyName.isEmpty ? 'Unknown company' : request.companyName;
-    final requester =
-        request.requesterName.isEmpty ? 'Admin' : request.requesterName;
+    final employee = request.employeeName.isEmpty
+        ? 'Employee'
+        : request.employeeName;
+    final company = request.companyName.isEmpty
+        ? 'Unknown company'
+        : request.companyName;
+    final requester = request.requesterName.isEmpty
+        ? 'Admin'
+        : request.requesterName;
 
     return Container(
       margin: EdgeInsets.only(bottom: density.cardGap),
@@ -1398,9 +1454,9 @@ class _TimeEditRequestCard extends StatelessWidget {
               child: Text(
                 'From notification',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AppColors.primaryDark,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  color: AppColors.primaryDark,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           Row(
@@ -1413,27 +1469,27 @@ class _TimeEditRequestCard extends StatelessWidget {
                     Text(
                       'Time card change',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: AppColors.primaryDark,
-                            fontWeight: FontWeight.w800,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       employee,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontSize: density.cardTitleSize,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        fontSize: density.cardTitleSize,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     Text(
                       request.employeeEmail.isEmpty
                           ? '—'
                           : request.employeeEmail,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: colors.textSecondary,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: colors.textSecondary,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                   ],
                 ),
@@ -1445,48 +1501,47 @@ class _TimeEditRequestCard extends StatelessWidget {
           Text(
             company,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontSize: density.bodySize,
-                  fontWeight: FontWeight.w600,
-                ),
+              fontSize: density.bodySize,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             'Requested by $requester',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.textSecondary,
-                  fontSize: density.chipLabelSize,
-                ),
+              color: colors.textSecondary,
+              fontSize: density.chipLabelSize,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Date: ${request.workDate}',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.labelSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 2),
           Text(
             'Current: ${request.hasPriorRecord ? '${request.currentTimeInLabel} → ${request.currentTimeOutLabel}' : 'No prior record'}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.textSecondary,
-                  fontSize: density.chipLabelSize,
-                ),
+              color: colors.textSecondary,
+              fontSize: density.chipLabelSize,
+            ),
           ),
           Text(
             'Proposed: ${request.proposedTimeInLabel} → ${request.proposedTimeOutLabel}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primaryDark,
-                ),
+              fontWeight: FontWeight.w700,
+              color: AppColors.primaryDark,
+            ),
           ),
           if (request.note.trim().isNotEmpty) ...[
             SizedBox(height: density.cardGap),
             Text(
               'Note: ${request.note.trim()}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: density.captionSize,
-                    fontWeight: FontWeight.w600,
-                  ),
+                fontSize: density.captionSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           _RequestActions(onApprove: onApprove, onReject: onReject),
@@ -1524,9 +1579,9 @@ class _MessageCard extends StatelessWidget {
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: density.bodySize,
-                  color: colors.textSecondary,
-                ),
+              fontSize: density.bodySize,
+              color: colors.textSecondary,
+            ),
           ),
         ],
       ),

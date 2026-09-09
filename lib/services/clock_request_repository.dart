@@ -2,6 +2,7 @@ import '../core/utils/firebase_data.dart';
 import '../models/clock_request.dart';
 import '../models/company_model.dart';
 import '../models/employee_time_card_profile.dart';
+import '../models/employee_day_schedule_override.dart';
 import '../models/leave_request.dart';
 import '../models/staff_assignment.dart';
 import '../models/time_card_schedule.dart';
@@ -137,6 +138,7 @@ class ClockRequestRepository {
     EmployeeWeeklySchedule? weeklySchedule,
     TimeCardSchedule? globalSchedule,
     List<LeaveRequest> leaves = const [],
+    List<EmployeeDayScheduleOverride> dayOverrides = const [],
   }) async {
     final at = requestedAt ?? DateTime.now();
     final global = globalSchedule ?? TimeCardSchedule.defaults;
@@ -145,6 +147,8 @@ class ClockRequestRepository {
       weeklySchedule: weeklySchedule,
       globalSchedule: global,
       leaves: leaves,
+      dayOverrides: dayOverrides,
+      employeeId: user.id,
     );
     if (blockReason != null) {
       throw StateError(
@@ -165,8 +169,8 @@ class ClockRequestRepository {
       companyId: company.id,
       companyDocumentId: company.firestoreId,
     );
-    if (open != null) {
-      throw StateError('You already have an open time entry.');
+    if (open != null && open.workDate == workDate) {
+      throw StateError('You already have an open time entry for today.');
     }
 
     final today = await _timeEntries.getEntryForWorkDate(
@@ -224,21 +228,9 @@ class ClockRequestRepository {
     DateTime? requestedAt,
   }) async {
     final at = requestedAt ?? DateTime.now();
-    final workDate = formatWorkDate(at);
+    var workDate = formatWorkDate(at);
     final noteText = _requireNote(note);
     await _ensureNotLocked(userId: user.id, companyId: company.id);
-
-    final pendingOut = await findPendingClockOut(
-      userId: user.id,
-      companyId: company.id,
-      workDate: workDate,
-    );
-    if (pendingOut != null) {
-      throw StateError(
-        'You already have a pending time-out request '
-        '(${pendingOut.requestedAtLabel}).',
-      );
-    }
 
     String? resolvedEntryId = entryId?.trim();
     String? relatedClockInId;
@@ -257,17 +249,19 @@ class ClockRequestRepository {
       if (!at.isAfter(entry.timeIn)) {
         throw StateError('Time out must be after your time in.');
       }
+      workDate = entry.workDate;
     } else {
       final open = await _timeEntries.getOpenEntry(
         userId: user.id,
         companyId: company.id,
         companyDocumentId: company.firestoreId,
       );
-      if (open != null && open.workDate == workDate) {
+      if (open != null) {
         if (!at.isAfter(open.timeIn)) {
           throw StateError('Time out must be after your time in.');
         }
         resolvedEntryId = open.id;
+        workDate = open.workDate;
       } else {
         final pendingIn = await findPendingClockIn(
           userId: user.id,
@@ -288,6 +282,18 @@ class ClockRequestRepository {
         relatedClockInId = pendingIn.id;
         resolvedEntryId = null;
       }
+    }
+
+    final pendingOut = await findPendingClockOut(
+      userId: user.id,
+      companyId: company.id,
+      workDate: workDate,
+    );
+    if (pendingOut != null) {
+      throw StateError(
+        'You already have a pending time-out request '
+        '(${pendingOut.requestedAtLabel}).',
+      );
     }
 
     final id = _rtdb.newKey(RtdbPaths.clockRequests);
@@ -460,7 +466,7 @@ class ClockRequestRepository {
         companyId: request.companyId,
         companyDocumentId: request.companyDocumentId,
       );
-      if (open != null && open.workDate == request.workDate) {
+      if (open != null) {
         entryId = open.id;
       }
     }

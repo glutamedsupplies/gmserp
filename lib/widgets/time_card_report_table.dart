@@ -10,6 +10,7 @@ class TimeCardReportTable extends StatelessWidget {
     required this.rows,
     this.compact = false,
     this.forExport = false,
+    this.employeeName = '',
     this.onEditRow,
     this.rowActionIcon = Icons.edit_rounded,
   });
@@ -17,6 +18,7 @@ class TimeCardReportTable extends StatelessWidget {
   final List<TimeCardTableRow> rows;
   final bool compact;
   final bool forExport;
+  final String employeeName;
   final ValueChanged<TimeCardTableRow>? onEditRow;
   final IconData rowActionIcon;
 
@@ -28,35 +30,45 @@ class TimeCardReportTable extends StatelessWidget {
 
     final colors = AppColors.of(context);
     final showEdit = onEditRow != null;
+    final minWidth = compact
+        ? (showEdit ? 820.0 : 760.0)
+        : (showEdit ? 940.0 : 880.0);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colors.border),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: compact
-                  ? (showEdit ? 640 : 580)
-                  : (showEdit ? 760 : 700),
-            ),
-            child: _TableBody(
-              rows: rows,
-              headerColor: colors.header,
-              borderColor: colors.border,
-              textSecondary: colors.textSecondary,
-              highlightColor: AppColors.primary.withValues(alpha: 0.12),
-              onEditRow: onEditRow,
-              rowActionIcon: rowActionIcon,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final expandColumns = maxWidth.isFinite && maxWidth >= minWidth;
+        final tableWidth = expandColumns ? maxWidth : minWidth;
+
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: colors.border),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: _TableBody(
+                  rows: rows,
+                  employeeName: employeeName,
+                  headerColor: colors.header,
+                  borderColor: colors.border,
+                  textSecondary: colors.textSecondary,
+                  highlightColor: AppColors.primary.withValues(alpha: 0.12),
+                  onEditRow: onEditRow,
+                  rowActionIcon: rowActionIcon,
+                  expandColumns: expandColumns,
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -81,6 +93,7 @@ class _ExportTable extends StatelessWidget {
       highlightColor: _highlight,
       forExport: true,
       onEditRow: null,
+      expandColumns: false,
     );
   }
 }
@@ -95,6 +108,8 @@ class _TableBody extends StatelessWidget {
     required this.onEditRow,
     this.rowActionIcon = Icons.edit_rounded,
     this.forExport = false,
+    this.expandColumns = false,
+    this.employeeName = '',
   });
 
   final List<TimeCardTableRow> rows;
@@ -105,6 +120,36 @@ class _TableBody extends StatelessWidget {
   final ValueChanged<TimeCardTableRow>? onEditRow;
   final IconData rowActionIcon;
   final bool forExport;
+  final bool expandColumns;
+  final String employeeName;
+
+  Map<int, TableColumnWidth> _columnWidths(bool showEdit) {
+    if (!expandColumns) {
+      var index = 0;
+      return {
+        if (!forExport) index++: const FixedColumnWidth(180), // Employee
+        index++: const FixedColumnWidth(108), // Date
+        index++: const FixedColumnWidth(52), // Day
+        index++: const FixedColumnWidth(112), // Time in
+        index++: const FixedColumnWidth(112), // Time out
+        index++: const FixedColumnWidth(68), // Hours
+        index++: const FixedColumnWidth(78), // Status
+        if (showEdit) index: const FixedColumnWidth(56), // Edit
+      };
+    }
+
+    var index = 0;
+    return {
+      if (!forExport) index++: const FlexColumnWidth(3), // Employee
+      index++: const FlexColumnWidth(2.4), // Date
+      index++: const FlexColumnWidth(1), // Day
+      index++: const FlexColumnWidth(2.2), // Time in
+      index++: const FlexColumnWidth(2.2), // Time out
+      index++: const FlexColumnWidth(1.4), // Hours
+      index++: const FlexColumnWidth(2), // Status
+      if (showEdit) index: const FixedColumnWidth(56), // Edit
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -113,17 +158,7 @@ class _TableBody extends StatelessWidget {
         : Theme.of(context).textTheme;
 
     final showEdit = !forExport && onEditRow != null;
-    final columnWidths = <int, TableColumnWidth>{};
-    var index = 0;
-    columnWidths[index++] = const FixedColumnWidth(108); // Date
-    columnWidths[index++] = const FixedColumnWidth(52); // Day
-    columnWidths[index++] = const FixedColumnWidth(112); // Time in
-    columnWidths[index++] = const FixedColumnWidth(112); // Time out
-    columnWidths[index++] = const FixedColumnWidth(68); // Hours
-    columnWidths[index++] = const FixedColumnWidth(78); // Status
-    if (showEdit) {
-      columnWidths[index++] = const FixedColumnWidth(56); // Edit
-    }
+    final columnWidths = _columnWidths(showEdit);
 
     return Table(
       columnWidths: columnWidths,
@@ -133,6 +168,7 @@ class _TableBody extends StatelessWidget {
         TableRow(
           decoration: BoxDecoration(color: headerColor),
           children: [
+            if (!forExport) _HeadCell('Employee name', textTheme, forExport),
             _HeadCell('Date', textTheme, forExport),
             _HeadCell('Day', textTheme, forExport),
             _HeadCell('Time in', textTheme, forExport),
@@ -148,6 +184,14 @@ class _TableBody extends StatelessWidget {
               color: row.isToday ? highlightColor : null,
             ),
             children: [
+              if (!forExport)
+                TableRowInkWell(
+                  onTap: showEdit ? () => onEditRow?.call(row) : null,
+                  child: _BodyCell(
+                    row.hasEmployee ? row.employeeName : employeeName,
+                    textTheme,
+                  ),
+                ),
               TableRowInkWell(
                 onTap: showEdit ? () => onEditRow?.call(row) : null,
                 child: _BodyCell(
@@ -228,6 +272,8 @@ class _HeadCell extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       child: Text(
         label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: textTheme.bodyMedium?.copyWith(
           fontWeight: FontWeight.w800,
           fontSize: 13.5,
@@ -288,6 +334,8 @@ class _BodyCell extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       child: Text(
         value,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
         style: textTheme.bodyMedium?.copyWith(
           fontSize: 13.5,
           fontWeight: bold ? FontWeight.w700 : FontWeight.w500,

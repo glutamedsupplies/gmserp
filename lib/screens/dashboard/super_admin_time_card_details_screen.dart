@@ -1,9 +1,13 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/responsive.dart';
 import '../../core/utils/snackbar_helper.dart';
+import '../../models/employee_day_schedule_override.dart';
 import '../../models/leave_request.dart';
 import '../../models/company_model.dart';
 import '../../models/staff_assignment.dart';
@@ -14,6 +18,7 @@ import '../../models/user_role.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/time_card_settings_provider.dart';
+import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
 import '../../services/time_card_change_request_repository.dart';
 import '../../services/time_entry_repository.dart';
@@ -33,9 +38,38 @@ class SuperAdminTimeCardDetailsScreen extends StatefulWidget {
 }
 
 class _SuperAdminTimeCardDetailsScreenState
-    extends State<SuperAdminTimeCardDetailsScreen> {
+    extends State<SuperAdminTimeCardDetailsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'companies',
+    'users',
+    'timeEntries',
+    'leaveRequests',
+    'timeCardDayOverrides',
+    'timeCardSettings',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    await companies.loadCompanies();
+    if (!mounted) return;
+    final company = _activeCompany(
+      companies,
+      _isSuperAdmin(context.read<AuthProvider>().user?.role),
+    );
+    if (company == null) return;
+    await companies.loadUsers();
+    await companies.loadStaff(company.id);
+    if (!mounted) return;
+    _loadedCompanyId = null;
+    await _loadCompanyData(company.id, companyDocumentId: company.firestoreId);
+  }
+
   final _timeEntriesRepo = TimeEntryRepository();
   final _leaveRepo = LeaveRequestRepository();
+  final _dayOverrideRepo = EmployeeDayScheduleOverrideRepository();
   final _changeRequestRepo = TimeCardChangeRequestRepository();
 
   String? _loadedCompanyId;
@@ -45,6 +79,7 @@ class _SuperAdminTimeCardDetailsScreenState
   String? _error;
   List<TimeEntry> _companyEntries = [];
   List<LeaveRequest> _companyLeaves = [];
+  List<EmployeeDayScheduleOverride> _companyDayOverrides = [];
 
   TimeCardPeriodFilter _periodFilter = TimeCardPeriodFilter.wholeMonth;
   DateTime _viewDate = DateTime(
@@ -82,8 +117,11 @@ class _SuperAdminTimeCardDetailsScreenState
     if (_isSuperAdmin(auth?.role)) {
       await companies.loadCompanies();
       if (!mounted) return;
-      final initial = companies.selectedCompany?.id ??
-          (companies.companies.isNotEmpty ? companies.companies.first.id : null);
+      final initial =
+          companies.selectedCompany?.id ??
+          (companies.companies.isNotEmpty
+              ? companies.companies.first.id
+              : null);
       if (initial != null) {
         await _selectCompany(initial, resetFilters: false);
       }
@@ -94,10 +132,7 @@ class _SuperAdminTimeCardDetailsScreenState
     if (company == null) return;
     companies.loadUsers();
     await companies.loadStaff(company.id);
-    await _loadCompanyData(
-      company.id,
-      companyDocumentId: company.firestoreId,
-    );
+    await _loadCompanyData(company.id, companyDocumentId: company.firestoreId);
   }
 
   Future<void> _selectCompany(
@@ -126,10 +161,7 @@ class _SuperAdminTimeCardDetailsScreenState
     final companies = context.read<CompanyProvider>();
     companies.loadUsers();
     await companies.loadStaff(companyId);
-    await _loadCompanyData(
-      companyId,
-      companyDocumentId: company?.firestoreId,
-    );
+    await _loadCompanyData(companyId, companyDocumentId: company?.firestoreId);
   }
 
   CompanyModel? _activeCompany(CompanyProvider companies, bool isSuperAdmin) {
@@ -150,7 +182,7 @@ class _SuperAdminTimeCardDetailsScreenState
   }) async {
     if (_loadedCompanyId == companyId && _companyEntries.isNotEmpty) return;
     setState(() {
-      _loading = true;
+      if (!isRealtimeRefresh) _loading = true;
       _error = null;
       _loadedCompanyId = companyId;
     });
@@ -163,10 +195,20 @@ class _SuperAdminTimeCardDetailsScreenState
         ),
         _leaveRepo.listByCompanyId(companyId),
       ]);
+      List<EmployeeDayScheduleOverride> dayOverrides = [];
+      try {
+        dayOverrides = await _dayOverrideRepo.listByCompanyId(
+          companyId,
+          companyDocumentId: companyDocumentId,
+        );
+      } catch (_) {
+        dayOverrides = [];
+      }
       if (!mounted || _loadedCompanyId != companyId) return;
       setState(() {
         _companyEntries = results[0] as List<TimeEntry>;
         _companyLeaves = results[1] as List<LeaveRequest>;
+        _companyDayOverrides = dayOverrides;
         _loading = false;
       });
     } catch (_) {
@@ -174,6 +216,7 @@ class _SuperAdminTimeCardDetailsScreenState
       setState(() {
         _companyEntries = [];
         _companyLeaves = [];
+        _companyDayOverrides = [];
         _loading = false;
         _error = 'Unable to load employee time cards for this company.';
       });
@@ -215,6 +258,10 @@ class _SuperAdminTimeCardDetailsScreenState
             .where((leave) => leave.userId == member.userId)
             .toList(),
         weeklySchedule: member.timeCardProfile.weeklySchedule,
+        dayOverrides: overridesForUser(
+          overrides: _companyDayOverrides,
+          userId: member.userId,
+        ),
       );
     }).toList();
   }
@@ -247,11 +294,10 @@ class _SuperAdminTimeCardDetailsScreenState
     }
 
     final rates = {
-      for (final member in staff) member.userId: member.timeCardProfile.dailyRate,
+      for (final member in staff)
+        member.userId: member.timeCardProfile.dailyRate,
     };
-    final names = {
-      for (final member in staff) member.userId: member.username,
-    };
+    final names = {for (final member in staff) member.userId: member.username};
     final entriesByUser = <String, List<TimeEntry>>{};
     for (final entry in _companyEntries) {
       entriesByUser.putIfAbsent(entry.userId, () => []).add(entry);
@@ -268,6 +314,11 @@ class _SuperAdminTimeCardDetailsScreenState
       weeklySchedulesByUserId: weeklySchedules,
       globalSchedule: globalSchedule,
     );
+    final leaveYtdByUser = leaveDaysYtdByUserId(
+      leaves: _companyLeaves,
+      userIds: salaryBreakdowns.map((item) => item.employeeId),
+      year: _viewDate.year,
+    );
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -282,6 +333,8 @@ class _SuperAdminTimeCardDetailsScreenState
           generatedAt: now,
           periodDate: _viewDate,
           salaryBreakdowns: salaryBreakdowns,
+          leaveDaysYtdByUserId: leaveYtdByUser,
+          highlightEmployeeId: _employeeFilterId,
         ),
       ),
     );
@@ -302,14 +355,16 @@ class _SuperAdminTimeCardDetailsScreenState
     if (member == null) return;
     final selectedMember = member;
 
-    final localCandidates = _companyEntries
-        .where(
-          (e) => e.userId == row.employeeId && e.workDate == row.workDate,
-        )
-        .toList()
-      ..sort((a, b) => a.timeIn.compareTo(b.timeIn));
-    final localExisting =
-        localCandidates.isEmpty ? null : localCandidates.first;
+    final localCandidates =
+        _companyEntries
+            .where(
+              (e) => e.userId == row.employeeId && e.workDate == row.workDate,
+            )
+            .toList()
+          ..sort((a, b) => a.timeIn.compareTo(b.timeIn));
+    final localExisting = localCandidates.isEmpty
+        ? null
+        : localCandidates.first;
 
     // Live Firestore lookup — don't rely only on the in-memory cache.
     TimeEntry? existing = await _timeEntriesRepo.findPriorEntry(
@@ -358,8 +413,8 @@ class _SuperAdminTimeCardDetailsScreenState
     }
 
     final workDate = parseWorkDateString(row.workDate) ?? _viewDate;
-    final baselineTimeIn = existing?.timeIn ??
-        parseClockTimeOnDate(workDate, row.timeIn);
+    final baselineTimeIn =
+        existing?.timeIn ?? parseClockTimeOnDate(workDate, row.timeIn);
     final baselineTimeOut = existing != null
         ? existing.timeOut
         : parseClockTimeOnDate(workDate, row.timeOut);
@@ -370,15 +425,20 @@ class _SuperAdminTimeCardDetailsScreenState
     var isActive = baselineTimeIn != null && baselineTimeOut == null;
     TimeOfDay timeOut = baselineTimeOut == null
         ? const TimeOfDay(hour: 18, minute: 0)
-        : TimeOfDay(
-            hour: baselineTimeOut.hour,
-            minute: baselineTimeOut.minute,
-          );
+        : TimeOfDay(hour: baselineTimeOut.hour, minute: baselineTimeOut.minute);
+
+    final scheduledOff = !selectedMember.timeCardProfile.weeklySchedule
+        .isWorkDay(workDate);
+    var markAsDayOff = isForcedEmployeeDayOff(
+      overrides: _companyDayOverrides,
+      userId: selectedMember.userId,
+      workDate: row.workDate,
+    );
 
     final currentSummary = baselineTimeIn == null
         ? 'No prior record on file'
         : '${formatClockTime(baselineTimeIn)} → '
-            '${baselineTimeOut == null ? 'Open' : formatClockTime(baselineTimeOut)}';
+              '${baselineTimeOut == null ? 'Open' : formatClockTime(baselineTimeOut)}';
 
     await showDialog<void>(
       context: context,
@@ -408,7 +468,7 @@ class _SuperAdminTimeCardDetailsScreenState
             return AlertDialog(
               title: Text(
                 _isSuperAdmin(context.read<AuthProvider>().user?.role)
-                    ? 'Edit time in / time out'
+                    ? 'Edit attendance'
                     : 'Request time change',
               ),
               content: SingleChildScrollView(
@@ -428,39 +488,71 @@ class _SuperAdminTimeCardDetailsScreenState
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Text(
                         'Current: $currentSummary',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                    ),
-                    ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Time in'),
-                      trailing: Text(
-                        formatHourMinute12h(timeIn.hour, timeIn.minute),
-                      ),
-                      onTap: saving ? null : pickTimeIn,
                     ),
                     SwitchListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Still on shift (no time out)'),
-                      value: isActive,
+                      title: const Text('Mark this day as day off'),
+                      subtitle: Text(
+                        scheduledOff
+                            ? 'Weekly schedule already marks this weekday as off. '
+                                  'Turn off to follow the weekly schedule.'
+                            : 'Applies only to ${row.workDate}. The employee weekly '
+                                  'schedule in time card settings stays the same.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      value: markAsDayOff,
                       onChanged: saving
                           ? null
-                          : (v) => setStateDialog(() => isActive = v),
+                          : (value) =>
+                                setStateDialog(() => markAsDayOff = value),
                     ),
-                    if (!isActive)
+                    if (markAsDayOff) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Status will show as Off for this date only.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ] else ...[
+                      const Divider(height: 20),
+                    ],
+                    if (!markAsDayOff) ...[
                       ListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Time out'),
+                        title: const Text('Time in'),
                         trailing: Text(
-                          formatHourMinute12h(timeOut.hour, timeOut.minute),
+                          formatHourMinute12h(timeIn.hour, timeIn.minute),
                         ),
-                        onTap: saving ? null : pickTimeOut,
+                        onTap: saving ? null : pickTimeIn,
                       ),
+                      SwitchListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Still on shift (no time out)'),
+                        value: isActive,
+                        onChanged: saving
+                            ? null
+                            : (v) => setStateDialog(() => isActive = v),
+                      ),
+                      if (!isActive)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Time out'),
+                          trailing: Text(
+                            formatHourMinute12h(timeOut.hour, timeOut.minute),
+                          ),
+                          onTap: saving ? null : pickTimeOut,
+                        ),
+                    ],
                   ],
                 ),
               ),
@@ -477,41 +569,71 @@ class _SuperAdminTimeCardDetailsScreenState
                       : () async {
                           setStateDialog(() => saving = true);
                           try {
-                            final newTimeIn = DateTime(
-                              workDate.year,
-                              workDate.month,
-                              workDate.day,
-                              timeIn.hour,
-                              timeIn.minute,
-                            );
-                            final newTimeOut = isActive
-                                ? null
-                                : DateTime(
-                                    workDate.year,
-                                    workDate.month,
-                                    workDate.day,
-                                    timeOut.hour,
-                                    timeOut.minute,
-                                  );
-
-                            final authUser =
-                                context.read<AuthProvider>().user;
+                            final authUser = context.read<AuthProvider>().user;
                             final companies = context.read<CompanyProvider>();
                             final asSuperAdmin = _isSuperAdmin(authUser?.role);
 
-                            if (asSuperAdmin) {
-                              await _timeEntriesRepo.adminSaveEntry(
-                                entryId: existing?.id,
-                                userId: selectedMember.userId,
-                                userEmail: selectedMember.email,
-                                username: selectedMember.username,
-                                company: company,
-                                timeIn: newTimeIn,
-                                timeOut: newTimeOut,
+                            if (authUser == null) {
+                              throw StateError('Sign in to save changes.');
+                            }
+
+                            await _dayOverrideRepo.setDayOff(
+                              actor: authUser,
+                              company: company,
+                              employeeId: selectedMember.userId,
+                              workDate: row.workDate,
+                              dayOff: markAsDayOff,
+                            );
+
+                            if (!markAsDayOff) {
+                              final newTimeIn = DateTime(
+                                workDate.year,
+                                workDate.month,
+                                workDate.day,
+                                timeIn.hour,
+                                timeIn.minute,
                               );
-                              if (authUser != null) {
-                                await _changeRequestRepo.recordApprovedDirectEdit(
-                                  actor: authUser,
+                              final newTimeOut = isActive
+                                  ? null
+                                  : DateTime(
+                                      workDate.year,
+                                      workDate.month,
+                                      workDate.day,
+                                      timeOut.hour,
+                                      timeOut.minute,
+                                    );
+
+                              if (asSuperAdmin) {
+                                await _timeEntriesRepo.adminSaveEntry(
+                                  entryId: existing?.id,
+                                  userId: selectedMember.userId,
+                                  userEmail: selectedMember.email,
+                                  username: selectedMember.username,
+                                  company: company,
+                                  timeIn: newTimeIn,
+                                  timeOut: newTimeOut,
+                                );
+                                await _changeRequestRepo
+                                    .recordApprovedDirectEdit(
+                                      actor: authUser,
+                                      company: company,
+                                      employeeId: selectedMember.userId,
+                                      employeeName: selectedMember.username,
+                                      employeeEmail: selectedMember.email,
+                                      workDate: row.workDate,
+                                      proposedTimeIn: newTimeIn,
+                                      proposedTimeOut: newTimeOut,
+                                      currentTimeIn: baselineTimeIn,
+                                      currentTimeOut: baselineTimeOut,
+                                      existingEntryId: existing?.id,
+                                    );
+                                await companies.unlockEmployeeClockRequests(
+                                  companyId: company.id,
+                                  userId: selectedMember.userId,
+                                );
+                              } else {
+                                await _changeRequestRepo.submit(
+                                  requester: authUser,
                                   company: company,
                                   employeeId: selectedMember.userId,
                                   employeeName: selectedMember.username,
@@ -524,38 +646,22 @@ class _SuperAdminTimeCardDetailsScreenState
                                   existingEntryId: existing?.id,
                                 );
                               }
-                              await companies.unlockEmployeeClockRequests(
-                                    companyId: company.id,
-                                    userId: selectedMember.userId,
-                                  );
-                            } else {
-                              if (authUser == null) {
-                                throw StateError('Sign in to submit a request.');
-                              }
-                              await _changeRequestRepo.submit(
-                                requester: authUser,
-                                company: company,
-                                employeeId: selectedMember.userId,
-                                employeeName: selectedMember.username,
-                                employeeEmail: selectedMember.email,
-                                workDate: row.workDate,
-                                proposedTimeIn: newTimeIn,
-                                proposedTimeOut: newTimeOut,
-                                currentTimeIn: baselineTimeIn,
-                                currentTimeOut: baselineTimeOut,
-                                existingEntryId: existing?.id,
-                              );
                             }
 
                             if (!mounted || !dialogContext.mounted) return;
                             Navigator.of(dialogContext).pop();
-                            if (asSuperAdmin) {
-                              _loadedCompanyId = null;
-                              await _loadCompanyData(
-                                company.id,
-                                companyDocumentId: company.firestoreId,
+                            _loadedCompanyId = null;
+                            await _loadCompanyData(
+                              company.id,
+                              companyDocumentId: company.firestoreId,
+                            );
+                            if (!mounted) return;
+                            if (markAsDayOff) {
+                              SnackBarHelper.showSuccess(
+                                context,
+                                'Day off saved for ${row.workDate}.',
                               );
-                              if (!mounted) return;
+                            } else if (asSuperAdmin) {
                               SnackBarHelper.showSuccess(
                                 context,
                                 'Time entry updated.',
@@ -602,14 +708,13 @@ class _SuperAdminTimeCardDetailsScreenState
     if (!isSuperAdmin && company != null && _loadedCompanyId != company.id) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         companies.loadStaff(company.id);
-        _loadCompanyData(
-          company.id,
-          companyDocumentId: company.firestoreId,
-        );
+        _loadCompanyData(company.id, companyDocumentId: company.firestoreId);
       });
     }
 
-    final staff = company == null ? <StaffAssignment>[] : _staffMembers(companies);
+    final staff = company == null
+        ? <StaffAssignment>[]
+        : _staffMembers(companies);
     final sources = _sourcesForFilter(staff);
     final now = DateTime.now();
     final tableRows = _filteredRows(
@@ -624,8 +729,8 @@ class _SuperAdminTimeCardDetailsScreenState
     final entriesForTotal = _employeeFilterId == null
         ? _companyEntries
         : _companyEntries
-            .where((entry) => entry.userId == _employeeFilterId)
-            .toList();
+              .where((entry) => entry.userId == _employeeFilterId)
+              .toList();
     final periodTotal = formatDurationShort(
       totalDurationForRows(
         entriesForTotal,
@@ -638,68 +743,73 @@ class _SuperAdminTimeCardDetailsScreenState
     return DashboardScaffold(
       title: 'Time card details',
       currentRoute: AppRoutes.superAdminTimeCardDetails,
-      child: ListView(
+      child: Padding(
         padding: CompactPageStyle.of(context).pagePadding,
-        children: [
-          CompactPageHeader(
-            title: 'Time card details',
-            subtitle: isSuperAdmin
-                ? 'Review attendance by company, employee, and period.'
-                : company == null
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (Responsive.isWebOrDesktopShell) ...[
+              SizedBox(height: CompactPageStyle.of(context).cardGap),
+            ] else ...[
+              CompactPageHeader(
+                title: 'Time card details',
+                subtitle: isSuperAdmin
+                    ? 'Review attendance by company, employee, and period.'
+                    : company == null
                     ? 'Select a company to review employee time cards.'
                     : 'Attendance for ${company.name} · '
-                        '${staff.length} staff · shift ${schedule.shiftStartLabel}',
-          ),
-          SizedBox(height: CompactPageStyle.of(context).sectionGap),
-          if (!isSuperAdmin && company == null)
-            const _MessageCard(
-              icon: Icons.business_outlined,
-              message:
-                  'Open a company from Switch company to view all employee time cards.',
-            )
-          else if (isSuperAdmin && companies.companies.isEmpty)
-            const _MessageCard(
-              icon: Icons.business_outlined,
-              message: 'No companies yet. Create a company first.',
-            )
-          else if (company == null)
-            const _MessageCard(
-              icon: Icons.business_outlined,
-              message: 'Select a company to view employee time cards.',
-            )
-          else ...[
-            _FilterBar(
-              isSuperAdmin: isSuperAdmin,
-              companies: isSuperAdmin ? companies.companies : const [],
-              selectedCompanyId: _companyId,
-              periodFilter: _periodFilter,
-              viewDate: _viewDate,
-              employeeFilterId: _employeeFilterId,
-              statusFilter: _statusFilter,
-              staff: staff,
-              searchController: _searchController,
-              onCompanyChanged: (companyId) {
-                if (companyId != null) _selectCompany(companyId);
-              },
-              onPeriodChanged: (value) =>
-                  setState(() => _periodFilter = value),
-              onViewDateChanged: (value) => setState(() => _viewDate = value),
-              onEmployeeChanged: (value) =>
-                  setState(() => _employeeFilterId = value),
-              onStatusChanged: (value) =>
-                  setState(() => _statusFilter = value),
-              onSearchChanged: (value) => setState(() => _search = value),
-              onRefresh: () async {
-                _loadedCompanyId = null;
-                await companies.loadStaff(company.id);
-                await _loadCompanyData(
-                  company.id,
-                  companyDocumentId: company.firestoreId,
-                );
-              },
-              onViewPressed: tableRows.isEmpty
-                  ? null
-                  : () => _openPngPreview(
+                          '${staff.length} staff · shift ${schedule.shiftStartLabel}',
+              ),
+              SizedBox(height: CompactPageStyle.of(context).sectionGap),
+            ],
+            if (!isSuperAdmin && company == null)
+              const _MessageCard(
+                icon: Icons.business_outlined,
+                message: 'Open a company from Switch company to view all employee time cards.',
+              )
+            else if (isSuperAdmin && companies.companies.isEmpty)
+              const _MessageCard(
+                icon: Icons.business_outlined,
+                message: 'No companies yet. Create a company first.',
+              )
+            else if (company == null)
+              const _MessageCard(
+                icon: Icons.business_outlined,
+                message: 'Select a company to view employee time cards.',
+              )
+            else ...[
+              _FilterBar(
+                isSuperAdmin: isSuperAdmin,
+                companies: isSuperAdmin ? companies.companies : const [],
+                selectedCompanyId: _companyId,
+                periodFilter: _periodFilter,
+                viewDate: _viewDate,
+                employeeFilterId: _employeeFilterId,
+                statusFilter: _statusFilter,
+                staff: staff,
+                searchController: _searchController,
+                onCompanyChanged: (companyId) {
+                  if (companyId != null) _selectCompany(companyId);
+                },
+                onPeriodChanged: (value) =>
+                    setState(() => _periodFilter = value),
+                onViewDateChanged: (value) => setState(() => _viewDate = value),
+                onEmployeeChanged: (value) =>
+                    setState(() => _employeeFilterId = value),
+                onStatusChanged: (value) =>
+                    setState(() => _statusFilter = value),
+                onSearchChanged: (value) => setState(() => _search = value),
+                onRefresh: () async {
+                  _loadedCompanyId = null;
+                  await companies.loadStaff(company.id);
+                  await _loadCompanyData(
+                    company.id,
+                    companyDocumentId: company.firestoreId,
+                  );
+                },
+                onViewPressed: tableRows.isEmpty
+                    ? null
+                    : () => _openPngPreview(
                         company: company,
                         staff: staff,
                         sources: sources,
@@ -708,48 +818,49 @@ class _SuperAdminTimeCardDetailsScreenState
                         now: now,
                         globalSchedule: schedule,
                       ),
-            ),
-            SizedBox(height: CompactPageStyle.of(context).sectionGap),
-            _SummaryStrip(
-              staffCount: sources.length,
-              rowCount: tableRows.length,
-              present: tableRows.where((r) => r.status == 'Present').length,
-              late: tableRows.where((r) => r.status == 'Late').length,
-              absent: tableRows.where((r) => r.status == 'Absent').length,
-              onLeave: tableRows.where((r) => r.status == 'On Leave').length,
-            ),
-            SizedBox(height: CompactPageStyle.of(context).sectionGap),
-            if (_loading)
-              const AppLoadingView(
-                title: 'Loading time cards',
-                message: 'Fetching staff clock entries…',
-              )
-            else if (_error != null)
-              _MessageCard(icon: Icons.error_outline, message: _error!)
-            else if (staff.isEmpty)
-              const _MessageCard(
-                icon: Icons.groups_outlined,
-                message: 'No employees or admins are assigned to this company.',
-              )
-            else if (tableRows.isEmpty)
-              const _MessageCard(
-                icon: Icons.filter_alt_off_outlined,
-                message: 'No time card rows match the current filters.',
-              )
-            else
-              TimeCardReportTable(
-                rows: tableRows,
-                compact: true,
-                onEditRow: (row) {
-                  _openEditEntryModal(
-                    company: company,
-                    row: row,
-                    staff: staff,
-                  );
-                },
+                staffCount: sources.length,
+                rowCount: tableRows.length,
+                present: tableRows.where((r) => r.status == 'Present').length,
+                late: tableRows.where((r) => r.status == 'Late').length,
+                absent: tableRows.where((r) => r.status == 'Absent').length,
+                onLeave: tableRows.where((r) => r.status == 'On Leave').length,
               ),
+              const SizedBox(height: 6),
+              Expanded(
+                child: _loading
+                    ? const AppLoadingView(
+                        title: 'Loading time cards',
+                        message: 'Fetching staff clock entries…',
+                      )
+                    : _error != null
+                    ? _MessageCard(icon: Icons.error_outline, message: _error!)
+                    : staff.isEmpty
+                    ? const _MessageCard(
+                        icon: Icons.groups_outlined,
+                        message: 'No employees or admins are assigned to this company.',
+                      )
+                    : tableRows.isEmpty
+                    ? const _MessageCard(
+                        icon: Icons.filter_alt_off_outlined,
+                        message: 'No time card rows match the current filters.',
+                      )
+                    : SingleChildScrollView(
+                        child: TimeCardReportTable(
+                          rows: tableRows,
+                          compact: true,
+                          onEditRow: (row) {
+                            _openEditEntryModal(
+                              company: company,
+                              row: row,
+                              staff: staff,
+                            );
+                          },
+                        ),
+                      ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -774,6 +885,12 @@ class _FilterBar extends StatelessWidget {
     required this.onSearchChanged,
     required this.onRefresh,
     required this.onViewPressed,
+    required this.staffCount,
+    required this.rowCount,
+    required this.present,
+    required this.late,
+    required this.absent,
+    required this.onLeave,
   });
 
   final bool isSuperAdmin;
@@ -793,169 +910,275 @@ class _FilterBar extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final Future<void> Function() onRefresh;
   final VoidCallback? onViewPressed;
+  final int staffCount;
+  final int rowCount;
+  final int present;
+  final int late;
+  final int absent;
+  final int onLeave;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final isDesktop = Responsive.isWebOrDesktopShell;
+    final density = CompactPageStyle.of(context);
+    final gap = isDesktop ? 8.0 : 6.0;
+    final filterHeight = isDesktop ? 36.0 : 40.0;
     final sortedCompanies = [...companies]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
+    Widget companyDropdown() => _DropdownShell(
+      height: filterHeight,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: selectedCompanyId,
+          isExpanded: true,
+          isDense: true,
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(fontSize: isDesktop ? 13 : null),
+          hint: const Text('Select company'),
+          items: [
+            for (final company in sortedCompanies)
+              DropdownMenuItem<String?>(
+                value: company.id,
+                child: Text(company.name, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: onCompanyChanged,
+        ),
+      ),
+    );
+
+    Widget periodDropdown() => _DropdownShell(
+      height: filterHeight,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<TimeCardPeriodFilter>(
+          value: periodFilter,
+          isExpanded: true,
+          isDense: true,
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(fontSize: isDesktop ? 13 : null),
+          items: [
+            for (final option in TimeCardPeriodFilter.values)
+              DropdownMenuItem(value: option, child: Text(option.label)),
+          ],
+          onChanged: (value) {
+            if (value != null) onPeriodChanged(value);
+          },
+        ),
+      ),
+    );
+
+    Widget employeeDropdown() => _DropdownShell(
+      height: filterHeight,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: employeeFilterId,
+          isExpanded: true,
+          isDense: true,
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(fontSize: isDesktop ? 13 : null),
+          hint: const Text('All employees'),
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('All employees'),
+            ),
+            for (final member in staff)
+              DropdownMenuItem<String?>(
+                value: member.userId,
+                child: Text(member.username, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: onEmployeeChanged,
+        ),
+      ),
+    );
+
+    Widget statusDropdown() => _DropdownShell(
+      height: filterHeight,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: statusFilter,
+          isExpanded: true,
+          isDense: true,
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(fontSize: isDesktop ? 13 : null),
+          items: const [
+            DropdownMenuItem(value: 'All', child: Text('All status')),
+            DropdownMenuItem(value: 'Present', child: Text('Present')),
+            DropdownMenuItem(value: 'Late', child: Text('Late')),
+            DropdownMenuItem(value: 'Absent', child: Text('Absent')),
+            DropdownMenuItem(value: 'On Leave', child: Text('On Leave')),
+            DropdownMenuItem(value: 'Off', child: Text('Off')),
+          ],
+          onChanged: (value) {
+            if (value != null) onStatusChanged(value);
+          },
+        ),
+      ),
+    );
+
+    final viewButton = FilledButton.icon(
+      onPressed: onViewPressed,
+      icon: Icon(Icons.image_outlined, size: isDesktop ? 14 : 16),
+      label: const Text('View'),
+      style: FilledButton.styleFrom(
+        minimumSize: Size(0, filterHeight),
+        padding: EdgeInsets.symmetric(horizontal: isDesktop ? 10 : 12),
+        backgroundColor: AppColors.primaryDark,
+        foregroundColor: AppColors.onPrimary,
+        textStyle: Theme.of(context).textTheme.labelMedium
+            ?.copyWith(fontSize: isDesktop ? 13 : null),
+      ),
+    );
+
+    final refreshButton = IconButton(
+      tooltip: 'Refresh',
+      onPressed: onRefresh,
+      icon: Icon(Icons.refresh_rounded, size: isDesktop ? 18 : 20),
+      color: AppColors.primaryDark,
+      visualDensity: VisualDensity.compact,
+      padding: isDesktop ? EdgeInsets.zero : null,
+      constraints: isDesktop
+          ? const BoxConstraints(minWidth: 32, minHeight: 32)
+          : null,
+    );
+
+    final searchField = isDesktop
+        ? SizedBox(
+            height: filterHeight,
+            child: CompactSearchField(
+              controller: searchController,
+              onChanged: onSearchChanged,
+              hintText: 'Search name or email',
+              dense: true,
+            ),
+          )
+        : CompactSearchField(
+            controller: searchController,
+            onChanged: onSearchChanged,
+            hintText: 'Search name or email',
+            dense: true,
+          );
+
+    if (isDesktop) {
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        decoration: BoxDecoration(
+          color: colors.header,
+          borderRadius: BorderRadius.circular(density.radius),
+          border: Border.all(color: colors.border),
+        ),
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 220,
+                  child: TimeCardMonthFilter(
+                    compact: true,
+                    viewDate: viewDate,
+                    onViewDateChanged: onViewDateChanged,
+                  ),
+                ),
+                if (isSuperAdmin) ...[
+                  SizedBox(width: gap),
+                  Expanded(flex: 3, child: companyDropdown()),
+                ],
+                SizedBox(width: gap),
+                SizedBox(width: 128, child: periodDropdown()),
+                const Spacer(),
+                viewButton,
+                refreshButton,
+              ],
+            ),
+            SizedBox(height: gap),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(flex: 3, child: employeeDropdown()),
+                SizedBox(width: gap),
+                SizedBox(width: 128, child: statusDropdown()),
+                SizedBox(width: gap),
+                Expanded(flex: 4, child: searchField),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Divider(height: 1, color: colors.border),
+            const SizedBox(height: 6),
+            _SummaryStrip(
+              staffCount: staffCount,
+              rowCount: rowCount,
+              present: present,
+              late: late,
+              absent: absent,
+              onLeave: onLeave,
+              compact: true,
+              embedded: true,
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
-      padding: CompactPageStyle.of(context).summaryPadding,
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(density.radius),
         border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
           TimeCardMonthFilter(
+            compact: true,
             viewDate: viewDate,
             onViewDateChanged: onViewDateChanged,
           ),
-          SizedBox(height: CompactPageStyle.of(context).cardGap),
-          if (isSuperAdmin) ...[
-            _DropdownShell(
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String?>(
-                  value: selectedCompanyId,
-                  isExpanded: true,
-                  isDense: true,
-                  style: Theme.of(context).textTheme.bodySmall,
-                  hint: const Text('Select company'),
-                  items: [
-                    for (final company in sortedCompanies)
-                      DropdownMenuItem<String?>(
-                        value: company.id,
-                        child: Text(
-                          company.name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: onCompanyChanged,
-                ),
-              ),
+          SizedBox(height: gap),
+          Row(
+            children: [
+              if (isSuperAdmin) ...[
+                Expanded(child: companyDropdown()),
+                SizedBox(width: gap),
+              ],
+              Expanded(child: periodDropdown()),
+            ],
+          ),
+          SizedBox(height: gap),
+          Row(
+            children: [
+              Expanded(child: employeeDropdown()),
+              SizedBox(width: gap),
+              Expanded(child: statusDropdown()),
+            ],
+          ),
+          SizedBox(height: gap),
+          Row(
+            children: [
+              Expanded(child: searchField),
+              SizedBox(width: gap),
+              viewButton,
+              refreshButton,
+            ],
+          ),
+          const SizedBox(height: 6),
+          Divider(height: 1, color: colors.border),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: _SummaryStrip(
+              staffCount: staffCount,
+              rowCount: rowCount,
+              present: present,
+              late: late,
+              absent: absent,
+              onLeave: onLeave,
+              compact: true,
+              embedded: true,
             ),
-            SizedBox(height: CompactPageStyle.of(context).cardGap),
-          ],
-          Row(
-            children: [
-              Expanded(
-                child: _DropdownShell(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<TimeCardPeriodFilter>(
-                      value: periodFilter,
-                      isExpanded: true,
-                      isDense: true,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      items: [
-                        for (final option in TimeCardPeriodFilter.values)
-                          DropdownMenuItem(
-                            value: option,
-                            child: Text(option.label),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) onPeriodChanged(value);
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: CompactPageStyle.of(context).cardGap),
-              Expanded(
-                child: _DropdownShell(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String?>(
-                      value: employeeFilterId,
-                      isExpanded: true,
-                      isDense: true,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      hint: const Text('All employees'),
-                      items: [
-                        const DropdownMenuItem<String?>(
-                          value: null,
-                          child: Text('All employees'),
-                        ),
-                        for (final member in staff)
-                          DropdownMenuItem<String?>(
-                            value: member.userId,
-                            child: Text(
-                              member.username,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: onEmployeeChanged,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: CompactPageStyle.of(context).cardGap),
-          Row(
-            children: [
-              Expanded(
-                child: _DropdownShell(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: statusFilter,
-                      isExpanded: true,
-                      isDense: true,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      items: const [
-                        DropdownMenuItem(value: 'All', child: Text('All status')),
-                        DropdownMenuItem(
-                          value: 'Present',
-                          child: Text('Present'),
-                        ),
-                        DropdownMenuItem(value: 'Late', child: Text('Late')),
-                        DropdownMenuItem(
-                          value: 'Absent',
-                          child: Text('Absent'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'On Leave',
-                          child: Text('On Leave'),
-                        ),
-                        DropdownMenuItem(value: 'Off', child: Text('Off')),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) onStatusChanged(value);
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: CompactPageStyle.of(context).cardGap),
-              FilledButton.icon(
-                onPressed: onViewPressed,
-                icon: const Icon(Icons.image_outlined, size: 16),
-                label: const Text('View'),
-                style: FilledButton.styleFrom(
-                  minimumSize: Size(0, CompactPageStyle.of(context).filterHeight),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  backgroundColor: AppColors.primaryDark,
-                  foregroundColor: AppColors.onPrimary,
-                  textStyle: Theme.of(context).textTheme.labelMedium,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Refresh',
-                onPressed: onRefresh,
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                color: AppColors.primaryDark,
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ),
-          SizedBox(height: CompactPageStyle.of(context).cardGap),
-          CompactSearchField(
-            controller: searchController,
-            onChanged: onSearchChanged,
-            hintText: 'Search employee name or email',
           ),
         ],
       ),
@@ -964,19 +1187,22 @@ class _FilterBar extends StatelessWidget {
 }
 
 class _DropdownShell extends StatelessWidget {
-  const _DropdownShell({required this.child});
+  const _DropdownShell({required this.child, this.height});
 
   final Widget child;
+  final double? height;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
-      height: CompactPageStyle.of(context).filterHeight,
+      height: height ?? CompactPageStyle.of(context).filterHeight,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: child,
@@ -992,6 +1218,8 @@ class _SummaryStrip extends StatelessWidget {
     required this.late,
     required this.absent,
     required this.onLeave,
+    this.compact = false,
+    this.embedded = false,
   });
 
   final int staffCount;
@@ -1000,6 +1228,8 @@ class _SummaryStrip extends StatelessWidget {
   final int late;
   final int absent;
   final int onLeave;
+  final bool compact;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
@@ -1013,34 +1243,59 @@ class _SummaryStrip extends StatelessWidget {
       ('Leave', '$onLeave', AppColors.primaryDark),
     ];
 
+    if (compact) {
+      return Row(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(width: 12),
+            Text(
+              items[i].$1,
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: colors.textSecondary, fontSize: 11),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              items[i].$2,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: items[i].$3,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
     return Container(
       padding: CompactPageStyle.of(context).summaryPadding,
-      decoration: BoxDecoration(
-        color: colors.inputFill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
-        border: Border.all(color: colors.border),
-      ),
+      decoration: embedded
+          ? null
+          : BoxDecoration(
+              color: colors.inputFill,
+              borderRadius: BorderRadius.circular(
+                CompactPageStyle.of(context).radius,
+              ),
+              border: Border.all(color: colors.border),
+            ),
       child: Row(
         children: [
           for (var i = 0; i < items.length; i++) ...[
-            if (i > 0)
-              Container(width: 1, height: 24, color: colors.border),
+            if (i > 0) Container(width: 1, height: 24, color: colors.border),
             Expanded(
               child: Column(
                 children: [
                   Text(
                     items[i].$2,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: items[i].$3,
-                        ),
+                      fontWeight: FontWeight.w800,
+                      color: items[i].$3,
+                    ),
                   ),
                   Text(
                     items[i].$1,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: colors.textSecondary,
-                          fontSize: 10,
-                        ),
+                    style: Theme.of(context).textTheme.labelSmall
+                        ?.copyWith(color: colors.textSecondary, fontSize: 10),
                   ),
                 ],
               ),
@@ -1066,7 +1321,9 @@ class _MessageCard extends StatelessWidget {
       padding: CompactPageStyle.of(context).cardPadding,
       decoration: BoxDecoration(
         color: colors.header,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
         border: Border.all(color: colors.border),
       ),
       child: Row(
@@ -1076,9 +1333,8 @@ class _MessageCard extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ),
         ],

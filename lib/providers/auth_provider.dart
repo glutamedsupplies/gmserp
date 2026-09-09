@@ -16,10 +16,10 @@ class AuthProvider extends ChangeNotifier {
     required AuthService authService,
     AvatarCloudStore? avatarCloud,
     UserRepository? users,
-  })  : _authService = authService, // ignore: prefer_initializing_formals
-        _avatars = createLocalAvatarStore(),
-        _avatarCloud = avatarCloud ?? AvatarCloudStore(),
-        _users = users ?? UserRepository();
+  }) : _authService = authService, // ignore: prefer_initializing_formals
+       _avatars = createLocalAvatarStore(),
+       _avatarCloud = avatarCloud ?? AvatarCloudStore(),
+       _users = users ?? UserRepository();
 
   final AuthService _authService;
   final LocalAvatarStore _avatars;
@@ -239,12 +239,14 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> reloadUser() async {
-    if (_user == null) return;
+    final previous = _user;
+    if (previous == null) return;
     try {
       final sessionUser = await _authService.checkAuthentication();
+      if (_user?.id != previous.id) return;
       if (sessionUser != null) {
         _user = sessionUser;
-        await _loadAvatar();
+        if (previous.photoUrl != sessionUser.photoUrl) await _loadAvatar();
         notifyListeners();
       }
     } catch (_) {}
@@ -284,8 +286,7 @@ class AuthProvider extends ChangeNotifier {
       return await action();
     } catch (error, stack) {
       debugPrint('Auth action failed: $error\n$stack');
-      _errorMessage =
-          'Unable to finish that request. Check your internet connection and try again.';
+      _errorMessage = 'Unable to finish that request. Check your internet connection and try again.';
       return false;
     } finally {
       _isLoading = false;

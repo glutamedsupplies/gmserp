@@ -1,3 +1,4 @@
+import 'employee_day_schedule_override.dart';
 import 'leave_request.dart';
 import 'time_card_table.dart';
 import 'time_entry.dart';
@@ -141,21 +142,27 @@ DateTime scheduledShiftStartOn({
 /// Minutes before scheduled shift start when time-in requests are allowed.
 const int kClockInEarlyWindowMinutes = 60;
 
-enum ClockInBlockReason {
-  dayOff,
-  onLeave,
-  tooEarly,
-}
+enum ClockInBlockReason { dayOff, onLeave, tooEarly }
 
 ClockInBlockReason? clockInBlockReasonFor({
   required DateTime at,
   EmployeeWeeklySchedule? weeklySchedule,
   TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
   List<LeaveRequest> leaves = const [],
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
+  String employeeId = '',
 }) {
   final workDate = formatWorkDate(at);
   if (hasApprovedLeaveOnDate(leaves: leaves, workDate: workDate)) {
     return ClockInBlockReason.onLeave;
+  }
+  if (employeeId.isNotEmpty &&
+      isForcedEmployeeDayOff(
+        overrides: dayOverrides,
+        userId: employeeId,
+        workDate: workDate,
+      )) {
+    return ClockInBlockReason.dayOff;
   }
   if (!isWorkDayForScheduledClockIn(
     date: at,
@@ -180,12 +187,16 @@ bool isClockInAllowedAt({
   EmployeeWeeklySchedule? weeklySchedule,
   TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
   List<LeaveRequest> leaves = const [],
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
+  String employeeId = '',
 }) {
   return clockInBlockReasonFor(
         at: at,
         weeklySchedule: weeklySchedule,
         globalSchedule: globalSchedule,
         leaves: leaves,
+        dayOverrides: dayOverrides,
+        employeeId: employeeId,
       ) ==
       null;
 }
@@ -215,12 +226,16 @@ String? clockInBlockedMessageOrNull({
   EmployeeWeeklySchedule? weeklySchedule,
   TimeCardSchedule globalSchedule = TimeCardSchedule.defaults,
   List<LeaveRequest> leaves = const [],
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
+  String employeeId = '',
 }) {
   final reason = clockInBlockReasonFor(
     at: at,
     weeklySchedule: weeklySchedule,
     globalSchedule: globalSchedule,
     leaves: leaves,
+    dayOverrides: dayOverrides,
+    employeeId: employeeId,
   );
   if (reason == null) return null;
   return clockInBlockedMessage(
@@ -283,11 +298,12 @@ DateTime scheduledShiftEndOn({
     if (shift.isWorkDay) return shift.timeOutOn(date);
   }
   // Global wall end = shift start + paid work + unpaid break.
-  final breakMinutes =
-      globalSchedule.breakMinutes < 0 ? 0 : globalSchedule.breakMinutes;
-  return globalSchedule.shiftStartOn(date).add(
-        Duration(minutes: globalSchedule.paidWorkMinutes + breakMinutes),
-      );
+  final breakMinutes = globalSchedule.breakMinutes < 0
+      ? 0
+      : globalSchedule.breakMinutes;
+  return globalSchedule
+      .shiftStartOn(date)
+      .add(Duration(minutes: globalSchedule.paidWorkMinutes + breakMinutes));
 }
 
 /// Minutes of unpaid break overlapping `[from, to)`.
@@ -383,10 +399,7 @@ double ratePerMinute({
   return dailyRate / workMinutes;
 }
 
-double ratePerHour({
-  required double dailyRate,
-  int workdayHours = 8,
-}) {
+double ratePerHour({required double dailyRate, int workdayHours = 8}) {
   if (dailyRate <= 0 || workdayHours <= 0) return 0;
   return dailyRate / workdayHours;
 }
@@ -452,6 +465,13 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
       case 'Late':
         if (!countedDates.add(row.workDate)) continue;
 
+        final dayEntries = entriesByDate[row.workDate] ?? const <TimeEntry>[];
+        // An incomplete day earns no salary until its time-out is recorded.
+        if (dayEntries.isEmpty ||
+            dayEntries.any((entry) => entry.timeOut == null)) {
+          continue;
+        }
+
         if (row.status == 'Present') {
           presentDays++;
         } else {
@@ -459,7 +479,6 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
         }
 
         final date = parseWorkDateString(row.workDate);
-        final dayEntries = entriesByDate[row.workDate] ?? const <TimeEntry>[];
         final worked = paidMinutesForDay(
           workedMinutesFromEntries(dayEntries),
           cap: paidMinutes,
@@ -514,7 +533,8 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
   const excuseDeduction = 0.0;
   final other = otherDeductions < 0 ? 0.0 : otherDeductions;
   final adds = additions < 0 ? 0.0 : additions;
-  final rawNet = basicPay -
+  final rawNet =
+      basicPay -
       lateDeduction -
       earlyOutDeduction -
       absentDeduction -
@@ -571,7 +591,7 @@ List<EmployeeSalaryBreakdown> computeSalaryBreakdowns({
     final name = employeeId.isEmpty
         ? (sample.employeeName.isEmpty ? 'Employee' : sample.employeeName)
         : (namesByUserId[employeeId] ??
-            (sample.employeeName.isEmpty ? 'Employee' : sample.employeeName));
+              (sample.employeeName.isEmpty ? 'Employee' : sample.employeeName));
     final rate = employeeId.isEmpty
         ? (dailyRatesByUserId.isEmpty ? 0.0 : dailyRatesByUserId.values.first)
         : (dailyRatesByUserId[employeeId] ?? 0.0);
@@ -601,7 +621,8 @@ List<EmployeeSalaryBreakdown> computeSalaryBreakdowns({
   }
 
   breakdowns.sort(
-    (a, b) => a.employeeName.toLowerCase().compareTo(b.employeeName.toLowerCase()),
+    (a, b) =>
+        a.employeeName.toLowerCase().compareTo(b.employeeName.toLowerCase()),
   );
   return breakdowns;
 }

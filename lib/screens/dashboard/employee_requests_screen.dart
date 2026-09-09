@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -33,7 +35,19 @@ class EmployeeRequestsScreen extends StatefulWidget {
 }
 
 class _EmployeeRequestsScreenState extends State<EmployeeRequestsScreen>
-    with ActivePageLoad {
+    with ActivePageLoad, RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'leaveRequests',
+    'clockRequests',
+    'timeCardChangeRequests',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await _load(refresh: true);
+  }
+
   final _leaveRepo = LeaveRequestRepository();
   final _timeChangeRepo = TimeCardChangeRequestRepository();
   final _clockRepo = ClockRequestRepository();
@@ -75,6 +89,7 @@ class _EmployeeRequestsScreenState extends State<EmployeeRequestsScreen>
   }
 
   void _startPolling() {
+    if (!preferRtdbPolling) return;
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (!mounted || !TickerMode.valuesOf(context).enabled) return;
@@ -120,7 +135,7 @@ class _EmployeeRequestsScreenState extends State<EmployeeRequestsScreen>
     final company = companies.selectedCompany;
     if (!refresh) {
       setState(() {
-        _loading = true;
+        if (!isRealtimeRefresh) _loading = true;
         _error = null;
       });
     }
@@ -148,44 +163,49 @@ class _EmployeeRequestsScreenState extends State<EmployeeRequestsScreen>
         }
         if (generation != _loadGeneration || !mounted) return;
 
-        final pending = <_EmployeePendingRequest>[
-          for (final leave in leaves)
-            if (leave.status.toLowerCase() == 'pending' &&
-                _matchesCompany(
-                  companyId: leave.companyId,
-                  companyDocumentId: leave.companyDocumentId,
-                  companyName: leave.companyName,
-                  company: company,
-                ))
-              _EmployeePendingRequest.leave(leave),
-          for (final edit in timeEdits)
-            if (edit.isPending &&
-                _matchesCompany(
-                  companyId: edit.companyId,
-                  companyDocumentId: edit.companyDocumentId,
-                  companyName: edit.companyName,
-                  company: company,
-                ))
-              _EmployeePendingRequest.timeEdit(edit),
-          for (final clock in clocks)
-            if (clock.isPending &&
-                _matchesCompany(
-                  companyId: clock.companyId,
-                  companyDocumentId: clock.companyDocumentId,
-                  companyName: clock.companyName,
-                  company: company,
-                ))
-              _EmployeePendingRequest.clock(clock),
-        ]..sort((a, b) {
-            final byCreated = (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-                .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0));
-            if (byCreated != 0) return byCreated;
-            return b.sortKey.compareTo(a.sortKey);
-          });
+        final pending =
+            <_EmployeePendingRequest>[
+              for (final leave in leaves)
+                if (leave.status.toLowerCase() == 'pending' &&
+                    _matchesCompany(
+                      companyId: leave.companyId,
+                      companyDocumentId: leave.companyDocumentId,
+                      companyName: leave.companyName,
+                      company: company,
+                    ))
+                  _EmployeePendingRequest.leave(leave),
+              for (final edit in timeEdits)
+                if (edit.isPending &&
+                    _matchesCompany(
+                      companyId: edit.companyId,
+                      companyDocumentId: edit.companyDocumentId,
+                      companyName: edit.companyName,
+                      company: company,
+                    ))
+                  _EmployeePendingRequest.timeEdit(edit),
+              for (final clock in clocks)
+                if (clock.isPending &&
+                    _matchesCompany(
+                      companyId: clock.companyId,
+                      companyDocumentId: clock.companyDocumentId,
+                      companyName: clock.companyName,
+                      company: company,
+                    ))
+                  _EmployeePendingRequest.clock(clock),
+            ]..sort((a, b) {
+              final byCreated =
+                  (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                      .compareTo(
+                        a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                      );
+              if (byCreated != 0) return byCreated;
+              return b.sortKey.compareTo(a.sortKey);
+            });
 
         final newKeys = pending.map((item) => item.key).toSet();
-        final resolved =
-            _hadLoadedOnce ? _trackedPendingKeys.difference(newKeys) : <String>{};
+        final resolved = _hadLoadedOnce
+            ? _trackedPendingKeys.difference(newKeys)
+            : <String>{};
 
         if (!mounted || generation != _loadGeneration) return;
         setState(() {
@@ -215,7 +235,8 @@ class _EmployeeRequestsScreenState extends State<EmployeeRequestsScreen>
   Widget build(BuildContext context) {
     final density = CompactPageStyle.of(context);
     final companyName =
-        context.watch<CompanyProvider>().selectedCompany?.name ?? 'your company';
+        context.watch<CompanyProvider>().selectedCompany?.name ??
+        'your company';
 
     return DashboardScaffold(
       title: 'Requests',
@@ -401,18 +422,18 @@ class _PendingRequestCard extends StatelessWidget {
                     Text(
                       item.title,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: AppColors.primaryDark,
-                            fontWeight: FontWeight.w800,
-                            fontSize: density.chipLabelSize,
-                          ),
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: density.chipLabelSize,
+                      ),
                     ),
                     SizedBox(height: density.compact ? 2 : 4),
                     Text(
                       item.subtitle,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontSize: density.cardTitleSize,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        fontSize: density.cardTitleSize,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ],
                 ),
@@ -429,10 +450,10 @@ class _PendingRequestCard extends StatelessWidget {
                 child: Text(
                   'Pending',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: statusColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: density.chipLabelSize,
-                      ),
+                    color: statusColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: density.chipLabelSize,
+                  ),
                 ),
               ),
             ],
@@ -442,19 +463,19 @@ class _PendingRequestCard extends StatelessWidget {
             Text(
               'Submitted: ${formatDateTime12h(item.createdAt!)}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontSize: density.captionSize,
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                fontSize: density.captionSize,
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           SizedBox(height: density.titleSubtitleGap),
           Text(
             item.companyName.isEmpty ? 'Company' : item.companyName,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontSize: density.bodySize,
-                  fontWeight: FontWeight.w600,
-                ),
+              fontSize: density.bodySize,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           SizedBox(height: density.cardGap),
           for (final line in item.detailLines)
@@ -463,12 +484,12 @@ class _PendingRequestCard extends StatelessWidget {
               child: Text(
                 line,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontSize: density.captionSize,
-                      color: colors.textSecondary,
-                      fontWeight: line.startsWith('Proposed')
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                    ),
+                  fontSize: density.captionSize,
+                  color: colors.textSecondary,
+                  fontWeight: line.startsWith('Proposed')
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                ),
               ),
             ),
         ],
@@ -509,9 +530,9 @@ class _MessageCard extends StatelessWidget {
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: density.bodySize,
-                  color: colors.textSecondary,
-                ),
+              fontSize: density.bodySize,
+              color: colors.textSecondary,
+            ),
           ),
         ],
       ),

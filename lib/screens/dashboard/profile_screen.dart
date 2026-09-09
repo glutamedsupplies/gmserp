@@ -32,6 +32,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   String _originalEmail = '';
+  String? _lastUsername;
+  String? _lastPhone;
+  String? _lastEmail;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final user = context.watch<AuthProvider>().user;
+    if (user == null) return;
+    if (_lastUsername == null || _usernameController.text == _lastUsername) {
+      _usernameController.text = user.username;
+    }
+    if (_lastPhone == null || _phoneController.text == _lastPhone) {
+      _phoneController.text = user.phoneNumber;
+    }
+    if (_lastEmail == null || _emailController.text == _lastEmail) {
+      _emailController.text = user.email;
+      _originalEmail = user.email;
+    }
+    _lastUsername = user.username;
+    _lastPhone = user.phoneNumber;
+    _lastEmail = user.email;
+  }
 
   @override
   void initState() {

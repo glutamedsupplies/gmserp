@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -13,10 +15,7 @@ import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
 
 class SuperAdminTaskDetailsScreen extends StatefulWidget {
-  const SuperAdminTaskDetailsScreen({
-    super.key,
-    required this.listing,
-  });
+  const SuperAdminTaskDetailsScreen({super.key, required this.listing});
 
   final CompanyTaskListing listing;
 
@@ -26,7 +25,37 @@ class SuperAdminTaskDetailsScreen extends StatefulWidget {
 }
 
 class _SuperAdminTaskDetailsScreenState
-    extends State<SuperAdminTaskDetailsScreen> {
+    extends State<SuperAdminTaskDetailsScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const ['companies'];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    final companies = context.read<CompanyProvider>();
+    await companies.loadAllTasks();
+    await companies.loadCompanyRoles(widget.listing.company.id);
+    if (!mounted) return;
+    for (final item in companies.allTasks) {
+      if (item.company.id == widget.listing.company.id &&
+          item.task.id == _task.id) {
+        final clean =
+            _title.text == _task.title &&
+            _description.text == _task.description &&
+            _roleId == _task.roleId;
+        setState(() {
+          _task = item.task;
+          if (clean && !_saving) {
+            _title.text = _task.title;
+            _description.text = _task.description;
+            _roleId = _task.roleId;
+          }
+        });
+        break;
+      }
+    }
+  }
+
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _title;
   late final TextEditingController _description;
@@ -42,7 +71,9 @@ class _SuperAdminTaskDetailsScreenState
     _title = TextEditingController(text: _task.title);
     _description = TextEditingController(text: _task.description);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CompanyProvider>().loadCompanyRoles(widget.listing.company.id);
+      context.read<CompanyProvider>().loadCompanyRoles(
+        widget.listing.company.id,
+      );
     });
   }
 
@@ -85,7 +116,8 @@ class _SuperAdminTaskDetailsScreenState
         }
       }
       setState(() {
-        _task = updated ??
+        _task =
+            updated ??
             _task.copyWith(
               title: _title.text.trim(),
               description: _description.text.trim(),
@@ -141,16 +173,14 @@ class _SuperAdminTaskDetailsScreenState
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Text(
             'Edit task',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             'Change the role, name, or details, then save.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
           SizedBox(height: CompactPageStyle.of(context).sectionGap),
           Form(
@@ -170,8 +200,9 @@ class _SuperAdminTaskDetailsScreenState
                         vertical: 8,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(CompactPageStyle.of(context).radius),
+                        borderRadius: BorderRadius.circular(
+                          CompactPageStyle.of(context).radius,
+                        ),
                       ),
                     ),
                     items: [
@@ -254,18 +285,25 @@ String _formatTaskDate(DateTime? date) {
   if (date == null) return 'Not available';
   final local = date.toLocal();
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   return '${months[local.month - 1]} ${local.day}, ${local.year}  '
       '${formatHourMinute12h(local.hour, local.minute)}';
 }
 
 class _DateCard extends StatelessWidget {
-  const _DateCard({
-    required this.label,
-    required this.value,
-  });
+  const _DateCard({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -277,7 +315,9 @@ class _DateCard extends StatelessWidget {
       padding: CompactPageStyle.of(context).summaryPadding,
       decoration: BoxDecoration(
         color: colors.inputFill,
-        borderRadius: BorderRadius.circular(CompactPageStyle.of(context).radius),
+        borderRadius: BorderRadius.circular(
+          CompactPageStyle.of(context).radius,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,18 +325,18 @@ class _DateCard extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: colors.textSecondary,
-                ),
+              fontWeight: FontWeight.w600,
+              color: colors.textSecondary,
+            ),
           ),
           SizedBox(height: CompactPageStyle.of(context).titleSubtitleGap),
           Text(
             value,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: colors.textPrimary,
-                  height: 1.35,
-                ),
+              fontWeight: FontWeight.w700,
+              color: colors.textPrimary,
+              height: 1.35,
+            ),
           ),
         ],
       ),

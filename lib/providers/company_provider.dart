@@ -1,3 +1,5 @@
+import '../core/utils/realtime_refresh.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -21,9 +23,9 @@ class CompanyProvider extends ChangeNotifier {
     CompanyRepository? companyRepository,
     UserRepository? userRepository,
     LocalAvatarStore? logoStore,
-  })  : _companies = companyRepository ?? CompanyRepository(),
-        _users = userRepository ?? UserRepository(),
-        _logos = logoStore ?? createLocalAvatarStore();
+  }) : _companies = companyRepository ?? CompanyRepository(),
+       _users = userRepository ?? UserRepository(),
+       _logos = logoStore ?? createLocalAvatarStore();
 
   final CompanyRepository _companies;
   final UserRepository _users;
@@ -43,8 +45,10 @@ class CompanyProvider extends ChangeNotifier {
   final Map<String, List<StaffAssignment>> _staffByCompanyDoc = {};
   CompanyModel? selectedCompany;
   bool isPickingCompany = false;
+
   /// True only after a successful company code entry that has not expired.
   bool companyCodeUnlocked = false;
+
   /// Snapshot used so canceling "Switch company" can restore a still-valid unlock.
   bool _unlockedBeforePick = false;
   StaffAssignment? myAssignment;
@@ -78,7 +82,7 @@ class CompanyProvider extends ChangeNotifier {
   }
 
   Future<void> loadCompaniesForMember(UserModel user) async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     memberCompanies = [];
     notifyListeners();
@@ -194,7 +198,7 @@ class CompanyProvider extends ChangeNotifier {
   }
 
   Future<void> loadUsersPage() async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
@@ -231,7 +235,9 @@ class CompanyProvider extends ChangeNotifier {
     return _staffByCompanyDoc[documentId] ?? const [];
   }
 
-  Future<List<StaffAssignment>> loadStaffForCompany(CompanyModel company) async {
+  Future<List<StaffAssignment>> loadStaffForCompany(
+    CompanyModel company,
+  ) async {
     final key = company.firestoreId;
     final cached = _staffByCompanyDoc[key];
     if (cached != null && cached.isNotEmpty) {
@@ -256,7 +262,7 @@ class CompanyProvider extends ChangeNotifier {
   }
 
   Future<void> loadAllTasks() async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
@@ -275,7 +281,7 @@ class CompanyProvider extends ChangeNotifier {
   }
 
   Future<void> loadAllRoles() async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
@@ -305,7 +311,7 @@ class CompanyProvider extends ChangeNotifier {
   }
 
   Future<void> loadCompanyUsers(String companyId) async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
@@ -333,8 +339,7 @@ class CompanyProvider extends ChangeNotifier {
 
   void _cacheStaff(String companyKey, List<StaffAssignment> members) {
     for (final company in companies) {
-      if (company.id == companyKey ||
-          company.firestoreId == companyKey) {
+      if (company.id == companyKey || company.firestoreId == companyKey) {
         _staffByCompanyDoc[company.firestoreId] = members;
         return;
       }
@@ -379,7 +384,7 @@ class CompanyProvider extends ChangeNotifier {
     required String createdBy,
     List<int>? logoBytes,
   }) async {
-    isLoading = true;
+    if (!isRealtimeRefresh) isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
@@ -396,9 +401,7 @@ class CompanyProvider extends ChangeNotifier {
       await loadCompanies();
       return true;
     } catch (error) {
-      errorMessage = error is StateError
-          ? error.message
-          : 'Could not save the company. Check Realtime Database rules and try again.';
+      errorMessage = error is StateError ? error.message : 'Could not save the company. Check Realtime Database rules and try again.';
       isLoading = false;
       notifyListeners();
       return false;
@@ -436,10 +439,7 @@ class CompanyProvider extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      await _companies.deleteCompany(
-        company: company,
-        password: password,
-      );
+      await _companies.deleteCompany(company: company, password: password);
       await _logos.delete(_logoKey(company.id));
       logos.remove(company.id);
       if (selectedCompany?.id == company.id) {
@@ -466,6 +466,20 @@ class CompanyProvider extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> refreshSelectedCompany() async {
+    final selected = selectedCompany;
+    if (selected == null) return;
+    try {
+      final latest = await _companies.getCompanyById(selected.id);
+      if (selectedCompany?.id != selected.id) return;
+      selectedCompany = latest;
+    } on StateError {
+      if (selectedCompany?.id == selected.id) clearSelection();
+      return;
+    }
+    notifyListeners();
   }
 
   Future<bool> updateUserRole({
@@ -658,8 +672,9 @@ class CompanyProvider extends ChangeNotifier {
       final employeeName = member?.username.isNotEmpty == true
           ? member!.username
           : (employee?.username ?? member?.email ?? 'Employee');
-      final employeeEmail =
-          member?.email.isNotEmpty == true ? member!.email : (employee?.email ?? '');
+      final employeeEmail = member?.email.isNotEmpty == true
+          ? member!.email
+          : (employee?.email ?? '');
 
       final recipientIds = <String>{userId};
       if (actor != null) recipientIds.add(actor.id);
@@ -850,10 +865,7 @@ class CompanyProvider extends ChangeNotifier {
     required CompanyModel company,
     required String password,
   }) {
-    final ok = _companies.unlockCompany(
-      company: company,
-      password: password,
-    );
+    final ok = _companies.unlockCompany(company: company, password: password);
     if (ok) {
       selectedCompany = company;
       isPickingCompany = false;
@@ -881,10 +893,7 @@ class CompanyProvider extends ChangeNotifier {
         company = fallback;
       }
 
-      final ok = _companies.unlockCompany(
-        company: company,
-        password: password,
-      );
+      final ok = _companies.unlockCompany(company: company, password: password);
       if (!ok) {
         errorMessage = company.staffPasswordHash.isEmpty
             ? 'This company has no company code yet. Ask the founder to set one.'
@@ -919,8 +928,7 @@ class CompanyProvider extends ChangeNotifier {
     if (!isPickingCompany) return;
     isPickingCompany = false;
     // Only restore unlock if the previous company session was still valid.
-    companyCodeUnlocked =
-        _unlockedBeforePick && selectedCompany != null;
+    companyCodeUnlocked = _unlockedBeforePick && selectedCompany != null;
     _unlockedBeforePick = false;
     notifyListeners();
   }
@@ -972,7 +980,8 @@ class CompanyProvider extends ChangeNotifier {
       selectedCompany = await _companies.getCompanyById(id);
       isPickingCompany = false;
       final expiresMs = prefs.getInt(_unlockExpiresKey);
-      final stillValid = expiresMs != null &&
+      final stillValid =
+          expiresMs != null &&
           DateTime.now().millisecondsSinceEpoch < expiresMs;
       companyCodeUnlocked = stillValid;
       if (!stillValid) {

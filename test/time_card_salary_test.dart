@@ -11,18 +11,12 @@ void main() {
   group('clock-in early window', () {
     test('allows time in exactly 1 hour before 9:00 AM shift', () {
       final at = DateTime(2026, 8, 26, 8, 0);
-      expect(
-        isClockInAllowedAt(at: at, globalSchedule: schedule),
-        isTrue,
-      );
+      expect(isClockInAllowedAt(at: at, globalSchedule: schedule), isTrue);
     });
 
     test('blocks time in before 1 hour window (7:59 AM for 9:00 shift)', () {
       final at = DateTime(2026, 8, 26, 7, 59);
-      expect(
-        isClockInAllowedAt(at: at, globalSchedule: schedule),
-        isFalse,
-      );
+      expect(isClockInAllowedAt(at: at, globalSchedule: schedule), isFalse);
       expect(
         clockInTooEarlyMessage(at: at, globalSchedule: schedule),
         contains('08:00:00 AM'),
@@ -64,10 +58,7 @@ void main() {
         clockInBlockReasonFor(at: at, globalSchedule: schedule),
         ClockInBlockReason.dayOff,
       );
-      expect(
-        isClockInAllowedAt(at: at, globalSchedule: schedule),
-        isFalse,
-      );
+      expect(isClockInAllowedAt(at: at, globalSchedule: schedule), isFalse);
     });
 
     test('blocks time in when on approved leave', () {
@@ -94,11 +85,7 @@ void main() {
         ClockInBlockReason.onLeave,
       );
       expect(
-        isClockInAllowedAt(
-          at: at,
-          globalSchedule: schedule,
-          leaves: [leave],
-        ),
+        isClockInAllowedAt(at: at, globalSchedule: schedule, leaves: [leave]),
         isFalse,
       );
     });
@@ -127,11 +114,7 @@ void main() {
         isNull,
       );
       expect(
-        isClockInAllowedAt(
-          at: at,
-          globalSchedule: schedule,
-          leaves: [leave],
-        ),
+        isClockInAllowedAt(at: at, globalSchedule: schedule, leaves: [leave]),
         isTrue,
       );
     });
@@ -261,12 +244,9 @@ void main() {
   });
 
   group('daily / monthly pay formulas', () {
-    TimeEntry entry({
-      required DateTime timeIn,
-      DateTime? timeOut,
-    }) {
-      final out = timeOut ??
-          DateTime(timeIn.year, timeIn.month, timeIn.day, 18, 0);
+    TimeEntry entry({required DateTime timeIn, DateTime? timeOut}) {
+      final out =
+          timeOut ?? DateTime(timeIn.year, timeIn.month, timeIn.day, 18, 0);
       final workDate =
           '${timeIn.year.toString().padLeft(4, '0')}-'
           '${timeIn.month.toString().padLeft(2, '0')}-'
@@ -286,10 +266,7 @@ void main() {
       );
     }
 
-    TimeCardTableRow row({
-      required String workDate,
-      required String status,
-    }) {
+    TimeCardTableRow row({required String workDate, required String status}) {
       return TimeCardTableRow(
         workDate: workDate,
         weekday: 'Mon',
@@ -311,9 +288,7 @@ void main() {
         employeeName: 'Alice',
         dailyRate: 500,
         rows: [row(workDate: '2026-08-26', status: 'Late')],
-        entries: [
-          entry(timeIn: DateTime(2026, 8, 26, 10, 30)),
-        ],
+        entries: [entry(timeIn: DateTime(2026, 8, 26, 10, 30))],
         globalSchedule: schedule,
       );
 
@@ -367,7 +342,7 @@ void main() {
       expect(breakdown.netPay, closeTo(500 - 93.75 - 62.5, 1e-9));
     });
 
-    test('open shift does not apply early-out deduction', () {
+    test('missing time-out earns no salary or deductions', () {
       final breakdown = computeEmployeeSalaryBreakdown(
         employeeId: 'u1',
         employeeName: 'Alice',
@@ -392,7 +367,9 @@ void main() {
       );
       expect(breakdown.totalEarlyOutMinutes, 0);
       expect(breakdown.earlyOutDeduction, 0);
-      expect(breakdown.netPay, 500);
+      expect(breakdown.netPay, 0);
+      expect(breakdown.payableDays, 0);
+      expect(breakdown.basicPay, 0);
     });
 
     test('monthly: basic = rate × payable days; net subtracts late', () {
@@ -403,8 +380,7 @@ void main() {
         rows: [
           for (var d = 1; d <= 26; d++)
             row(
-              workDate:
-                  '2026-08-${d.toString().padLeft(2, '0')}',
+              workDate: '2026-08-${d.toString().padLeft(2, '0')}',
               status: d == 1 ? 'Late' : 'Present',
             ),
         ],
@@ -441,32 +417,35 @@ void main() {
       expect(breakdown.netPay, greaterThanOrEqualTo(0));
     });
 
-    test('daily filter multi-session rows do not double-count payable days', () {
-      final breakdown = computeEmployeeSalaryBreakdown(
-        employeeId: 'u1',
-        employeeName: 'Alice',
-        dailyRate: 500,
-        rows: [
-          row(workDate: '2026-08-26', status: 'Present'),
-          row(workDate: '2026-08-26', status: 'Present'),
-        ],
-        entries: [
-          entry(
-            timeIn: DateTime(2026, 8, 26, 9, 0),
-            timeOut: DateTime(2026, 8, 26, 12, 0),
-          ),
-          entry(
-            timeIn: DateTime(2026, 8, 26, 13, 0),
-            timeOut: DateTime(2026, 8, 26, 18, 0),
-          ),
-        ],
-        globalSchedule: schedule,
-      );
-      expect(breakdown.payableDays, 1);
-      expect(breakdown.basicPay, 500);
-      expect(breakdown.totalEarlyOutMinutes, 0);
-      expect(breakdown.netPay, 500);
-    });
+    test(
+      'daily filter multi-session rows do not double-count payable days',
+      () {
+        final breakdown = computeEmployeeSalaryBreakdown(
+          employeeId: 'u1',
+          employeeName: 'Alice',
+          dailyRate: 500,
+          rows: [
+            row(workDate: '2026-08-26', status: 'Present'),
+            row(workDate: '2026-08-26', status: 'Present'),
+          ],
+          entries: [
+            entry(
+              timeIn: DateTime(2026, 8, 26, 9, 0),
+              timeOut: DateTime(2026, 8, 26, 12, 0),
+            ),
+            entry(
+              timeIn: DateTime(2026, 8, 26, 13, 0),
+              timeOut: DateTime(2026, 8, 26, 18, 0),
+            ),
+          ],
+          globalSchedule: schedule,
+        );
+        expect(breakdown.payableDays, 1);
+        expect(breakdown.basicPay, 500);
+        expect(breakdown.totalEarlyOutMinutes, 0);
+        expect(breakdown.netPay, 500);
+      },
+    );
 
     test('formatMoney uses 2 decimals and thousands separators', () {
       expect(EmployeeSalaryBreakdown.formatMoney(500), '₱500.00');
@@ -478,4 +457,3 @@ void main() {
     });
   });
 }
-

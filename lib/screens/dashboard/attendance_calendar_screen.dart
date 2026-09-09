@@ -1,9 +1,12 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/company_model.dart';
+import '../../models/employee_day_schedule_override.dart';
 import '../../models/leave_request.dart';
 import '../../models/staff_assignment.dart';
 import '../../models/time_card_table.dart';
@@ -14,6 +17,7 @@ import '../../providers/company_provider.dart';
 import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
 import '../../services/leave_reminder_service.dart';
+import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
 import '../../services/time_entry_repository.dart';
 import '../../widgets/app_loading_card.dart';
@@ -28,13 +32,31 @@ class AttendanceCalendarScreen extends StatefulWidget {
       _AttendanceCalendarScreenState();
 }
 
-class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
+class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen>
+    with RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'companies',
+    'users',
+    'timeEntries',
+    'leaveRequests',
+    'timeCardDayOverrides',
+    'timeCardSettings',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await _load(force: true);
+  }
+
   final _leaveRepo = LeaveRequestRepository();
+  final _dayOverrideRepo = EmployeeDayScheduleOverrideRepository();
   final _timeEntriesRepo = TimeEntryRepository();
 
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime? _selected;
   List<LeaveRequest> _leaves = [];
+  List<EmployeeDayScheduleOverride> _dayOverrides = [];
   List<TimeEntry> _entries = [];
   bool _loading = true;
   String? _error;
@@ -49,6 +71,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   /// Full company datasets for manager "All employees" day breakdown.
   List<TimeEntry> _companyEntries = [];
   List<LeaveRequest> _companyLeaves = [];
+  List<EmployeeDayScheduleOverride> _companyDayOverrides = [];
 
   bool _bootstrapped = false;
 
@@ -82,8 +105,11 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     if (auth?.role == UserRole.superAdmin) {
       await companies.loadCompanies();
       if (!mounted) return;
-      final initial = companies.selectedCompany?.id ??
-          (companies.companies.isNotEmpty ? companies.companies.first.id : null);
+      final initial =
+          companies.selectedCompany?.id ??
+          (companies.companies.isNotEmpty
+              ? companies.companies.first.id
+              : null);
       if (initial != null) {
         await _selectCompany(initial);
       } else {
@@ -172,10 +198,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     await companies.loadStaff(companyId);
     if (!mounted) return;
 
-    await _load(
-      force: true,
-      companyDocumentId: company?.firestoreId,
-    );
+    await _load(force: true, companyDocumentId: company?.firestoreId);
   }
 
   Future<void> _selectEmployee(String? employeeId) async {
@@ -200,8 +223,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
       return;
     }
 
-    final manager = user.role == UserRole.admin ||
-        user.role == UserRole.superAdmin;
+    final manager =
+        user.role == UserRole.admin || user.role == UserRole.superAdmin;
 
     if (!manager) {
       final company = companies.selectedCompany;
@@ -220,7 +243,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
       if (!force && _loadedKey == key && !_loading) return;
 
       setState(() {
-        _loading = true;
+        if (!isRealtimeRefresh) _loading = true;
         _error = null;
       });
 
@@ -235,23 +258,28 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
         }
         if (!mounted) return;
         await context.read<TimeEntryProvider>().loadDetailsForCompany(
-              user: user,
-              company: company,
-            );
-        final leaves = await _leaveRepo.listForUserCompany(
-          userId: user.id,
-          companyId: company.id,
+          user: user,
+          company: company,
         );
+        final results = await Future.wait([
+          _leaveRepo.listForUserCompany(userId: user.id, companyId: company.id),
+          _dayOverrideRepo.listForUserCompany(
+            userId: user.id,
+            companyId: company.id,
+            companyDocumentId: company.firestoreId,
+          ),
+        ]);
         if (!mounted) return;
         setState(() {
-          _leaves = leaves;
+          _leaves = results[0] as List<LeaveRequest>;
+          _dayOverrides = results[1] as List<EmployeeDayScheduleOverride>;
           _entries = context.read<TimeEntryProvider>().allEntries;
           _loading = false;
           _loadedKey = key;
         });
         await LeaveReminderService.instance.syncUpcomingLeaveReminders(
           userId: user.id,
-          leaves: leaves,
+          leaves: results[0] as List<LeaveRequest>,
         );
       } catch (_) {
         if (!mounted) return;
@@ -299,7 +327,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     if (!force && _loadedKey == key && !_loading) return;
 
     setState(() {
-      _loading = true;
+      if (!isRealtimeRefresh) _loading = true;
       _error = null;
     });
 
@@ -318,18 +346,26 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
 
       final allEntries = results[0] as List<TimeEntry>;
       final allLeaves = results[1] as List<LeaveRequest>;
+      List<EmployeeDayScheduleOverride> allDayOverrides = [];
+      try {
+        allDayOverrides = await _dayOverrideRepo.listByCompanyId(
+          company.id,
+          companyDocumentId: companyDocumentId ?? company.firestoreId,
+        );
+      } catch (_) {
+        allDayOverrides = [];
+      }
 
       setState(() {
         _companyEntries = allEntries;
         _companyLeaves = allLeaves;
+        _companyDayOverrides = allDayOverrides;
         if (employeeId == null) {
           _entries = allEntries;
           _leaves = allLeaves;
         } else {
-          _entries =
-              allEntries.where((e) => e.userId == employeeId).toList();
-          _leaves =
-              allLeaves.where((l) => l.userId == employeeId).toList();
+          _entries = allEntries.where((e) => e.userId == employeeId).toList();
+          _leaves = allLeaves.where((l) => l.userId == employeeId).toList();
         }
         _loading = false;
         _loadedKey = key;
@@ -386,8 +422,9 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     final entries = (companyByDate[workDate] ?? const <TimeEntry>[])
         .where((e) => e.userId == member.userId)
         .toList();
-    final leaves =
-        _companyLeaves.where((l) => l.userId == member.userId).toList();
+    final leaves = _companyLeaves
+        .where((l) => l.userId == member.userId)
+        .toList();
     return resolveAttendanceStatus(
       date: day,
       now: DateTime.now(),
@@ -395,6 +432,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
       schedule: schedule,
       leaves: leaves,
       employeeSchedule: member.timeCardProfile.weeklySchedule,
+      dayOverrides: _companyDayOverrides,
+      employeeId: member.userId,
     );
   }
 
@@ -423,6 +462,10 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
       schedule: schedule,
       leaves: _leaves,
       employeeSchedule: employeeSchedule,
+      dayOverrides: _isManager ? _companyDayOverrides : _dayOverrides,
+      employeeId: _isManager
+          ? (_employeeId ?? '')
+          : (context.read<AuthProvider>().user?.id ?? ''),
     );
   }
 
@@ -478,8 +521,9 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
             member: member,
             companyByDate: companyByDate,
           ),
-          scheduleLabel:
-              member.timeCardProfile.weeklySchedule.forDate(day).rangeLabel,
+          scheduleLabel: member.timeCardProfile.weeklySchedule
+              .forDate(day)
+              .rangeLabel,
           leaveNote: _leaveNoteForUser(day, member.userId),
           sessions: (companyByDate[workDate] ?? const <TimeEntry>[])
               .where((e) => e.userId == member.userId)
@@ -539,13 +583,15 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     final density = CompactPageStyle.of(context);
     final companies = context.watch<CompanyProvider>();
     final user = context.watch<AuthProvider>().user;
-    final manager = user?.role == UserRole.admin ||
-        user?.role == UserRole.superAdmin;
+    final manager =
+        user?.role == UserRole.admin || user?.role == UserRole.superAdmin;
     final isSuperAdmin = user?.role == UserRole.superAdmin;
     final company = manager
         ? _activeCompany(companies)
         : companies.selectedCompany;
-    final staffList = manager ? _employeeStaff(companies) : const <StaffAssignment>[];
+    final staffList = manager
+        ? _employeeStaff(companies)
+        : const <StaffAssignment>[];
     final selectedStaff = manager ? _selectedStaff(companies) : null;
     final employeeSchedule = _employeeSchedule(companies);
     final byDate = _entriesByDate(_entries);
@@ -561,9 +607,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
             staffList: staffList,
             companyByDate: companyByDate,
           );
-    final allEmployeeRows = (manager &&
-            viewingAllEmployees &&
-            selected != null)
+    final allEmployeeRows = (manager && viewingAllEmployees && selected != null)
         ? _employeeRowsForDay(
             selected,
             staffList: staffList,
@@ -614,7 +658,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
               _CalendarDropdownShell(
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _companyId != null &&
+                    value:
+                        _companyId != null &&
                             companies.companies.any((c) => c.id == _companyId)
                         ? _companyId
                         : null,
@@ -625,9 +670,12 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                         : Theme.of(context).textTheme.bodyMedium,
                     hint: const Text('Select company'),
                     items: [
-                      for (final item in ([...companies.companies]
-                        ..sort((a, b) =>
-                            a.name.toLowerCase().compareTo(b.name.toLowerCase()))))
+                      for (final item
+                          in ([...companies.companies]..sort(
+                            (a, b) => a.name.toLowerCase().compareTo(
+                              b.name.toLowerCase(),
+                            ),
+                          )))
                         DropdownMenuItem(
                           value: item.id,
                           child: Text(
@@ -647,7 +695,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
             _CalendarDropdownShell(
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String?>(
-                  value: _employeeId != null &&
+                  value:
+                      _employeeId != null &&
                           staffList.any((m) => m.userId == _employeeId)
                       ? _employeeId
                       : null,
@@ -704,9 +753,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                         child: Text(
                           monthYearLabel(_month),
                           textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
+                          style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -733,9 +780,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                           child: Text(
                             label,
                             textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
+                            style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(
                                   color: colors.textSecondary,
                                   fontWeight: FontWeight.w700,
@@ -766,8 +811,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                                   companyByDate: companyByDate,
                                 ),
                                 colorFor: _statusColor,
-                                onTap: (day) =>
-                                    setState(() => _selected = day),
+                                onTap: (day) => setState(() => _selected = day),
                               ),
                             ),
                         ],
@@ -806,9 +850,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                   children: [
                     Text(
                       '${weekdayLabel(selected)} · ${formatWorkDate(selected)}',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                      style: Theme.of(context).textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: density.titleSubtitleGap),
                     Row(
@@ -837,26 +880,23 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                       SizedBox(height: density.cardGap),
                       Text(
                         _scheduleNote(selected, selectedStaff),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colors.textSecondary),
                       ),
                     ] else if (!manager && employeeSchedule != null) ...[
                       SizedBox(height: density.cardGap),
                       Text(
                         'Scheduled: ${employeeSchedule.forDate(selected).rangeLabel}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colors.textSecondary),
                       ),
                     ],
                     if (selectedStatus == AttendanceStatus.onLeave) ...[
                       SizedBox(height: density.cardGap),
                       Text(
                         _leaveNoteFor(selected),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colors.textSecondary),
                       ),
                     ],
                     if ((byDate[formatWorkDate(selected)] ?? const [])
@@ -864,9 +904,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                       SizedBox(height: density.cardGap),
                       Text(
                         _sessionsNote(byDate[formatWorkDate(selected)]!),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colors.textSecondary),
                       ),
                     ],
                   ],
@@ -891,8 +930,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
 
   String _leaveNoteForUser(DateTime day, String userId) {
     final key = formatWorkDate(day);
-    final source =
-        _companyLeaves.isNotEmpty ? _companyLeaves : _leaves;
+    final source = _companyLeaves.isNotEmpty ? _companyLeaves : _leaves;
     final match = source.where(
       (leave) =>
           leave.userId == userId &&
@@ -973,13 +1011,15 @@ class _DayCell extends StatelessWidget {
     }
     final day = DateTime(month.year, month.month, dayNum);
     final status = statusFor(day);
-    final isSelected = selected != null &&
+    final isSelected =
+        selected != null &&
         selected!.year == day.year &&
         selected!.month == day.month &&
         selected!.day == day.day;
     final isToday = formatWorkDate(day) == formatWorkDate(DateTime.now());
     final colors = AppColors.of(context);
-    final showDot = status == AttendanceStatus.present ||
+    final showDot =
+        status == AttendanceStatus.present ||
         status == AttendanceStatus.late ||
         status == AttendanceStatus.absent ||
         status == AttendanceStatus.onLeave;
@@ -1006,9 +1046,7 @@ class _DayCell extends StatelessWidget {
                         ? FontWeight.w800
                         : FontWeight.w600,
                     fontSize: 13,
-                    color: isToday
-                        ? AppColors.primaryDark
-                        : colors.textPrimary,
+                    color: isToday ? AppColors.primaryDark : colors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -1048,9 +1086,8 @@ class _LegendDot extends StatelessWidget {
         const SizedBox(width: 6),
         Text(
           label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+          style: Theme.of(context).textTheme.labelSmall
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
       ],
     );
@@ -1124,9 +1161,8 @@ class _AllEmployeesDayPanel extends StatelessWidget {
         children: [
           Text(
             '${weekdayLabel(day)} · ${formatWorkDate(day)}',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w800),
           ),
           SizedBox(height: density.titleSubtitleGap),
           Text(
@@ -1134,9 +1170,9 @@ class _AllEmployeesDayPanel extends StatelessWidget {
                 ? 'No employees in this company.'
                 : '${rows.length} employee${rows.length == 1 ? '' : 's'}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: colors.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           if (rows.isNotEmpty) ...[
             SizedBox(height: density.cardGap),
@@ -1174,8 +1210,9 @@ class _EmployeeDayTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
-    final statusLabel =
-        row.status.label == '—' ? 'No status yet' : row.status.label;
+    final statusLabel = row.status.label == '—'
+        ? 'No status yet'
+        : row.status.label;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1216,26 +1253,23 @@ class _EmployeeDayTile extends StatelessWidget {
         SizedBox(height: density.titleSubtitleGap),
         Text(
           'Scheduled: ${row.scheduleLabel}',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colors.textSecondary,
-              ),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: colors.textSecondary),
         ),
         if (row.status == AttendanceStatus.onLeave) ...[
           SizedBox(height: density.titleSubtitleGap),
           Text(
             row.leaveNote,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
         ],
         if (row.sessions.isNotEmpty) ...[
           SizedBox(height: density.titleSubtitleGap),
           Text(
             sessionsNote(row.sessions),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.textSecondary),
           ),
         ],
       ],

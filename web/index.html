@@ -30,6 +30,50 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <title>GMSERP</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+  </style>
+  <script>
+    (function () {
+      function maximizeWindow() {
+        try {
+          var screen = window.screen;
+          if (!screen || !screen.availWidth || !screen.availHeight) return;
+          window.moveTo(0, 0);
+          window.resizeTo(screen.availWidth, screen.availHeight);
+        } catch (_) {}
+      }
+
+      function onReady() {
+        maximizeWindow();
+        setTimeout(maximizeWindow, 120);
+        setTimeout(maximizeWindow, 500);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', onReady);
+      } else {
+        onReady();
+      }
+
+      window.addEventListener('load', maximizeWindow);
+
+      function onFirstInteraction() {
+        maximizeWindow();
+        window.removeEventListener('pointerdown', onFirstInteraction);
+        window.removeEventListener('keydown', onFirstInteraction);
+      }
+
+      window.addEventListener('pointerdown', onFirstInteraction);
+      window.addEventListener('keydown', onFirstInteraction);
+    })();
+  </script>
 </head>
 <body>
   <!--

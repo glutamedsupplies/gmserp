@@ -1,3 +1,5 @@
+import '../../core/utils/realtime_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -23,7 +25,21 @@ class RoleDashboardScreen extends StatefulWidget {
 }
 
 class _RoleDashboardScreenState extends State<RoleDashboardScreen>
-    with ActivePageLoad {
+    with ActivePageLoad, RealtimePage {
+  @override
+  List<String> get realtimePaths => const [
+    'companies',
+    'users',
+    'timeEntries',
+    'timeCardSettings',
+    'clockRequests',
+  ];
+
+  @override
+  Future<void> refreshRealtimeData() async {
+    await _load();
+  }
+
   bool _loading = true;
 
   @override
@@ -37,7 +53,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
       return;
     }
 
-    setState(() => _loading = true);
+    if (!isRealtimeRefresh) setState(() => _loading = true);
     final role = companies.effectiveRoleFor(user);
     final time = context.read<TimeEntryProvider>();
 
@@ -182,7 +198,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
         body: tasks.isEmpty
             ? '$roleLabel · No tasks assigned yet. Ask your admin to map your role.'
             : '$roleLabel · You’re covering ${tasks.length} '
-                'task${tasks.length == 1 ? '' : 's'} for this company.',
+                  'task${tasks.length == 1 ? '' : 's'} for this company.',
         chips: [
           roleLabel,
           if (tasks.isNotEmpty) ...tasks.take(4),
@@ -272,9 +288,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
     return [
       _HeroPanel(
         accent: pending > 0 ? AppColors.primaryDark : Colors.teal,
-        icon: pending > 0
-            ? Icons.inbox_outlined
-            : Icons.verified_outlined,
+        icon: pending > 0 ? Icons.inbox_outlined : Icons.verified_outlined,
         eyebrow: 'Company pulse · $companyName',
         title: pending > 0
             ? '$pending item${pending == 1 ? '' : 's'} need your decision'
@@ -296,10 +310,10 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
         title: 'Workforce coverage',
         body: unassigned > 0
             ? '$covered of $employees employees have role & tasks. '
-                '$unassigned still need assignment on Staff.'
+                  '$unassigned still need assignment on Staff.'
             : employees == 0
-                ? 'No employees in this company yet. Add people from Staff.'
-                : 'Every employee has a role and tasks mapped. Nice coverage.',
+            ? 'No employees in this company yet. Add people from Staff.'
+            : 'Every employee has a role and tasks mapped. Nice coverage.',
         chips: [
           '$employees employees',
           '$admins admins',
@@ -315,7 +329,8 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
           _FeatureTile(
             icon: Icons.description_outlined,
             title: 'Team time cards',
-            body: 'Inspect attendance sessions and edit records for the company.',
+            body:
+                'Inspect attendance sessions and edit records for the company.',
             onTap: () => _go(AppRoutes.superAdminTimeCardDetails),
           ),
           _FeatureTile(
@@ -355,8 +370,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
   }) {
     final density = CompactPageStyle.of(context);
     final users = companies.users;
-    final employees =
-        users.where((u) => u.role == UserRole.employee).length;
+    final employees = users.where((u) => u.role == UserRole.employee).length;
     final admins = users.where((u) => u.role == UserRole.admin).length;
     final companyCount = companies.companies.length;
 
@@ -378,9 +392,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
         ],
         cta: pending > 0 ? 'Review requests' : 'Browse companies',
         onTap: () => _go(
-          pending > 0
-              ? AppRoutes.superAdminRequests
-              : AppRoutes.superAdminList,
+          pending > 0 ? AppRoutes.superAdminRequests : AppRoutes.superAdminList,
         ),
       ),
       SizedBox(height: density.sectionGap),
@@ -411,7 +423,8 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
           _FeatureTile(
             icon: Icons.campaign_outlined,
             title: 'Broadcast updates',
-            body: 'Send announcements to admins, everyone, or selected members.',
+            body:
+                'Send announcements to admins, everyone, or selected members.',
             onTap: () => _go(AppRoutes.superAdminAnnouncements),
           ),
         ],
@@ -453,11 +466,7 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
     ];
   }
 
-  List<Widget> _userBody(
-    BuildContext context,
-    String? email,
-    String? phone,
-  ) {
+  List<Widget> _userBody(BuildContext context, String? email, String? phone) {
     final density = CompactPageStyle.of(context);
     return [
       _HeroPanel(
@@ -465,11 +474,8 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
         icon: Icons.person_outline_rounded,
         eyebrow: 'Your account',
         title: 'Signed in as a User',
-        body:
-            'This level is for standard access. Keep your profile current and tune how the app looks.',
-        metrics: const [
-          _Metric('Level', 'User'),
-        ],
+        body: 'This level is for standard access. Keep your profile current and tune how the app looks.',
+        metrics: const [_Metric('Level', 'User')],
         cta: 'Open profile',
         onTap: () => _go(AppRoutes.profile),
       ),
@@ -509,6 +515,16 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen>
       );
     }
     if (time.activeEntry != null) {
+      if (time.hasStaleOpenEntry) {
+        final date = time.activeEntry!.workDate;
+        return _EmployeeStatus(
+          icon: Icons.warning_amber_rounded,
+          title: 'Open session from a prior day',
+          detail:
+              'Forgot time out on $date. You can still request time in for today.',
+          color: Colors.orange,
+        );
+      }
       return _EmployeeStatus(
         icon: Icons.play_circle_outline_rounded,
         title: 'You’re on the clock',
@@ -634,22 +650,22 @@ class _HeroPanel extends StatelessWidget {
                       children: [
                         Text(
                           eyebrow.toUpperCase(),
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: accent,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.6,
-                                    fontSize: density.chipLabelSize,
-                                  ),
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: accent,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                                fontSize: density.chipLabelSize,
+                              ),
                         ),
                         SizedBox(height: density.compact ? 2 : 4),
                         Text(
                           title,
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: density.sectionTitleSize,
-                                  ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                fontSize: density.sectionTitleSize,
+                              ),
                         ),
                       ],
                     ),
@@ -660,9 +676,9 @@ class _HeroPanel extends StatelessWidget {
               Text(
                 body,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.bodySize,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.bodySize,
+                ),
               ),
               if (metrics.isNotEmpty) ...[
                 SizedBox(height: density.sectionGap),
@@ -678,8 +694,7 @@ class _HeroPanel extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: colors.card.withValues(alpha: 0.85),
-                            borderRadius:
-                                BorderRadius.circular(density.radius),
+                            borderRadius: BorderRadius.circular(density.radius),
                           ),
                           child: Column(
                             children: [
@@ -687,17 +702,13 @@ class _HeroPanel extends StatelessWidget {
                                 metrics[i].value,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleSmall
+                                style: Theme.of(context).textTheme.titleSmall
                                     ?.copyWith(fontWeight: FontWeight.w800),
                               ),
                               SizedBox(height: density.compact ? 2 : 4),
                               Text(
                                 metrics[i].label,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
+                                style: Theme.of(context).textTheme.labelSmall
                                     ?.copyWith(
                                       color: colors.textSecondary,
                                       fontSize: density.chipLabelSize,
@@ -717,10 +728,10 @@ class _HeroPanel extends StatelessWidget {
                   Text(
                     cta,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: accent,
-                          fontWeight: FontWeight.w800,
-                          fontSize: density.bodySize,
-                        ),
+                      color: accent,
+                      fontWeight: FontWeight.w800,
+                      fontSize: density.bodySize,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   Icon(Icons.arrow_forward_rounded, size: 16, color: accent),
@@ -773,9 +784,9 @@ class _FeatureStory extends StatelessWidget {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        fontSize: density.cardTitleSize,
-                      ),
+                    fontWeight: FontWeight.w800,
+                    fontSize: density.cardTitleSize,
+                  ),
                 ),
               ),
               if (onTap != null)
@@ -786,10 +797,10 @@ class _FeatureStory extends StatelessWidget {
           Text(
             body,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                  fontSize: density.bodySize,
-                  height: 1.35,
-                ),
+              color: colors.textSecondary,
+              fontSize: density.bodySize,
+              height: 1.35,
+            ),
           ),
           if (chips.isNotEmpty) ...[
             SizedBox(height: density.cardGap),
@@ -811,9 +822,9 @@ class _FeatureStory extends StatelessWidget {
             Text(
               cta!,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.primaryDark,
-                    fontWeight: FontWeight.w800,
-                  ),
+                color: AppColors.primaryDark,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ],
@@ -913,18 +924,18 @@ class _FeatureTile extends StatelessWidget {
               Text(
                 title,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      fontSize: density.cardTitleSize,
-                    ),
+                  fontWeight: FontWeight.w800,
+                  fontSize: density.cardTitleSize,
+                ),
               ),
               SizedBox(height: density.titleSubtitleGap),
               Text(
                 body,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontSize: density.captionSize,
-                      height: 1.35,
-                    ),
+                  color: colors.textSecondary,
+                  fontSize: density.captionSize,
+                  height: 1.35,
+                ),
               ),
             ],
           ),
