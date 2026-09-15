@@ -164,11 +164,26 @@ AttendanceStatus resolveAttendanceStatus({
   final dayStart = DateTime(date.year, date.month, date.day);
   final todayStart = DateTime(now.year, now.month, now.day);
 
-  if (hasLeaveOnDate(leaves: leaves, workDate: workDate)) {
+  final regularWorkDay = isEmployeeRegularWorkDay(
+    overrides: dayOverrides,
+    userId: employeeId,
+    workDate: workDate,
+  );
+  if (!regularWorkDay &&
+      isEmployeeEmergencyLeave(
+        overrides: dayOverrides,
+        userId: employeeId,
+        workDate: workDate,
+      )) {
+    return AttendanceStatus.emergency;
+  }
+
+  if (!regularWorkDay && hasLeaveOnDate(leaves: leaves, workDate: workDate)) {
     return AttendanceStatus.onLeave;
   }
 
-  if (employeeId.isNotEmpty &&
+  if (!regularWorkDay &&
+      employeeId.isNotEmpty &&
       isForcedEmployeeDayOff(
         overrides: dayOverrides,
         userId: employeeId,
@@ -181,7 +196,7 @@ AttendanceStatus resolveAttendanceStatus({
       ? employeeSchedule.isWorkDay(date)
       : schedule.workWeek.isWorkDay(date);
 
-  if (!isWorkDay) {
+  if (!regularWorkDay && !isWorkDay) {
     return AttendanceStatus.offDay;
   }
 
@@ -287,7 +302,9 @@ TimeCardTableRow _rowForDate({
         : latestOut == null
         ? '—'
         : formatClockTime(latestOut),
-    duration: formatDurationShort(sumEntriesDuration(entries, now)),
+    duration: entries.every((entry) => entry.isMissingTimeOutAt(now))
+        ? '?'
+        : formatDurationShort(sumEntriesDuration(entries, now)),
     status: status.label,
     employeeId: employeeId,
     employeeName: employeeName,
@@ -316,7 +333,9 @@ TimeCardTableRow _rowForSessions({
     timeOut: entry.timeOut == null
         ? (isToday ? 'Active' : '—')
         : formatClockTime(entry.timeOut!),
-    duration: formatDurationShort(entryDuration(entry, now)),
+    duration: entry.isMissingTimeOutAt(now)
+        ? '?'
+        : formatDurationShort(entryDuration(entry, now)),
     status: status.label,
     employeeId: employeeId,
     employeeName: employeeName,

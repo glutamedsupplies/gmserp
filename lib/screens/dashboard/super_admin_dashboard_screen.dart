@@ -39,6 +39,9 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen>
   List<String> get realtimePaths => const ['companies'];
 
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+
+  @override
   Future<void> refreshRealtimeData() async {
     await context.read<CompanyProvider>().loadCompanies();
   }
@@ -117,6 +120,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen>
     );
     if (!mounted) return;
     if (ok) {
+      final photoError = context.read<CompanyProvider>().errorMessage;
       _companyName.clear();
       _companyPassword.clear();
       _confirmPassword.clear();
@@ -131,6 +135,9 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen>
         context: context,
         builder: (context) => _CompanyCreatedDialog(companyName: name),
       );
+      if (mounted && photoError != null) {
+        SnackBarHelper.showError(context, photoError);
+      }
     } else {
       SnackBarHelper.showError(
         context,

@@ -456,6 +456,7 @@ Duration sumEntriesInRange(
   final now = asOf ?? DateTime.now();
   var total = Duration.zero;
   for (final entry in entries) {
+    if (entry.isMissingTimeOutAt(now)) continue;
     final entryEnd = entry.timeOut ?? now;
     if (entry.timeIn.isBefore(rangeEnd) && entryEnd.isAfter(rangeStart)) {
       final overlapStart = entry.timeIn.isAfter(rangeStart)
@@ -471,6 +472,7 @@ Duration sumEntriesInRange(
 }
 
 Duration entryDuration(TimeEntry entry, DateTime asOf) {
+  if (entry.isMissingTimeOutAt(asOf)) return Duration.zero;
   if (entry.isOpen) return asOf.difference(entry.timeIn);
   return entry.duration;
 }

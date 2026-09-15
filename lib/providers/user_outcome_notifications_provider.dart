@@ -75,6 +75,9 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
   Set<String> _seen = {};
   Set<String> _announced = {};
+  int _session = 0;
+  Future<void> _historyReady = Future<void>.value();
+  Future<void> _notificationSync = Future<void>.value();
 
   Map<String, _OutcomeItem> get _outcomes {
     final merged = <String, _OutcomeItem>{
@@ -155,15 +158,22 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   }
 
   Future<void> _start(String userId) async {
-    _seen = await _seenStore.loadSeen(userId);
-    _announced = await _seenStore.loadAnnounced(userId);
-    if (!_listening || _userId != userId) return;
+    final session = _session;
+    _historyReady = (() async {
+      final seen = await _seenStore.loadSeen(userId);
+      final announced = await _seenStore.loadAnnounced(userId);
+      if (!_listening || _userId != userId || _session != session) return;
+      _seen.addAll(seen);
+      _announced.addAll(announced);
+    })();
+    await _historyReady;
+    if (!_listening || _userId != userId || _session != session) return;
 
     unawaited(_notifications.requestPermission());
 
     if (preferRtdbPolling) {
       Future.delayed(const Duration(seconds: 3), () {
-        if (!_listening || _userId != userId) return;
+        if (!_listening || _userId != userId || _session != session) return;
         unawaited(_pollOnce(userId));
         _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
           unawaited(_pollOnce(userId));
@@ -174,6 +184,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _leaveSub = _rtdb.onValue(RtdbPaths.leaveRequests).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -194,6 +205,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _requesterSub = _rtdb.onValue(RtdbPaths.timeCardChangeRequests).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -214,6 +226,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _employeeSub = _rtdb.onValue(RtdbPaths.timeCardChangeRequests).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -234,6 +247,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _clockSub = _rtdb.onValue(RtdbPaths.clockRequests).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -254,6 +268,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _salarySub = _rtdb.onValue(RtdbPaths.salaryRateChanges).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -275,6 +290,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _profileSub = _rtdb.onValue(RtdbPaths.timeCardProfileChanges).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -296,6 +312,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
     _announceSub = _rtdb.onValue(RtdbPaths.announcements).listen(
       (event) {
+        if (!_listening || _userId != userId || _session != session) return;
         final children = RtdbService.snapshotChildren(event.snapshot);
         final filtered = <String, Map<String, dynamic>>{};
         for (final entry in children.entries) {
@@ -323,11 +340,13 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
         RtdbDesktopLimiter.isHeavyLoading) {
       return;
     }
+    final session = _session;
     _polling = true;
     try {
       final skipInboxPaths = preferRtdbPolling && _superAdminMode;
       if (!skipInboxPaths) {
         final leaves = await _rtdb.getChildren(RtdbPaths.leaveRequests);
+      if (!_listening || _userId != userId || _session != session) return;
         final leaveFiltered = <String, Map<String, dynamic>>{};
         for (final entry in leaves.entries) {
           if (entry.value['userId']?.toString() == userId) {
@@ -340,6 +359,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
         final timeChanges =
             await _rtdb.getChildren(RtdbPaths.timeCardChangeRequests);
+      if (!_listening || _userId != userId || _session != session) return;
         final asRequester = <String, Map<String, dynamic>>{};
         final asEmployee = <String, Map<String, dynamic>>{};
         for (final entry in timeChanges.entries) {
@@ -358,6 +378,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
           ..addAll(_parseTimeOutcomes(asEmployee, asRequester: false));
 
         final clocks = await _rtdb.getChildren(RtdbPaths.clockRequests);
+      if (!_listening || _userId != userId || _session != session) return;
         final clockFiltered = <String, Map<String, dynamic>>{};
         for (final entry in clocks.entries) {
           if (entry.value['userId']?.toString() == userId) {
@@ -372,6 +393,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
       // Activity page loads; do not clear them here or the badge orphan counts.
 
       final salary = await _rtdb.getChildren(RtdbPaths.salaryRateChanges);
+      if (!_listening || _userId != userId || _session != session) return;
       final salaryFiltered = <String, Map<String, dynamic>>{};
       for (final entry in salary.entries) {
         final recipients = parseRecipientIds(entry.value['recipientIds']);
@@ -385,6 +407,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
 
       final profiles =
           await _rtdb.getChildren(RtdbPaths.timeCardProfileChanges);
+      if (!_listening || _userId != userId || _session != session) return;
       final profileFiltered = <String, Map<String, dynamic>>{};
       for (final entry in profiles.entries) {
         final recipients = parseRecipientIds(entry.value['recipientIds']);
@@ -397,6 +420,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
         ..addAll(_parseProfileOutcomes(profileFiltered, userId: userId));
 
       final announces = await _rtdb.getChildren(RtdbPaths.announcements);
+      if (!_listening || _userId != userId || _session != session) return;
       final announceFiltered = <String, Map<String, dynamic>>{};
       for (final entry in announces.entries) {
         final recipients = parseRecipientIds(entry.value['recipientIds']);
@@ -413,7 +437,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     } catch (_) {
       // Keep last known inbox state on transient RTDB errors.
     } finally {
-      _polling = false;
+      if (_session == session) _polling = false;
     }
   }
 
@@ -664,13 +688,24 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     return map;
   }
 
-  Future<void> _syncLocalNotifications(String userId) async {
-    if (_userId != userId) return;
+  Future<void> _syncLocalNotifications(String userId) {
+    final session = _session;
+    _notificationSync = _notificationSync.catchError((Object _) {}).then((_) async {
+      await _historyReady;
+      if (_session != session || _userId != userId || !_listening) return;
+      await _syncLocalNotificationsNow(userId, session);
+    });
+    return _notificationSync;
+  }
+
+  Future<void> _syncLocalNotificationsNow(String userId, int session) async {
+    if (_userId != userId || _session != session) return;
 
     final outcomes = _outcomes;
     final liveIds = outcomes.keys.toSet();
 
     for (final id in {..._announced, ..._seen}) {
+      if (_userId != userId || _session != session) return;
       if (!liveIds.contains(id) || _seen.contains(id)) {
         await _notifications.cancelRequestOutcome(id);
       }
@@ -682,21 +717,21 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     for (final item in unseen) {
-      final alreadyAnnounced = _announced.contains(item.entryId);
-      final alert = _seeded && !alreadyAnnounced;
+      if (_userId != userId || _session != session) return;
+      if (_seen.contains(item.entryId) || _announced.contains(item.entryId)) continue;
+      if (!await _seenStore.claimAnnouncement(userId, item.entryId)) continue;
+      if (_userId != userId || _session != session || _seen.contains(item.entryId)) return;
+      _announced.add(item.entryId);
+      final alert = _seeded;
       await _notifications.showRequestOutcome(
         entryId: item.entryId,
         title: item.title,
         body: item.body,
         alert: alert,
       );
-      if (!alreadyAnnounced) {
-        _announced.add(item.entryId);
-        await _seenStore.markAnnounced(userId, item.entryId);
-      }
     }
 
-    _seeded = true;
+    if (_userId == userId && _session == session) _seeded = true;
   }
 
   Future<void> markSeen(String entryId) async {
@@ -712,11 +747,14 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
     var changed = false;
     for (final id in ids) {
       if (_seen.add(id)) changed = true;
-      await _notifications.cancelRequestOutcome(id);
     }
     if (!changed) return;
 
     await _seenStore.markSeenMany(userId, ids);
+    if (_userId != userId) return;
+    for (final id in ids) {
+      await _notifications.cancelRequestOutcome(id);
+    }
     notifyListeners();
   }
 
@@ -770,6 +808,7 @@ class UserOutcomeNotificationsProvider extends ChangeNotifier {
   }
 
   void _stop({bool cancelTray = false}) {
+    _session++;
     final toCancel = cancelTray
         ? {..._announced, ..._seen, ..._outcomes.keys}
         : const <String>{};

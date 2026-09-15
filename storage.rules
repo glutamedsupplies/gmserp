@@ -2,6 +2,28 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    match /avatars/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Uploaders own their files. Company database rules separately restrict
+    // who can publish a file's URL as the company's logo.
+    match /company-logos/{userId}/{companyId}/{fileName} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+      allow read: if request.auth != null;
+      allow create, update: if isOwner()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner();
+    }
+
     match /avatars/{fileName} {
       // fileName is "{uid}.png"
       function isOwner() {

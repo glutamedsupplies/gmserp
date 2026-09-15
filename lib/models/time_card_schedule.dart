@@ -2,6 +2,7 @@ import '../core/utils/firebase_data.dart';
 import 'time_entry.dart';
 
 enum AttendanceStatus {
+  emergency,
   present,
   late,
   absent,
@@ -11,6 +12,8 @@ enum AttendanceStatus {
 
   String get label {
     switch (this) {
+      case AttendanceStatus.emergency:
+        return 'Emergency';
       case AttendanceStatus.present:
         return 'Present';
       case AttendanceStatus.late:
@@ -28,6 +31,8 @@ enum AttendanceStatus {
 
   static AttendanceStatus fromLabel(String? value) {
     switch (value) {
+      case 'Emergency':
+        return AttendanceStatus.emergency;
       case 'Present':
         return AttendanceStatus.present;
       case 'Late':

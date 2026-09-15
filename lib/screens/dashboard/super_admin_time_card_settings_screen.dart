@@ -18,6 +18,7 @@ import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/lazy_list_pager.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/user_avatar.dart';
 
 class SuperAdminTimeCardSettingsScreen extends StatefulWidget {
   const SuperAdminTimeCardSettingsScreen({super.key});
@@ -32,6 +33,9 @@ class _SuperAdminTimeCardSettingsScreenState
     with RealtimePage {
   @override
   List<String> get realtimePaths => const ['companies', 'users'];
+
+  @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
 
   @override
   Future<void> refreshRealtimeData() async {
@@ -546,13 +550,32 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
 
   Future<void> _save() async {
     final rate = double.tryParse(_rateController.text.trim()) ?? 0;
-    if (rate < 0) {
+    if (!rate.isFinite || rate < 0) {
       SnackBarHelper.showError(context, 'Daily rate cannot be negative.');
       return;
     }
+    String? effectiveFrom;
+    if (rate != widget.member.timeCardProfile.dailyRate) {
+      final now = DateTime.now();
+      final date = await showDatePicker(
+        context: context,
+        initialDate: now,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(now.year + 10, 12, 31),
+        helpText: 'Apply new daily rate starting on',
+        confirmText: 'Apply from this date',
+      );
+      if (date == null || !mounted) return;
+      effectiveFrom =
+          '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    }
     setState(() => _saving = true);
     await widget.onSave(
-      EmployeeTimeCardProfile(dailyRate: rate, weeklySchedule: _week),
+      widget.member.timeCardProfile.copyWith(
+        dailyRate: rate,
+        weeklySchedule: _week,
+        rateEffectiveFrom: effectiveFrom,
+      ),
     );
     if (mounted) setState(() => _saving = false);
   }
@@ -585,19 +608,16 @@ class _EmployeeSettingsTileState extends State<_EmployeeSettingsTile> {
               padding: CompactPageStyle.of(context).cardPadding,
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundColor: colors.header,
-                    child: Text(
-                      widget.member.username.isEmpty
-                          ? '?'
-                          : widget.member.username[0].toUpperCase(),
-                      style: const TextStyle(
-                        color: AppColors.primaryDark,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                      ),
-                    ),
+                  UserAvatar(
+                    bytes: null,
+                    name: widget.member.username,
+                    size: 32,
+                    photoUrl:
+                        context
+                            .watch<CompanyProvider>()
+                            .userById(widget.member.userId)
+                            ?.photoUrl ??
+                        '',
                   ),
                   const SizedBox(width: 10),
                   Expanded(

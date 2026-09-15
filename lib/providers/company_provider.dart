@@ -14,22 +14,21 @@ import '../models/staff_assignment.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../services/company_repository.dart';
-import '../services/local_avatar_factory.dart';
-import '../services/local_avatar_store.dart';
+import '../services/avatar_cloud_store.dart';
 import '../services/user_repository.dart';
 
 class CompanyProvider extends ChangeNotifier {
   CompanyProvider({
     CompanyRepository? companyRepository,
     UserRepository? userRepository,
-    LocalAvatarStore? logoStore,
+    AvatarCloudStore? logoCloud,
   }) : _companies = companyRepository ?? CompanyRepository(),
        _users = userRepository ?? UserRepository(),
-       _logos = logoStore ?? createLocalAvatarStore();
+       _logoCloud = logoCloud ?? AvatarCloudStore();
 
   final CompanyRepository _companies;
   final UserRepository _users;
-  final LocalAvatarStore _logos;
+  final AvatarCloudStore _logoCloud;
 
   bool isLoading = false;
   String? errorMessage;
@@ -53,6 +52,7 @@ class CompanyProvider extends ChangeNotifier {
   bool _unlockedBeforePick = false;
   StaffAssignment? myAssignment;
   final Map<String, Uint8List> logos = {};
+  final Map<String, String> _loadedLogoUrls = {};
   int logoRevision = 0;
 
   static const _selectedCompanyKey = 'selected_company_id';
@@ -65,8 +65,6 @@ class CompanyProvider extends ChangeNotifier {
   /// Employee/admin must have a non-expired company-code unlock to use company data.
   bool get hasActiveCompanySession =>
       selectedCompany != null && companyCodeUnlocked && !isPickingCompany;
-
-  String _logoKey(String companyId) => 'company_$companyId';
 
   Uint8List? logoFor(String companyId) => logos[companyId];
 
@@ -146,22 +144,28 @@ class CompanyProvider extends ChangeNotifier {
   Future<void> _loadLogosFor(List<CompanyModel> items) async {
     final next = <String, Uint8List>{};
     for (final company in items) {
+      if (_loadedLogoUrls[company.id] == company.logoUrl) continue;
       try {
-        final bytes = await _logos.read(_logoKey(company.id));
+        final bytes = await _logoCloud.downloadBytes(company.logoUrl);
         if (bytes != null && bytes.isNotEmpty) {
           next[company.id] = bytes;
+          _loadedLogoUrls[company.id] = company.logoUrl;
+        } else if (company.logoUrl.isEmpty) {
+          logos.remove(company.id);
+          _loadedLogoUrls[company.id] = '';
         }
       } catch (_) {}
     }
-    logos
-      ..clear()
-      ..addAll(next);
+    logos.addAll(next);
     logoRevision++;
   }
 
   Future<bool> saveCompanyLogo(String companyId, List<int> bytes) async {
     try {
-      await _logos.write(_logoKey(companyId), bytes);
+      errorMessage = null;
+      final url = await _logoCloud.uploadCompanyLogo(companyId: companyId, bytes: bytes);
+      await _companies.updateLogoUrl(companyId: companyId, logoUrl: url);
+      _loadedLogoUrls[companyId] = url;
       logos[companyId] = Uint8List.fromList(bytes);
       logoRevision++;
       notifyListeners();
@@ -175,7 +179,9 @@ class CompanyProvider extends ChangeNotifier {
 
   Future<bool> removeCompanyLogo(String companyId) async {
     try {
-      await _logos.delete(_logoKey(companyId));
+      errorMessage = null;
+      await _companies.updateLogoUrl(companyId: companyId, logoUrl: '');
+      _loadedLogoUrls[companyId] = '';
       logos.remove(companyId);
       logoRevision++;
       notifyListeners();
@@ -388,7 +394,7 @@ class CompanyProvider extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      await _companies.createCompany(
+      final created = await _companies.createCompany(
         companyId: companyId,
         name: name,
         password: password,
@@ -396,7 +402,12 @@ class CompanyProvider extends ChangeNotifier {
         createdBy: createdBy,
       );
       if (logoBytes != null && logoBytes.isNotEmpty) {
-        await _logos.write(_logoKey(companyId), logoBytes);
+        if (!await saveCompanyLogo(created.id, logoBytes)) {
+          await loadCompanies();
+          errorMessage = 'Company created, but its photo could not upload. Edit the company photo to retry.';
+          notifyListeners();
+          return true;
+        }
       }
       await loadCompanies();
       return true;
@@ -440,7 +451,6 @@ class CompanyProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _companies.deleteCompany(company: company, password: password);
-      await _logos.delete(_logoKey(company.id));
       logos.remove(company.id);
       if (selectedCompany?.id == company.id) {
         selectedCompany = null;
@@ -475,10 +485,23 @@ class CompanyProvider extends ChangeNotifier {
       final latest = await _companies.getCompanyById(selected.id);
       if (selectedCompany?.id != selected.id) return;
       selectedCompany = latest;
+      await _loadLogosFor([latest]);
     } on StateError {
       if (selectedCompany?.id == selected.id) clearSelection();
       return;
     }
+    notifyListeners();
+  }
+
+  Future<void> refreshCompanyPhotos() async {
+    final ids = {
+      ...companies.map((company) => company.id),
+      ...memberCompanies.map((company) => company.id),
+      if (selectedCompany != null) selectedCompany!.id,
+    };
+    if (ids.isEmpty) return;
+    final latest = await _companies.listCompanies();
+    await _loadLogosFor(latest.where((company) => ids.contains(company.id)).toList());
     notifyListeners();
   }
 
@@ -978,6 +1001,7 @@ class CompanyProvider extends ChangeNotifier {
     if (id == null || id.isEmpty) return;
     try {
       selectedCompany = await _companies.getCompanyById(id);
+      await _loadLogosFor([selectedCompany!]);
       isPickingCompany = false;
       final expiresMs = prefs.getInt(_unlockExpiresKey);
       final stillValid =
@@ -1026,6 +1050,9 @@ class CompanyProvider extends ChangeNotifier {
     companies = [];
     memberCompanies = [];
     isPickingCompany = false;
+    logos.clear();
+    _loadedLogoUrls.clear();
+    logoRevision++;
     companyCodeUnlocked = false;
     _unlockedBeforePick = false;
     _persistSelection(null);

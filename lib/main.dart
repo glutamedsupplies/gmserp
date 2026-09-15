@@ -12,6 +12,7 @@ import 'services/app_instance_guard.dart';
 import 'services/auth_service.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
+import 'services/push_notification_service.dart';
 import 'widgets/app_instance_gate.dart';
 
 Future<void> main() async {
@@ -25,7 +26,8 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (e) {
-    final duplicate = (e is FirebaseException && e.code == 'duplicate-app') ||
+    final duplicate =
+        (e is FirebaseException && e.code == 'duplicate-app') ||
         e.toString().contains('duplicate-app');
     if (!duplicate) rethrow;
   }
@@ -35,6 +37,11 @@ Future<void> main() async {
   final settings = SettingsProvider();
   await settings.load();
   await NotificationService.instance.initialize();
+  try {
+    await PushNotificationService.instance.initialize();
+  } catch (e) {
+    debugPrint('Push initialization unavailable: $e');
+  }
   await AppInstanceGuard.instance.initialize();
 
   runApp(
@@ -44,9 +51,7 @@ Future<void> main() async {
           ChangeNotifierProvider(
             create: (_) => AuthProvider(authService: authService),
           ),
-          ChangeNotifierProvider(
-            create: (_) => CompanyProvider(),
-          ),
+          ChangeNotifierProvider(create: (_) => CompanyProvider()),
           ChangeNotifierProvider.value(value: settings),
         ],
         child: const App(),

@@ -1,3 +1,6 @@
+import '../services/push_notification_service.dart';
+import '../services/notification_service.dart';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -37,6 +40,8 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_notificationsKey, value);
+    if (!value) await NotificationService.instance.clearAll();
+    PushNotificationService.instance.refreshRegistration();
   }
 
   Future<void> setCompactMode(bool value) async {

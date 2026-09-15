@@ -6,8 +6,6 @@ import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/avatar_cloud_store.dart';
-import '../services/local_avatar_factory.dart';
-import '../services/local_avatar_store.dart';
 import '../services/notification_service.dart';
 import '../services/user_repository.dart';
 
@@ -17,12 +15,10 @@ class AuthProvider extends ChangeNotifier {
     AvatarCloudStore? avatarCloud,
     UserRepository? users,
   }) : _authService = authService, // ignore: prefer_initializing_formals
-       _avatars = createLocalAvatarStore(),
        _avatarCloud = avatarCloud ?? AvatarCloudStore(),
        _users = users ?? UserRepository();
 
   final AuthService _authService;
-  final LocalAvatarStore _avatars;
   final AvatarCloudStore _avatarCloud;
   final UserRepository _users;
 
@@ -41,7 +37,7 @@ class AuthProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   Uint8List? get avatarBytes => _avatarBytes;
   int get avatarRevision => _avatarRevision;
-  bool get hasLocalAvatar => _avatarBytes != null && _avatarBytes!.isNotEmpty;
+  bool get hasAvatar => _avatarBytes != null && _avatarBytes!.isNotEmpty;
 
   Future<void> checkAuthentication() async {
     _isInitializing = true;
@@ -166,8 +162,8 @@ class AuthProvider extends ChangeNotifier {
     });
   }
 
-  /// Saves the photo locally and uploads it so other devices (web/mobile) see it.
-  Future<bool> saveLocalAvatar(List<int> bytes) async {
+  /// Saves to Storage and publishes the URL before updating the displayed photo.
+  Future<bool> saveAvatar(List<int> bytes) async {
     final user = _user;
     if (user == null) {
       _errorMessage = 'Please sign in again.';
@@ -175,35 +171,34 @@ class AuthProvider extends ChangeNotifier {
       return false;
     }
     return _runAuthAction(() async {
-      await _avatars.write(user.id, bytes);
-      _avatarBytes = Uint8List.fromList(bytes);
-      _avatarRevision++;
-
       final url = await _avatarCloud.upload(userId: user.id, bytes: bytes);
       await _users.updatePhotoUrl(userId: user.id, photoUrl: url);
       try {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
       } catch (_) {}
+      if (_user?.id != user.id) return false;
       _user = user.copyWith(photoUrl: url);
+      _avatarBytes = Uint8List.fromList(bytes);
+      _avatarRevision++;
       _errorMessage = null;
       return true;
     });
   }
 
-  Future<bool> removeLocalAvatar() async {
+  Future<bool> removeAvatar() async {
     final user = _user;
     if (user == null) return false;
     return _runAuthAction(() async {
-      await _avatars.delete(user.id);
+      await _users.updatePhotoUrl(userId: user.id, photoUrl: '');
       try {
-        await _avatarCloud.delete(user.id);
+        await _avatarCloud.delete(user.photoUrl);
       } catch (error) {
         debugPrint('Cloud avatar delete failed: $error');
       }
-      await _users.updatePhotoUrl(userId: user.id, photoUrl: '');
       try {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
       } catch (_) {}
+      if (_user?.id != user.id) return false;
       _avatarBytes = null;
       _avatarRevision++;
       _user = user.copyWith(photoUrl: '');
@@ -224,7 +219,7 @@ class AuthProvider extends ChangeNotifier {
       try {
         final remote = await _avatarCloud.downloadBytes(user.photoUrl);
         if (remote != null && remote.isNotEmpty) {
-          await _avatars.write(user.id, remote);
+          if (_user?.id != user.id || _user?.photoUrl != user.photoUrl) return;
           _avatarBytes = remote;
           _avatarRevision++;
           return;
@@ -234,7 +229,8 @@ class AuthProvider extends ChangeNotifier {
       }
     }
 
-    _avatarBytes = await _avatars.read(user.id);
+    if (_user?.id != user.id || _user?.photoUrl != user.photoUrl) return;
+    _avatarBytes = null;
     _avatarRevision++;
   }
 
@@ -246,7 +242,10 @@ class AuthProvider extends ChangeNotifier {
       if (_user?.id != previous.id) return;
       if (sessionUser != null) {
         _user = sessionUser;
-        if (previous.photoUrl != sessionUser.photoUrl) await _loadAvatar();
+        if (previous.photoUrl != sessionUser.photoUrl ||
+            (sessionUser.hasPhotoUrl && _avatarBytes == null)) {
+          await _loadAvatar();
+        }
         notifyListeners();
       }
     } catch (_) {}

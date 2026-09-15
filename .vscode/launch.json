@@ -5,7 +5,8 @@
             "name": "GMSERP",
             "request": "launch",
             "type": "dart",
-            "program": "lib/main.dart"
+            "program": "lib/main.dart",
+            "deviceId": "windows"
         },
         {
             "name": "GMSERP (Chrome)",
@@ -13,6 +14,13 @@
             "type": "dart",
             "program": "lib/main.dart",
             "deviceId": "chrome"
+        },
+        {
+            "name": "GMSERP (Windows desktop)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "deviceId": "windows"
         }
     ]
 }

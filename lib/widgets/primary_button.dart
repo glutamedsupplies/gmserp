@@ -11,12 +11,16 @@ class PrimaryButton extends StatelessWidget {
     required this.onPressed,
     this.isLoading = false,
     this.loadingLabel,
+    this.backgroundColor,
+    this.foregroundColor,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final bool isLoading;
   final String? loadingLabel;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -30,10 +34,12 @@ class PrimaryButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           elevation: webShell ? 0 : null,
           shadowColor: Colors.transparent,
+          backgroundColor: backgroundColor,
+          foregroundColor: foregroundColor,
           disabledBackgroundColor:
-              isLoading ? AppColors.primary : null,
+              isLoading ? backgroundColor ?? AppColors.primary : null,
           disabledForegroundColor:
-              isLoading ? AppColors.onPrimary : null,
+              isLoading ? foregroundColor ?? AppColors.onPrimary : null,
         ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
@@ -45,16 +51,16 @@ class PrimaryButton extends StatelessWidget {
                     SizedBox(
                       width: density.compact ? 18 : 20,
                       height: density.compact ? 18 : 20,
-                      child: const CircularProgressIndicator(
+                      child: CircularProgressIndicator(
                         strokeWidth: 2.4,
-                        color: AppColors.onPrimary,
+                        color: foregroundColor ?? AppColors.onPrimary,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Text(
                       loadingLabel ?? label,
                       style: TextStyle(
-                        color: AppColors.onPrimary,
+                        color: foregroundColor ?? AppColors.onPrimary,
                         fontWeight: FontWeight.w600,
                         fontSize: density.compact ? 15 : 17,
                       ),

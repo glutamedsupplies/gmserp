@@ -1,3 +1,5 @@
+import '../../screens/dashboard/announcements_screen.dart';
+
 import 'package:flutter/material.dart';
 
 import '../constants/app_routes.dart';
@@ -48,6 +50,8 @@ Widget buildSignedInPage(RouteSettings settings) {
       return const EmployeeGate(child: EmployeeRequestsScreen());
     case AppRoutes.timeCardCalendar:
       return const AttendanceCalendarScreen();
+    case AppRoutes.announcements:
+      return const AnnouncementsScreen();
     case AppRoutes.notifications:
       return const NotificationsScreen();
     case AppRoutes.superAdmin:
@@ -76,41 +80,29 @@ Widget buildSignedInPage(RouteSettings settings) {
         child: SuperAdminCompanyUsersScreen(company: company),
       );
     case AppRoutes.superAdminEmployees:
-      return const SuperAdminGate(
-        child: SuperAdminEmployeeListsScreen(),
-      );
+      return const SuperAdminGate(child: SuperAdminEmployeeListsScreen());
     case AppRoutes.superAdminRoles:
-      return const SuperAdminGate(
-        child: SuperAdminRoleListsScreen(),
-      );
+      return const SuperAdminGate(child: SuperAdminRoleListsScreen());
     case AppRoutes.superAdminRoleDetails:
       final listing = settings.arguments;
       if (listing is! CompanyRoleListing) {
-        return const SuperAdminGate(
-          child: SuperAdminRoleListsScreen(),
-        );
+        return const SuperAdminGate(child: SuperAdminRoleListsScreen());
       }
       return SuperAdminGate(
         child: SuperAdminRoleDetailsScreen(listing: listing),
       );
     case AppRoutes.superAdminTasks:
-      return const SuperAdminGate(
-        child: SuperAdminTaskListsScreen(),
-      );
+      return const SuperAdminGate(child: SuperAdminTaskListsScreen());
     case AppRoutes.superAdminTaskDetails:
       final listing = settings.arguments;
       if (listing is! CompanyTaskListing) {
-        return const SuperAdminGate(
-          child: SuperAdminTaskListsScreen(),
-        );
+        return const SuperAdminGate(child: SuperAdminTaskListsScreen());
       }
       return SuperAdminGate(
         child: SuperAdminTaskDetailsScreen(listing: listing),
       );
     case AppRoutes.superAdminUsers:
-      return const SuperAdminGate(
-        child: SuperAdminUsersScreen(),
-      );
+      return const SuperAdminGate(child: SuperAdminUsersScreen());
     case AppRoutes.superAdminRequests:
       final args = settings.arguments;
       String? focusType;
@@ -126,13 +118,9 @@ Widget buildSignedInPage(RouteSettings settings) {
         ),
       );
     case AppRoutes.superAdminLogs:
-      return const SuperAdminGate(
-        child: NotificationsScreen(),
-      );
+      return const SuperAdminGate(child: NotificationsScreen());
     case AppRoutes.superAdminAnnouncements:
-      return const SuperAdminGate(
-        child: SuperAdminAnnouncementsScreen(),
-      );
+      return const SuperAdminGate(child: SuperAdminAnnouncementsScreen());
     case AppRoutes.superAdminTimeCardDetails:
       return const AdminOrSuperAdminGate(
         child: SuperAdminTimeCardDetailsScreen(),

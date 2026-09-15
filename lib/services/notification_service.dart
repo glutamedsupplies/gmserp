@@ -1,8 +1,16 @@
+import 'web_notifications.dart';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'push_notification_service.dart';
+
 import 'dart:io';
 import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import 'notification_seen_store.dart';
 
 /// Deep-link target carried in a Super Admin request notification payload.
 class RequestNotificationPayload {
@@ -57,6 +65,7 @@ class NotificationService {
 
   bool _initialized = false;
   int _lastNotifiedCount = -1;
+  int _unreadBadgeCount = 0;
   Future<void> _groupUpdate = Future<void>.value();
 
   Future<void> _showNotification({
@@ -66,6 +75,13 @@ class NotificationService {
     required NotificationDetails notificationDetails,
     String? payload,
   }) async {
+    if (title != null &&
+        !((await SharedPreferences.getInstance()).getBool(
+              'settings.notifications',
+            ) ??
+            true)) {
+      return;
+    }
     await _plugin.show(
       id: id,
       title: title,
@@ -83,7 +99,7 @@ class NotificationService {
       final active = (await _plugin.getActiveNotifications())
           .where((item) => item.id != _groupSummaryId)
           .toList();
-      if (active.length <= 2) {
+      if (active.length < 2) {
         await _plugin.cancel(id: _groupSummaryId);
         return;
       }
@@ -191,6 +207,16 @@ class NotificationService {
 
   /// If the app was launched by tapping a notification, return its payload.
   Future<String?> consumeLaunchPayload() async {
+    final pushPayload = PushNotificationService.instance.consumeLaunchPayload();
+    if (pushPayload != null) return pushPayload;
+    if (kIsWeb && Uri.base.queryParameters['notification'] == '1') {
+      final payload = Uri.base.queryParameters['payload'];
+      if (RequestNotificationPayload.tryParse(payload) != null ||
+          tryParseOutcomeEntryId(payload) != null) {
+        return payload;
+      }
+      return notificationsRoutePayload;
+    }
     if (!_supportsNative) return null;
     await initialize();
     final details = await _plugin.getNotificationAppLaunchDetails();
@@ -203,6 +229,13 @@ class NotificationService {
   }
 
   Future<bool> requestPermission() async {
+    final granted = await _requestPermission();
+    if (granted) PushNotificationService.instance.refreshRegistration();
+    return granted;
+  }
+
+  Future<bool> _requestPermission() async {
+    if (kIsWeb) return requestWebNotificationPermission();
     if (!_supportsNative) return false;
     await initialize();
 
@@ -245,6 +278,7 @@ class NotificationService {
   /// Updates the launcher badge and optionally pushes a device notification
   /// when the pending count increases.
   Future<void> syncSuperAdminPending({
+    String? userId,
     required int count,
     required bool notificationsEnabled,
     bool announceIncrease = true,
@@ -252,7 +286,7 @@ class NotificationService {
     String? body,
     String? payload,
   }) async {
-    if (!_supportsNative) return;
+    if (!_supportsNative && !kIsWeb) return;
     await initialize();
 
     if (!notificationsEnabled) {
@@ -271,6 +305,16 @@ class NotificationService {
         count > _lastNotifiedCount;
     final firstSeed = !announceIncrease || _lastNotifiedCount < 0;
 
+    if (userId != null &&
+        payload != null &&
+        !await NotificationSeenStore.instance.claimAnnouncement(
+          userId,
+          'pending:$payload',
+        )) {
+      _lastNotifiedCount = count;
+      return;
+    }
+
     await _showPendingNotification(
       count: count,
       alert: increased && !firstSeed,
@@ -288,9 +332,17 @@ class NotificationService {
     required String leaveDate,
     required String companyName,
   }) async {
-    if (!_supportsNative) return;
+    if (!_supportsNative && !kIsWeb) return;
     await initialize();
 
+    if (kIsWeb) {
+      await showWebNotification(
+        'Leave reminder',
+        'Your leave starts tomorrow.',
+        leaveId,
+      );
+      return;
+    }
     final id = _leaveReminderIdBase + (leaveId.hashCode.abs() % 5000);
     final company = companyName.trim().isEmpty ? 'your company' : companyName;
     const title = 'Leave reminder';
@@ -355,9 +407,19 @@ class NotificationService {
     required String body,
     bool alert = true,
   }) async {
-    if (!_supportsNative) return;
+    if (!_supportsNative && !kIsWeb) return;
     await initialize();
 
+    if (kIsWeb) {
+      if (!((await SharedPreferences.getInstance()).getBool(
+            'settings.notifications',
+          ) ??
+          true)) {
+        return;
+      }
+      if (alert) await showWebNotification(title, body, entryId);
+      return;
+    }
     final id = outcomeNotificationId(entryId);
     await _showNotification(
       id: id,
@@ -400,7 +462,11 @@ class NotificationService {
   }
 
   Future<void> cancelRequestOutcome(String entryId) async {
-    if (!_supportsNative) return;
+    if (kIsWeb) {
+      await cancelWebNotification(entryId);
+      return;
+    }
+    if (!_supportsNative && !kIsWeb) return;
     await initialize();
     try {
       await _plugin.cancel(id: outcomeNotificationId(entryId));
@@ -409,6 +475,11 @@ class NotificationService {
   }
 
   Future<void> _cancelPendingRequestNotification() async {
+    if (kIsWeb) {
+      _lastNotifiedCount = 0;
+      await cancelWebNotification('pending');
+      return;
+    }
     try {
       await _plugin.cancel(id: _pendingNotificationId);
       await _updateGroupSummary();
@@ -417,7 +488,47 @@ class NotificationService {
     _lastNotifiedCount = 0;
   }
 
+  Future<void> syncUnreadBadge(int count) async {
+    _unreadBadgeCount = count;
+    final enabled =
+        (await SharedPreferences.getInstance()).getBool(
+          'settings.notifications',
+        ) ??
+        true;
+    final badge = enabled ? count : 0;
+    _unreadBadgeCount = badge;
+    if (kIsWeb) {
+      await setWebBadge(badge);
+      return;
+    }
+    if (!_supportsNative || Platform.isAndroid) return;
+    await initialize();
+    await _plugin.show(
+      id: 70002,
+      notificationDetails: NotificationDetails(
+        iOS: DarwinNotificationDetails(
+          presentAlert: false,
+          presentSound: false,
+          presentBadge: true,
+          badgeNumber: _unreadBadgeCount,
+        ),
+        macOS: DarwinNotificationDetails(
+          presentAlert: false,
+          presentSound: false,
+          presentBadge: true,
+          badgeNumber: _unreadBadgeCount,
+        ),
+      ),
+    );
+    await _plugin.cancel(id: 70002);
+  }
+
   Future<void> clearAll() async {
+    _unreadBadgeCount = 0;
+    if (kIsWeb) {
+      await setWebBadge(0);
+      await cancelWebNotification('');
+    }
     if (!_supportsNative) {
       _lastNotifiedCount = 0;
       return;
@@ -438,6 +549,16 @@ class NotificationService {
     String? body,
     String? payload,
   }) async {
+    if (kIsWeb) {
+      if (alert) {
+        await showWebNotification(
+          title ?? 'GMSERP requests',
+          body ?? 'You have pending requests.',
+          'pending',
+        );
+      }
+      return;
+    }
     final badge = count > 99 ? 99 : count;
     final label = count > 99 ? '99+' : '$count';
     final resolvedTitle = title?.trim().isNotEmpty == true
@@ -480,14 +601,14 @@ class NotificationService {
           presentAlert: alert,
           presentBadge: true,
           presentSound: alert,
-          badgeNumber: badge,
+          badgeNumber: _unreadBadgeCount,
         ),
         macOS: DarwinNotificationDetails(
           threadIdentifier: _notificationGroupKey,
           presentAlert: alert,
           presentBadge: true,
           presentSound: alert,
-          badgeNumber: badge,
+          badgeNumber: _unreadBadgeCount,
         ),
       ),
       payload: resolvedPayload,
@@ -501,20 +622,20 @@ class NotificationService {
         id: _pendingNotificationId,
         title: null,
         body: null,
-        notificationDetails: const NotificationDetails(
+        notificationDetails: NotificationDetails(
           iOS: DarwinNotificationDetails(
             threadIdentifier: _notificationGroupKey,
             presentAlert: false,
             presentBadge: true,
             presentSound: false,
-            badgeNumber: 0,
+            badgeNumber: _unreadBadgeCount,
           ),
           macOS: DarwinNotificationDetails(
             threadIdentifier: _notificationGroupKey,
             presentAlert: false,
             presentBadge: true,
             presentSound: false,
-            badgeNumber: 0,
+            badgeNumber: _unreadBadgeCount,
           ),
         ),
       );

@@ -1,3 +1,5 @@
+import '../../services/push_notification_service.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
@@ -28,14 +30,11 @@ void syncUserNotificationProvidersWith({
   final user = auth.user;
   final allowed = companies.notificationsAllowedFor(user?.role);
   final company = allowed ? companies.selectedCompany : null;
+  PushNotificationService.instance.syncSession(
+    allowed ? user?.id : null,
+    companyId: company?.firestoreId,
+  );
 
-  pendingRequests.syncUser(
-    user,
-    companyUnlocked: allowed,
-  );
-  userOutcomes.syncUser(
-    user,
-    activeCompany: company,
-    companyUnlocked: allowed,
-  );
+  pendingRequests.syncUser(user, companyUnlocked: allowed);
+  userOutcomes.syncUser(user, activeCompany: company, companyUnlocked: allowed);
 }

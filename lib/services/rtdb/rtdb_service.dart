@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../core/utils/firebase_data.dart';
 import '../../core/utils/rtdb_platform.dart';
 import '../../firebase_options.dart';
 import 'rtdb_desktop_limiter.dart';
 import 'reconnecting_stream.dart';
+import 'rtdb_rest_reader.dart';
 
 class _ChildrenCacheEntry {
   const _ChildrenCacheEntry(this.at, this.data);
@@ -17,10 +19,15 @@ class _ChildrenCacheEntry {
 }
 
 class RtdbService {
-  RtdbService({FirebaseDatabase? database})
-    : _database = database ?? _defaultDatabase();
+  RtdbService({FirebaseDatabase? database, RtdbRestReader? restReader})
+    : _providedDatabase = database,
+      _restReader = restReader ?? RtdbRestReader();
 
-  final FirebaseDatabase _database;
+  final FirebaseDatabase? _providedDatabase;
+  FirebaseDatabase get _database => _providedDatabase ?? _defaultDatabase();
+  final RtdbRestReader _restReader;
+  bool get _useRestReads =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   static final Map<String, _ChildrenCacheEntry> _childrenCache = {};
   static Duration get _childrenCacheTtl => preferRtdbPolling
@@ -83,6 +90,10 @@ class RtdbService {
   );
 
   Future<Map<String, dynamic>?> getMap(String path) async {
+    if (_useRestReads) {
+      final value = await RtdbDesktopLimiter.run(() => _restReader.get(path));
+      return value is Map ? deepMap(value) : null;
+    }
     final snapshot = await get(path);
     return snapshotMap(snapshot);
   }
@@ -152,8 +163,11 @@ class RtdbService {
       }
     }
 
-    final snapshot = await get(path);
-    final data = snapshotChildren(snapshot);
+    final data = _useRestReads
+        ? mapOrListChildrenDeep(
+            await RtdbDesktopLimiter.run(() => _restReader.get(path)),
+          )
+        : snapshotChildren(await get(path));
     if (preferRtdbPolling) {
       _childrenCache[path] = _ChildrenCacheEntry(DateTime.now(), data);
     }

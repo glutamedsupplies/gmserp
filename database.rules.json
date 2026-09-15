@@ -3,6 +3,15 @@
     ".read": false,
     ".write": false,
 
+    "pushTokens": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        "$tokenId": {
+          ".write": "auth != null && auth.uid == $userId",
+          ".validate": "newData.hasChildren(['token', 'platform', 'companyId', 'updatedAt', 'enabled']) && newData.child('token').isString() && newData.child('token').val().length <= 4096 && newData.child('enabled').isBoolean() && newData.child('companyId').isString() && newData.child('updatedAt').isNumber()"
+        }
+      }
+    },
     "users": {
       ".read": "auth != null",
       "$userId": {
@@ -91,6 +100,17 @@
       }
     },
 
+    "announcementReads": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        "$announcementId": {
+          ".write": "auth != null && auth.uid == $userId && root.child('announcements').child($announcementId).child('recipientIds').child(auth.uid).val() == true",
+          ".validate": "newData.hasChildren(['readAt'])",
+          "readAt": { ".validate": "newData.isNumber() && newData.val() <= now" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
     "announcements": {
       ".read": "auth != null",
       "$announcementId": {

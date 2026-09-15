@@ -1,3 +1,5 @@
+import 'push_notification_service.dart';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,11 +15,9 @@ import 'user_repository.dart';
 /// - Email/password → Firebase Auth (never stored in Firestore)
 /// - Username, email, phone → Firestore `users/{uid}`
 class FirebaseAuthService implements AuthService {
-  FirebaseAuthService({
-    FirebaseAuth? auth,
-    UserRepository? userRepository,
-  })  : _auth = auth ?? FirebaseAuth.instance,
-        _users = userRepository ?? UserRepository();
+  FirebaseAuthService({FirebaseAuth? auth, UserRepository? userRepository})
+    : _auth = auth ?? FirebaseAuth.instance,
+      _users = userRepository ?? UserRepository();
 
   final FirebaseAuth _auth;
   final UserRepository _users;
@@ -65,10 +65,7 @@ class FirebaseAuthService implements AuthService {
       );
       await _saveRememberMe(true);
 
-      return AuthResult.success(
-        user: user,
-        message: 'Login successful.',
-      );
+      return AuthResult.success(user: user, message: 'Login successful.');
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_mapAuthError(e));
     } on FirebaseException catch (e) {
@@ -199,6 +196,7 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<void> logout() async {
+    await PushNotificationService.instance.unregister();
     await _auth.signOut();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_rememberKey, false);
@@ -216,7 +214,8 @@ class FirebaseAuthService implements AuthService {
 
     return UserModel(
       id: firebaseUser.uid,
-      username: firebaseUser.displayName ??
+      username:
+          firebaseUser.displayName ??
           firebaseUser.email?.split('@').first ??
           'user',
       email: firebaseUser.email ?? '',
@@ -345,10 +344,7 @@ class FirebaseAuthService implements AuthService {
         username: nextUsername,
         email: savedEmail,
         phoneNumber: nextPhone,
-        role: RolePolicy.resolve(
-          email: savedEmail,
-          existing: existing?.role,
-        ),
+        role: RolePolicy.resolve(email: savedEmail, existing: existing?.role),
         photoUrl: existing?.photoUrl ?? '',
       );
 

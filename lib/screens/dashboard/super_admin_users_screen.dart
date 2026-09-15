@@ -35,6 +35,9 @@ class _SuperAdminUsersScreenState extends State<SuperAdminUsersScreen>
   List<String> get realtimePaths => const ['companies', 'users'];
 
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+
+  @override
   Future<void> refreshRealtimeData() async {
     await context.read<CompanyProvider>().loadUsersPage();
     if (mounted && _companyFilter != null) await _reloadStaffForFilter();
@@ -787,7 +790,12 @@ class _UserLevelTile extends StatelessWidget {
             padding: CompactPageStyle.of(context).cardPadding,
             child: Row(
               children: [
-                UserAvatar(name: user.username, bytes: null, size: 32),
+                UserAvatar(
+                  name: user.username,
+                  bytes: null,
+                  photoUrl: user.photoUrl,
+                  size: 32,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(

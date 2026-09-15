@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -62,6 +64,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           context.read<SettingsProvider>().notificationsEnabled,
     );
     _userOutcomes = UserOutcomeNotificationsProvider();
+    _pendingRequests.addListener(_syncBadge);
+    _userOutcomes.addListener(_syncBadge);
     _timeCardSettings.load();
     NotificationService.instance.onNotificationTap = _handleNotificationTap;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -123,6 +127,18 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   /// [App]'s [context] is above [PendingRequestsProvider] / outcomes — never
   /// [context.read] those from here; use the instances owned by this state.
+  void _syncBadge() {
+    unawaited(
+      NotificationService.instance
+          .syncUnreadBadge(
+            _pendingRequests.pendingCount + _userOutcomes.unseenCount,
+          )
+          .catchError((Object error) {
+            debugPrint('Badge update unavailable: $error');
+          }),
+    );
+  }
+
   void _syncNotifications() {
     syncUserNotificationProvidersWith(
       auth: context.read<AuthProvider>(),

@@ -10,11 +10,13 @@ class UserAvatar extends StatelessWidget {
     required this.bytes,
     required this.name,
     this.size = 40,
+    this.photoUrl = '',
   });
 
   final Uint8List? bytes;
   final String name;
   final double size;
+  final String photoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +40,16 @@ class UserAvatar extends StatelessWidget {
       height: size,
       child: ClipOval(
         child: bytes == null || bytes!.isEmpty
-            ? fallback
+            ? photoUrl.trim().isEmpty
+                ? fallback
+                : Image.network(
+                    photoUrl,
+                    key: ValueKey(photoUrl),
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => fallback,
+                  )
             : Image.memory(
                 bytes!,
                 width: size,

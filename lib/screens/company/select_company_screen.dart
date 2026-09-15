@@ -31,6 +31,9 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen>
   List<String> get realtimePaths => const ['companies', 'users'];
 
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+
+  @override
   Future<void> refreshRealtimeData() async {
     final user = context.read<AuthProvider>().user;
     if (user != null) {
@@ -252,6 +255,7 @@ class _SelectCompanyScreenState extends State<SelectCompanyScreen>
                                         ),
                                         curve: Curves.easeOutCubic,
                                         child: _CompanyCarouselCard(
+                                          key: ValueKey(company.id),
                                           company: company,
                                           logoBytes: companies.logoFor(
                                             company.id,
@@ -369,8 +373,9 @@ class _LockedSelectHeader extends StatelessWidget {
   }
 }
 
-class _CompanyCarouselCard extends StatelessWidget {
+class _CompanyCarouselCard extends StatefulWidget {
   const _CompanyCarouselCard({
+    super.key,
     required this.company,
     required this.logoBytes,
     required this.logoRevision,
@@ -385,6 +390,53 @@ class _CompanyCarouselCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_CompanyCarouselCard> createState() => _CompanyCarouselCardState();
+}
+
+class _CompanyCarouselCardState extends State<_CompanyCarouselCard> {
+  ColorScheme? _scheme;
+  Brightness? _brightness;
+  int _paletteRequest = 0;
+
+  CompanyModel get company => widget.company;
+  Uint8List? get logoBytes => widget.logoBytes;
+  int get logoRevision => widget.logoRevision;
+  bool get selected => widget.selected;
+  VoidCallback get onTap => widget.onTap;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final brightness = Theme.of(context).brightness;
+    if (_brightness == brightness) return;
+    _brightness = brightness;
+    _updatePalette();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CompanyCarouselCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.logoBytes, logoBytes)) _updatePalette();
+  }
+
+  Future<void> _updatePalette() async {
+    final request = ++_paletteRequest;
+    _scheme = null;
+    final bytes = logoBytes;
+    if (bytes == null || bytes.isEmpty || _brightness == null) return;
+    try {
+      final scheme = await ColorScheme.fromImageProvider(
+        provider: MemoryImage(bytes),
+        brightness: _brightness!,
+      );
+      if (!mounted || request != _paletteRequest) return;
+      setState(() => _scheme = scheme);
+    } catch (_) {
+      // Missing or invalid pictures retain the app's default company colors.
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final density = CompactPageStyle.of(context);
@@ -392,7 +444,9 @@ class _CompanyCarouselCard extends StatelessWidget {
     final cardRadius = density.compact ? 20.0 : 28.0;
 
     return Material(
-      color: selected
+      color: _scheme != null
+          ? selected ? _scheme!.primaryContainer : _scheme!.surfaceContainerHigh
+          : selected
           ? AppColors.primary.withValues(alpha: dark ? 0.18 : 0.22)
           : colors.inputFill,
       borderRadius: BorderRadius.circular(cardRadius),
@@ -404,8 +458,8 @@ class _CompanyCarouselCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(cardRadius),
             border: Border.all(
               color: selected
-                  ? AppColors.primary.withValues(alpha: 0.7)
-                  : colors.border,
+                  ? (_scheme?.primary ?? AppColors.primary).withValues(alpha: 0.7)
+                  : _scheme?.outlineVariant ?? colors.border,
               width: selected ? 2 : 1,
             ),
           ),
@@ -436,22 +490,28 @@ class _CompanyCarouselCard extends StatelessWidget {
                           (density.compact
                                   ? Theme.of(context).textTheme.titleLarge
                                   : Theme.of(context).textTheme.headlineMedium)
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: selected ? _scheme?.onPrimaryContainer : _scheme?.onSurface,
+                              ),
                     ),
                     SizedBox(height: density.cardGap),
                     Text(
                       'COMPANY ID: ${company.companyId}',
                       textAlign: TextAlign.center,
-                      style: density.compact
+                      style: (density.compact
                           ? Theme.of(context).textTheme.bodySmall
-                          : Theme.of(context).textTheme.bodyMedium,
+                          : Theme.of(context).textTheme.bodyMedium)?.copyWith(
+                            color: selected ? _scheme?.onPrimaryContainer : _scheme?.onSurface,
+                          ),
                     ),
                     SizedBox(height: density.sectionGap),
                     Text(
                       selected ? 'Selected' : 'Swipe to choose',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        color: colors.textSecondary,
+                        color: (selected ? _scheme?.onPrimaryContainer : _scheme?.onSurfaceVariant)
+                            ?? colors.textSecondary,
                       ),
                     ),
                   ],

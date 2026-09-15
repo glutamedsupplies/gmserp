@@ -1,3 +1,5 @@
+import 'company_announcement_overlay.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
@@ -17,6 +19,9 @@ class RealtimeSession extends StatefulWidget {
 
 class _RealtimeSessionState extends State<RealtimeSession> with RealtimePage {
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+
+  @override
   List<String> get realtimePaths => [
     'users/${context.read<AuthProvider>().user!.id}',
     'companies',
@@ -32,6 +37,8 @@ class _RealtimeSessionState extends State<RealtimeSession> with RealtimePage {
     if (!mounted) return;
     await companies.refreshSelectedCompany();
     if (!mounted) return;
+    await companies.refreshCompanyPhotos();
+    if (!mounted) return;
     final company = companies.selectedCompany;
     final user = auth.user;
     if (company != null && user != null && companies.hasActiveCompanySession) {
@@ -42,5 +49,6 @@ class _RealtimeSessionState extends State<RealtimeSession> with RealtimePage {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) =>
+      CompanyAnnouncementOverlay(child: widget.child);
 }

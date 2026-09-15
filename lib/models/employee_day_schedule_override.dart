@@ -10,6 +10,9 @@ class EmployeeDayScheduleOverride {
   final String companyDocumentId;
   final String workDate;
   final bool isDayOff;
+  final bool isRegularWorkDay;
+  final bool isEmergencyLeave;
+  final String note;
   final String setById;
   final String setByName;
   final DateTime? createdAt;
@@ -22,6 +25,9 @@ class EmployeeDayScheduleOverride {
     required this.companyDocumentId,
     required this.workDate,
     this.isDayOff = true,
+    this.isRegularWorkDay = false,
+    this.isEmergencyLeave = false,
+    this.note = '',
     this.setById = '',
     this.setByName = '',
     this.createdAt,
@@ -38,7 +44,10 @@ class EmployeeDayScheduleOverride {
       companyId: data['companyId']?.toString() ?? '',
       companyDocumentId: data['companyDocumentId']?.toString() ?? '',
       workDate: data['workDate']?.toString() ?? '',
+      isRegularWorkDay: parseFirebaseBool(data['isRegularWorkDay'], false),
       isDayOff: parseFirebaseBool(data['isDayOff'], true),
+      isEmergencyLeave: parseFirebaseBool(data['isEmergencyLeave'], false),
+      note: data['note']?.toString() ?? '',
       setById: data['setById']?.toString() ?? '',
       setByName: data['setByName']?.toString() ?? '',
       createdAt: parseFirebaseDate(data['createdAt']),
@@ -53,6 +62,9 @@ class EmployeeDayScheduleOverride {
       'companyDocumentId': companyDocumentId,
       'workDate': workDate,
       'isDayOff': isDayOff,
+      'isRegularWorkDay': isRegularWorkDay,
+      'isEmergencyLeave': isEmergencyLeave,
+      'note': note,
       'setById': setById,
       'setByName': setByName,
       'createdAt': createdAt != null
@@ -78,9 +90,31 @@ bool isForcedEmployeeDayOff({
   return false;
 }
 
+bool isEmployeeEmergencyLeave({
+  required List<EmployeeDayScheduleOverride> overrides,
+  required String userId,
+  required String workDate,
+}) => overrides.any(
+  (item) =>
+      item.userId == userId &&
+      item.workDate == workDate &&
+      item.isEmergencyLeave,
+);
+
 List<EmployeeDayScheduleOverride> overridesForUser({
   required List<EmployeeDayScheduleOverride> overrides,
   required String userId,
 }) {
   return overrides.where((item) => item.userId == userId).toList();
 }
+
+bool isEmployeeRegularWorkDay({
+  required List<EmployeeDayScheduleOverride> overrides,
+  required String userId,
+  required String workDate,
+}) => overrides.any(
+  (item) =>
+      item.userId == userId &&
+      item.workDate == workDate &&
+      item.isRegularWorkDay,
+);

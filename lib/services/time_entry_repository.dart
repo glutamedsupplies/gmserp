@@ -90,6 +90,7 @@ class TimeEntryRepository {
     for (final entry in all) {
       if (entry.userId == userId &&
           entry.status == TimeEntryStatus.open &&
+          entry.workDate == formatWorkDate(DateTime.now()) &&
           matchesCompanyRef(
             storedCompanyId: entry.companyId,
             storedDocumentId: entry.companyDocumentId,
@@ -285,32 +286,6 @@ class TimeEntryRepository {
     return entries;
   }
 
-  /// Ensures no other-day open session blocks a new clock-in approval.
-  /// Prior-day sessions must be closed via an approved time-out first.
-  Future<void> releaseConflictingOpenEntry({
-    required String userId,
-    required String companyId,
-    String? companyDocumentId,
-    required String targetWorkDate,
-  }) async {
-    final open = await getOpenEntry(
-      userId: userId,
-      companyId: companyId,
-      companyDocumentId: companyDocumentId,
-    );
-    if (open == null) return;
-    if (open.workDate == targetWorkDate) {
-      throw StateError(
-        'Employee already has an open time entry for $targetWorkDate.',
-      );
-    }
-
-    throw StateError(
-      'Employee still has an open session from ${open.workDate}. '
-      'Approve their time-out for that day before approving this time-in.',
-    );
-  }
-
   Future<TimeEntry> applyApprovedClockIn({
     required String userId,
     required String userEmail,
@@ -321,12 +296,6 @@ class TimeEntryRepository {
     required String workDate,
     required DateTime timeIn,
   }) async {
-    await releaseConflictingOpenEntry(
-      userId: userId,
-      companyId: companyId,
-      companyDocumentId: companyDocumentId,
-      targetWorkDate: workDate,
-    );
     final today = await getEntryForWorkDate(
       userId: userId,
       companyId: companyId,

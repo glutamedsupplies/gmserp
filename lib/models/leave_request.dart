@@ -1,3 +1,4 @@
+import 'employee_day_schedule_override.dart';
 import '../core/utils/firebase_data.dart';
 import 'time_entry.dart';
 
@@ -36,8 +37,7 @@ class LeaveRequest {
     this.reviewedByName = '',
   });
 
-  bool get isActiveLeave =>
-      status == 'approved' || status == 'pending';
+  bool get isActiveLeave => status == 'approved' || status == 'pending';
 
   bool get isApprovedLeave => status == 'approved';
 
@@ -62,7 +62,8 @@ class LeaveRequest {
       startDate: data['startDate']?.toString() ?? '',
       endDate: data['endDate']?.toString() ?? '',
       status: data['status']?.toString() ?? 'pending',
-      createdAt: parseFirebaseDate(data['createdAt']) ??
+      createdAt:
+          parseFirebaseDate(data['createdAt']) ??
           parseFirebaseDate(data['requestedAt']),
       updatedAt: parseFirebaseDate(data['updatedAt']),
       reviewedById: data['reviewedById']?.toString() ?? '',
@@ -95,6 +96,7 @@ String formatLeaveDate(DateTime date) => formatWorkDate(date);
 int totalApprovedLeaveDaysForUser({
   required List<LeaveRequest> leaves,
   required String userId,
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
   int? year,
 }) {
   final dates = <String>{};
@@ -102,6 +104,13 @@ int totalApprovedLeaveDaysForUser({
     if (leave.userId != userId || !leave.isApprovedLeave) continue;
     dates.addAll(approvedLeaveDatesInRange(leave, year: year));
   }
+  dates.removeWhere(
+    (date) => isEmployeeRegularWorkDay(
+      overrides: dayOverrides,
+      userId: userId,
+      workDate: date,
+    ),
+  );
   return dates.length;
 }
 
@@ -125,6 +134,7 @@ Iterable<String> approvedLeaveDatesInRange(
 
 Map<String, int> leaveDaysYtdByUserId({
   required List<LeaveRequest> leaves,
+  List<EmployeeDayScheduleOverride> dayOverrides = const [],
   required Iterable<String> userIds,
   required int year,
 }) {
@@ -133,6 +143,7 @@ Map<String, int> leaveDaysYtdByUserId({
       userId: totalApprovedLeaveDaysForUser(
         leaves: leaves,
         userId: userId,
+        dayOverrides: dayOverrides,
         year: year,
       ),
   };

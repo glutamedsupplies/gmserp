@@ -20,6 +20,7 @@ import '../../providers/company_provider.dart';
 import '../../providers/time_card_settings_provider.dart';
 import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
+import '../../services/rtdb/rtdb_service.dart';
 import '../../services/time_card_change_request_repository.dart';
 import '../../services/time_entry_repository.dart';
 import '../../widgets/app_loading_card.dart';
@@ -49,6 +50,9 @@ class _SuperAdminTimeCardDetailsScreenState
     'timeCardDayOverrides',
     'timeCardSettings',
   ];
+
+  @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
 
   @override
   Future<void> refreshRealtimeData() async {
@@ -309,12 +313,17 @@ class _SuperAdminTimeCardDetailsScreenState
     final salaryBreakdowns = computeSalaryBreakdowns(
       rows: rows,
       dailyRatesByUserId: rates,
+      rateHistoriesByUserId: {
+        for (final member in staff)
+          member.userId: member.timeCardProfile.rateHistory,
+      },
       namesByUserId: names,
       entriesByUserId: entriesByUser,
       weeklySchedulesByUserId: weeklySchedules,
       globalSchedule: globalSchedule,
     );
     final leaveYtdByUser = leaveDaysYtdByUserId(
+      dayOverrides: _companyDayOverrides,
       leaves: _companyLeaves,
       userIds: salaryBreakdowns.map((item) => item.employeeId),
       year: _viewDate.year,
@@ -434,6 +443,27 @@ class _SuperAdminTimeCardDetailsScreenState
       userId: selectedMember.userId,
       workDate: row.workDate,
     );
+    var markAsEmergency = isEmployeeEmergencyLeave(
+      overrides: _companyDayOverrides,
+      userId: selectedMember.userId,
+      workDate: row.workDate,
+    );
+    var regularWorkDay = isEmployeeRegularWorkDay(
+      overrides: _companyDayOverrides,
+      userId: selectedMember.userId,
+      workDate: row.workDate,
+    );
+    final wasRegularWorkDay = regularWorkDay;
+    var restoreOnly = false;
+    var emergencyNote = '';
+    for (final override in _companyDayOverrides) {
+      if (override.userId == selectedMember.userId &&
+          override.workDate == row.workDate &&
+          override.isEmergencyLeave) {
+        emergencyNote = override.note;
+      }
+    }
+    String? noteError;
 
     final currentSummary = baselineTimeIn == null
         ? 'No prior record on file'
@@ -492,14 +522,41 @@ class _SuperAdminTimeCardDetailsScreenState
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
+                    if (asSuperAdmin &&
+                        (row.status == 'On Leave' ||
+                            row.status == 'Off' ||
+                            scheduledOff ||
+                            markAsDayOff ||
+                            markAsEmergency ||
+                            regularWorkDay))
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Make regular working day'),
+                        subtitle: const Text(
+                          'Clears leave or day off for this date only. Save without adding attendance times.',
+                        ),
+                        value: restoreOnly,
+                        onChanged: saving
+                            ? null
+                            : (value) => setStateDialog(() {
+                                restoreOnly = value;
+                                regularWorkDay = value || wasRegularWorkDay;
+                                if (value) {
+                                  regularWorkDay = true;
+                                  markAsDayOff = false;
+                                  markAsEmergency = false;
+                                  noteError = null;
+                                }
+                              }),
+                      ),
                     SwitchListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Mark this day as day off'),
                       subtitle: Text(
                         scheduledOff
-                            ? 'Weekly schedule already marks this weekday as off. '
-                                  'Turn off to follow the weekly schedule.'
+                            ? 'Weekly schedule marks this weekday as off. '
+                                  'Use Make regular working day to override this date.'
                             : 'Applies only to ${row.workDate}. The employee weekly '
                                   'schedule in time card settings stays the same.',
                         style: Theme.of(context).textTheme.bodySmall,
@@ -507,9 +564,47 @@ class _SuperAdminTimeCardDetailsScreenState
                       value: markAsDayOff,
                       onChanged: saving
                           ? null
-                          : (value) =>
-                                setStateDialog(() => markAsDayOff = value),
+                          : (value) => setStateDialog(() {
+                              markAsDayOff = value;
+                              if (value) {
+                                regularWorkDay = false;
+                                restoreOnly = false;
+                              }
+                              if (value) markAsEmergency = false;
+                            }),
                     ),
+                    SwitchListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Mark this day as emergency leave'),
+                      subtitle: const Text(
+                        'Full daily pay with zero deduction. Applies only to this date.',
+                      ),
+                      value: markAsEmergency,
+                      onChanged: saving
+                          ? null
+                          : (value) => setStateDialog(() {
+                              markAsEmergency = value;
+                              if (value) {
+                                regularWorkDay = false;
+                                restoreOnly = false;
+                              }
+                              if (value) markAsDayOff = false;
+                              noteError = null;
+                            }),
+                    ),
+                    if (markAsEmergency)
+                      TextFormField(
+                        initialValue: emergencyNote,
+                        enabled: !saving,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: InputDecoration(
+                          labelText: 'Emergency leave note (required)',
+                          errorText: noteError,
+                        ),
+                        onChanged: (value) => emergencyNote = value,
+                      ),
                     if (markAsDayOff) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -523,7 +618,7 @@ class _SuperAdminTimeCardDetailsScreenState
                     ] else ...[
                       const Divider(height: 20),
                     ],
-                    if (!markAsDayOff) ...[
+                    if (!restoreOnly && !markAsDayOff && !markAsEmergency) ...[
                       ListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -567,6 +662,13 @@ class _SuperAdminTimeCardDetailsScreenState
                   onPressed: saving
                       ? null
                       : () async {
+                          if (markAsEmergency && emergencyNote.trim().isEmpty) {
+                            setStateDialog(
+                              () => noteError =
+                                  'Enter a note for emergency leave.',
+                            );
+                            return;
+                          }
                           setStateDialog(() => saving = true);
                           try {
                             final authUser = context.read<AuthProvider>().user;
@@ -583,9 +685,14 @@ class _SuperAdminTimeCardDetailsScreenState
                               employeeId: selectedMember.userId,
                               workDate: row.workDate,
                               dayOff: markAsDayOff,
+                              emergencyLeave: markAsEmergency,
+                              note: emergencyNote,
+                              regularWorkDay: regularWorkDay,
                             );
 
-                            if (!markAsDayOff) {
+                            if (!restoreOnly &&
+                                !markAsDayOff &&
+                                !markAsEmergency) {
                               final newTimeIn = DateTime(
                                 workDate.year,
                                 workDate.month,
@@ -656,7 +763,17 @@ class _SuperAdminTimeCardDetailsScreenState
                               companyDocumentId: company.firestoreId,
                             );
                             if (!mounted) return;
-                            if (markAsDayOff) {
+                            if (restoreOnly) {
+                              SnackBarHelper.showSuccess(
+                                context,
+                                'Regular working day restored.',
+                              );
+                            } else if (markAsEmergency) {
+                              SnackBarHelper.showSuccess(
+                                context,
+                                'Emergency leave saved for ${row.workDate}. No salary deduction.',
+                              );
+                            } else if (markAsDayOff) {
                               SnackBarHelper.showSuccess(
                                 context,
                                 'Day off saved for ${row.workDate}.',
@@ -800,6 +917,7 @@ class _SuperAdminTimeCardDetailsScreenState
                     setState(() => _statusFilter = value),
                 onSearchChanged: (value) => setState(() => _search = value),
                 onRefresh: () async {
+                  RtdbService.clearReadCache();
                   _loadedCompanyId = null;
                   await companies.loadStaff(company.id);
                   await _loadCompanyData(
@@ -1010,6 +1128,7 @@ class _FilterBar extends StatelessWidget {
             DropdownMenuItem(value: 'Late', child: Text('Late')),
             DropdownMenuItem(value: 'Absent', child: Text('Absent')),
             DropdownMenuItem(value: 'On Leave', child: Text('On Leave')),
+            DropdownMenuItem(value: 'Emergency', child: Text('Emergency')),
             DropdownMenuItem(value: 'Off', child: Text('Off')),
           ],
           onChanged: (value) {

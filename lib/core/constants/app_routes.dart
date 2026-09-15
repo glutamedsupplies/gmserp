@@ -6,12 +6,14 @@ class AppRoutes {
   static const String forgotPassword = '/forgot-password';
   static const String home = '/home';
   static const String dashboard = '/dashboard';
+  static const String announcements = '/announcements';
   static const String userDashboard = '/user';
   static const String selectCompany = '/select-company';
   static const String employeeDashboard = '/employee';
   static const String employeeTimeInOut = '/employee/time-card/time-in-out';
   static const String employeeTimeCardDetails = '/employee/time-card/details';
-  static const String employeeRequestLeave = '/employee/time-card/request-leave';
+  static const String employeeRequestLeave =
+      '/employee/time-card/request-leave';
   static const String employeeRequests = '/employee/requests';
   static const String timeCardCalendar = '/time-card/calendar';
   static const String notifications = '/notifications';
@@ -31,8 +33,10 @@ class AppRoutes {
   static const String superAdminRequests = '/super-admin/requests';
   static const String superAdminLogs = '/super-admin/logs';
   static const String superAdminAnnouncements = '/super-admin/announcements';
-  static const String superAdminTimeCardDetails = '/super-admin/time-card/details';
-  static const String superAdminTimeCardSettings = '/super-admin/time-card/settings';
+  static const String superAdminTimeCardDetails =
+      '/super-admin/time-card/details';
+  static const String superAdminTimeCardSettings =
+      '/super-admin/time-card/settings';
   static const String profile = '/profile';
   static const String settings = '/settings';
 }

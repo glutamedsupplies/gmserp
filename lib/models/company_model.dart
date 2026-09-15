@@ -4,6 +4,7 @@ class CompanyModel {
   final String id;
   final String? documentId;
   final String name;
+  final String logoUrl;
   final String passwordHash;
   final String staffPasswordHash;
   final String createdBy;
@@ -14,6 +15,7 @@ class CompanyModel {
     required this.id,
     this.documentId,
     required this.name,
+    this.logoUrl = '',
     required this.passwordHash,
     this.staffPasswordHash = '',
     required this.createdBy,
@@ -43,6 +45,7 @@ class CompanyModel {
       id: storedId.isNotEmpty ? storedId : id,
       documentId: id,
       name: _stringField(data['name']),
+      logoUrl: _stringField(data['logoUrl']),
       passwordHash: _stringField(data['passwordHash']),
       staffPasswordHash: _stringField(data['staffPasswordHash']),
       createdBy: _stringField(data['createdBy']),

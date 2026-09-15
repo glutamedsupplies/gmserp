@@ -37,12 +37,12 @@ class DayShiftSchedule {
   );
 
   DateTime timeInOn(DateTime date) => DateTime(
-        date.year,
-        date.month,
-        date.day,
-        timeInHour.clamp(0, 23),
-        timeInMinute.clamp(0, 59),
-      );
+    date.year,
+    date.month,
+    date.day,
+    timeInHour.clamp(0, 23),
+    timeInMinute.clamp(0, 59),
+  );
 
   DateTime timeOutOn(DateTime date) {
     var end = DateTime(
@@ -172,7 +172,8 @@ class EmployeeWeeklySchedule {
           shift.timeOutMinute == first.timeOutMinute;
     });
 
-    final daySpan = workDays.length == 5 &&
+    final daySpan =
+        workDays.length == 5 &&
             workDays.first == DateTime.monday &&
             workDays.last == DateTime.friday
         ? 'Mon–Fri'
@@ -183,10 +184,7 @@ class EmployeeWeeklySchedule {
   }
 
   EmployeeWeeklySchedule copyWithDay(int weekday, DayShiftSchedule shift) {
-    return EmployeeWeeklySchedule({
-      ...days,
-      weekday: shift,
-    });
+    return EmployeeWeeklySchedule({...days, weekday: shift});
   }
 
   EmployeeWeeklySchedule applyShiftToWorkDays(DayShiftSchedule shift) {
@@ -240,10 +238,30 @@ class EmployeeWeeklySchedule {
 class EmployeeTimeCardProfile {
   const EmployeeTimeCardProfile({
     this.dailyRate = 0,
+    this.rateHistory = const {},
+    this.rateEffectiveFrom,
     required this.weeklySchedule,
   });
 
   final double dailyRate;
+  final Map<String, double> rateHistory;
+
+  /// Effective date supplied when editing a rate (YYYY-MM-DD).
+  final String? rateEffectiveFrom;
+
+  double rateOn(String workDate) {
+    var rate = dailyRate;
+    String? latest;
+    for (final entry in rateHistory.entries) {
+      if (entry.key.compareTo(workDate) <= 0 &&
+          (latest == null || entry.key.compareTo(latest) > 0)) {
+        latest = entry.key;
+        rate = entry.value;
+      }
+    }
+    return rate;
+  }
+
   final EmployeeWeeklySchedule weeklySchedule;
 
   static EmployeeTimeCardProfile defaults() {
@@ -265,10 +283,14 @@ class EmployeeTimeCardProfile {
 
   EmployeeTimeCardProfile copyWith({
     double? dailyRate,
+    Map<String, double>? rateHistory,
+    String? rateEffectiveFrom,
     EmployeeWeeklySchedule? weeklySchedule,
   }) {
     return EmployeeTimeCardProfile(
       dailyRate: dailyRate ?? this.dailyRate,
+      rateHistory: rateHistory ?? this.rateHistory,
+      rateEffectiveFrom: rateEffectiveFrom ?? this.rateEffectiveFrom,
       weeklySchedule: weeklySchedule ?? this.weeklySchedule,
     );
   }
@@ -285,6 +307,7 @@ class EmployeeTimeCardProfile {
   Map<String, dynamic> toStaffFields() {
     return {
       'timeCardDailyRate': dailyRate,
+      'timeCardRateHistory': rateHistory,
       'timeCardWeek': weeklySchedule.toFirestore(),
     };
   }
@@ -296,7 +319,15 @@ class EmployeeTimeCardProfile {
         : double.tryParse(rateRaw?.toString() ?? '') ?? 0;
     return EmployeeTimeCardProfile(
       dailyRate: rate < 0 ? 0 : rate,
-      weeklySchedule: EmployeeWeeklySchedule.fromFirestore(data['timeCardWeek']),
+      rateHistory: {
+        if (data['timeCardRateHistory'] is Map)
+          for (final entry in (data['timeCardRateHistory'] as Map).entries)
+            if (entry.value is num)
+              entry.key.toString(): (entry.value as num).toDouble(),
+      },
+      weeklySchedule: EmployeeWeeklySchedule.fromFirestore(
+        data['timeCardWeek'],
+      ),
     );
   }
 }

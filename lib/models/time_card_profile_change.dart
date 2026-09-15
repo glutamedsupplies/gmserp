@@ -20,6 +20,7 @@ class TimeCardProfileChange {
     required this.newScheduleSummary,
     required this.recipientIds,
     this.createdAt,
+    this.rateEffectiveFrom,
   });
 
   final String id;
@@ -37,6 +38,7 @@ class TimeCardProfileChange {
   final String newScheduleSummary;
   final List<String> recipientIds;
   final DateTime? createdAt;
+  final String? rateEffectiveFrom;
 
   bool get rateChanged => (previousRate - newRate).abs() > 0.0001;
 
@@ -45,7 +47,7 @@ class TimeCardProfileChange {
 
   String get rateChangeLabel => rateChanged
       ? '${SalaryRateChange.formatRate(previousRate)} → '
-          '${SalaryRateChange.formatRate(newRate)}'
+            '${SalaryRateChange.formatRate(newRate)}'
       : SalaryRateChange.formatRate(newRate);
 
   String get scheduleChangeLabel => scheduleChanged
@@ -54,7 +56,13 @@ class TimeCardProfileChange {
 
   String get changeSummary {
     final parts = <String>[];
-    if (rateChanged) parts.add(rateChangeLabel);
+    if (rateChanged) {
+      parts.add(
+        rateEffectiveFrom == null
+            ? rateChangeLabel
+            : '$rateChangeLabel (from $rateEffectiveFrom)',
+      );
+    }
     if (scheduleChanged) parts.add(scheduleChangeLabel);
     if (parts.isEmpty) return 'Time card settings updated';
     return parts.join(' · ');
@@ -72,6 +80,7 @@ class TimeCardProfileChange {
       'actorName': actorName,
       'previousRate': previousRate,
       'newRate': newRate,
+      if (rateEffectiveFrom != null) 'rateEffectiveFrom': rateEffectiveFrom,
       'previousScheduleSummary': previousScheduleSummary,
       'newScheduleSummary': newScheduleSummary,
       'recipientIds': recipientIdsToMap(recipientIds),
@@ -101,6 +110,7 @@ class TimeCardProfileChange {
       actorName: data['actorName']?.toString() ?? '',
       previousRate: asRate(data['previousRate']),
       newRate: asRate(data['newRate']),
+      rateEffectiveFrom: data['rateEffectiveFrom']?.toString(),
       previousScheduleSummary:
           data['previousScheduleSummary']?.toString() ?? '',
       newScheduleSummary: data['newScheduleSummary']?.toString() ?? '',

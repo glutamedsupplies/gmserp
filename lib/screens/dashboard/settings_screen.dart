@@ -1,3 +1,5 @@
+import '../../services/push_notification_service.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -106,6 +108,7 @@ class SettingsScreen extends StatelessWidget {
                         }
                       }
                       await settings.setNotificationsEnabled(value);
+                      PushNotificationService.instance.refreshRegistration();
                       if (!context.mounted) return;
                       await context
                           .read<PendingRequestsProvider>()
@@ -145,8 +148,7 @@ class SettingsScreen extends StatelessWidget {
                     _NavRow(
                       icon: Icons.system_update_rounded,
                       title: 'Check for updates',
-                      subtitle:
-                          'Checks Firebase release info, then Google Play / App Store',
+                      subtitle: 'Checks Firebase release info, then Google Play / App Store',
                       onTap: () => AppUpdateService.checkForUpdates(context),
                     ),
                   ],
@@ -159,8 +161,7 @@ class SettingsScreen extends StatelessWidget {
                   child: _NavRow(
                     icon: Icons.cloud_sync_rounded,
                     title: 'Copy Firestore → Realtime Database',
-                    subtitle:
-                        'One-time import of users, companies, time cards, and requests',
+                    subtitle: 'One-time import of users, companies, time cards, and requests',
                     onTap: () => _runFirestoreMigration(context),
                   ),
                 ),
@@ -168,9 +169,8 @@ class SettingsScreen extends StatelessWidget {
               SizedBox(height: density.sectionGap),
               Text(
                 'GMSERP keeps your theme and density on this device.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textHint,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colors.textHint),
               ),
             ],
           ),
@@ -212,11 +212,7 @@ Future<void> _runFirestoreMigration(BuildContext context) async {
   } catch (e) {
     if (!context.mounted) return;
     FeedbackToast.hideLoading();
-    FeedbackToast.showDanger(
-      context,
-      e.toString(),
-      title: 'Migration failed',
-    );
+    FeedbackToast.showDanger(context, e.toString(), title: 'Migration failed');
   }
 }
 
@@ -263,18 +259,15 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final density = CompactPageStyle.of(context);
     return Padding(
-      padding: EdgeInsets.only(
-        left: 4,
-        bottom: density.compact ? 6 : 10,
-      ),
+      padding: EdgeInsets.only(left: 4, bottom: density.compact ? 6 : 10),
       child: Text(
         label.toUpperCase(),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontSize: density.chipLabelSize,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.7,
-              color: AppColors.of(context).textSecondary,
-            ),
+          fontSize: density.chipLabelSize,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
+          color: AppColors.of(context).textSecondary,
+        ),
       ),
     );
   }
@@ -328,27 +321,24 @@ class _SwitchRow extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontSize: density.cardTitleSize,
-                        fontWeight: FontWeight.w800,
-                        color: colors.textPrimary,
-                      ),
+                    fontSize: density.cardTitleSize,
+                    fontWeight: FontWeight.w800,
+                    color: colors.textPrimary,
+                  ),
                 ),
                 SizedBox(height: density.titleSubtitleGap),
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: density.captionSize,
-                        fontWeight: FontWeight.w600,
-                        color: colors.textSecondary,
-                      ),
+                    fontSize: density.captionSize,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textSecondary,
+                  ),
                 ),
               ],
             ),
           ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
-          ),
+          Switch.adaptive(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -390,28 +380,25 @@ class _NavRow extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontSize: density.cardTitleSize,
-                          fontWeight: FontWeight.w800,
-                          color: colors.textPrimary,
-                        ),
+                      fontSize: density.cardTitleSize,
+                      fontWeight: FontWeight.w800,
+                      color: colors.textPrimary,
+                    ),
                   ),
                   SizedBox(height: density.titleSubtitleGap),
                   Text(
                     subtitle,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: density.captionSize,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textSecondary,
-                        ),
+                      fontSize: density.captionSize,
+                      fontWeight: FontWeight.w600,
+                      color: colors.textSecondary,
+                    ),
                   ),
                 ],
               ),
             ),
             if (onTap != null)
-              Icon(
-                Icons.chevron_right_rounded,
-                color: colors.textSecondary,
-              ),
+              Icon(Icons.chevron_right_rounded, color: colors.textSecondary),
           ],
         ),
       ),

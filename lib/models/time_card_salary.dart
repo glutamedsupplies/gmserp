@@ -20,10 +20,12 @@ class EmployeeSalaryBreakdown {
     required this.employeeId,
     required this.employeeName,
     required this.dailyRate,
+    this.appliedDailyRates = const [],
     required this.presentDays,
     required this.lateDays,
     required this.absentDays,
     required this.excuseDays,
+    this.emergencyDays = 0,
     required this.totalLateMinutes,
     required this.totalEarlyOutMinutes,
     required this.totalWorkedMinutes,
@@ -42,10 +44,12 @@ class EmployeeSalaryBreakdown {
   final String employeeId;
   final String employeeName;
   final double dailyRate;
+  final List<double> appliedDailyRates;
   final int presentDays;
   final int lateDays;
   final int absentDays;
   final int excuseDays;
+  final int emergencyDays;
   final int totalLateMinutes;
   final int totalEarlyOutMinutes;
   final int totalWorkedMinutes;
@@ -63,7 +67,7 @@ class EmployeeSalaryBreakdown {
   final double minuteRate;
 
   /// Present + Late days that earn the daily base salary.
-  int get payableDays => presentDays + lateDays;
+  int get payableDays => presentDays + lateDays + emergencyDays;
 
   double get basicPay => grossPay;
 
@@ -153,10 +157,25 @@ ClockInBlockReason? clockInBlockReasonFor({
   String employeeId = '',
 }) {
   final workDate = formatWorkDate(at);
-  if (hasApprovedLeaveOnDate(leaves: leaves, workDate: workDate)) {
+  final regularWorkDay = isEmployeeRegularWorkDay(
+    overrides: dayOverrides,
+    userId: employeeId,
+    workDate: workDate,
+  );
+  if (!regularWorkDay &&
+      isEmployeeEmergencyLeave(
+        overrides: dayOverrides,
+        userId: employeeId,
+        workDate: workDate,
+      )) {
     return ClockInBlockReason.onLeave;
   }
-  if (employeeId.isNotEmpty &&
+  if (!regularWorkDay &&
+      hasApprovedLeaveOnDate(leaves: leaves, workDate: workDate)) {
+    return ClockInBlockReason.onLeave;
+  }
+  if (!regularWorkDay &&
+      employeeId.isNotEmpty &&
       isForcedEmployeeDayOff(
         overrides: dayOverrides,
         userId: employeeId,
@@ -164,11 +183,12 @@ ClockInBlockReason? clockInBlockReasonFor({
       )) {
     return ClockInBlockReason.dayOff;
   }
-  if (!isWorkDayForScheduledClockIn(
-    date: at,
-    weeklySchedule: weeklySchedule,
-    globalSchedule: globalSchedule,
-  )) {
+  if (!regularWorkDay &&
+      !isWorkDayForScheduledClockIn(
+        date: at,
+        weeklySchedule: weeklySchedule,
+        globalSchedule: globalSchedule,
+      )) {
     return ClockInBlockReason.dayOff;
   }
   final earliest = earliestAllowedClockInOn(
@@ -422,6 +442,7 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
   required String employeeId,
   required String employeeName,
   required double dailyRate,
+  Map<String, double> rateHistory = const {},
   required List<TimeCardTableRow> rows,
   List<TimeEntry> entries = const [],
   EmployeeWeeklySchedule? weeklySchedule,
@@ -429,10 +450,18 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
   double otherDeductions = 0,
   double additions = 0,
 }) {
+  final rateProfile = EmployeeTimeCardProfile(
+    dailyRate: dailyRate,
+    rateHistory: rateHistory,
+    weeklySchedule: weeklySchedule ?? EmployeeWeeklySchedule.defaults(),
+  );
+  final appliedRates = <double>{};
+  var basicPay = 0.0;
   var presentDays = 0;
   var lateDays = 0;
   var absentDays = 0;
   var excuseDays = 0;
+  var emergencyDays = 0;
   var totalLateMinutes = 0;
   var totalEarlyOutMinutes = 0;
   var totalWorkedMinutes = 0;
@@ -444,13 +473,17 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
     entriesByDate.putIfAbsent(entry.workDate, () => []).add(entry);
   }
 
+  final periodDates = rows.map((row) => row.workDate).toList()..sort();
+  final periodRate = periodDates.isEmpty
+      ? dailyRate
+      : rateProfile.rateOn(periodDates.last);
   final paidMinutes = globalSchedule.paidWorkMinutes;
   final minuteRate = ratePerMinute(
-    dailyRate: dailyRate,
+    dailyRate: periodRate,
     workMinutes: paidMinutes,
   );
   final hourlyRate = ratePerHour(
-    dailyRate: dailyRate,
+    dailyRate: periodRate,
     workdayHours: globalSchedule.workdayHours > 0
         ? globalSchedule.workdayHours
         : 8,
@@ -460,7 +493,17 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
   final countedDates = <String>{};
 
   for (final row in rows) {
+    final dayRate = rateProfile.rateOn(row.workDate);
+    appliedRates.add(dayRate);
+    final dayMinuteRate = ratePerMinute(
+      dailyRate: dayRate,
+      workMinutes: paidMinutes,
+    );
     switch (row.status) {
+      case 'Emergency':
+        if (!countedDates.add(row.workDate)) continue;
+        emergencyDays++;
+        basicPay += dayRate;
       case 'Present':
       case 'Late':
         if (!countedDates.add(row.workDate)) continue;
@@ -472,6 +515,7 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
           continue;
         }
 
+        basicPay += dayRate;
         if (row.status == 'Present') {
           presentDays++;
         } else {
@@ -498,8 +542,8 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
             globalSchedule: globalSchedule,
           );
           totalLateMinutes += minutes;
-          if (dailyRate > 0) {
-            lateDeduction += minutes * minuteRate;
+          if (dayRate > 0) {
+            lateDeduction += minutes * dayMinuteRate;
           }
         }
 
@@ -512,8 +556,8 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
             globalSchedule: globalSchedule,
           );
           totalEarlyOutMinutes += earlyMinutes;
-          if (dailyRate > 0) {
-            earlyOutDeduction += earlyMinutes * minuteRate;
+          if (dayRate > 0) {
+            earlyOutDeduction += earlyMinutes * dayMinuteRate;
           }
         }
       case 'Absent':
@@ -527,8 +571,6 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
     }
   }
 
-  final payableDays = presentDays + lateDays;
-  final basicPay = dailyRate > 0 ? dailyRate * payableDays : 0.0;
   const absentDeduction = 0.0;
   const excuseDeduction = 0.0;
   final other = otherDeductions < 0 ? 0.0 : otherDeductions;
@@ -546,11 +588,13 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
   return EmployeeSalaryBreakdown(
     employeeId: employeeId,
     employeeName: employeeName,
-    dailyRate: dailyRate < 0 ? 0 : dailyRate,
+    dailyRate: periodRate,
+    appliedDailyRates: appliedRates.toList()..sort(),
     presentDays: presentDays,
     lateDays: lateDays,
     absentDays: absentDays,
     excuseDays: excuseDays,
+    emergencyDays: emergencyDays,
     totalLateMinutes: totalLateMinutes,
     totalEarlyOutMinutes: totalEarlyOutMinutes,
     totalWorkedMinutes: totalWorkedMinutes,
@@ -570,6 +614,7 @@ EmployeeSalaryBreakdown computeEmployeeSalaryBreakdown({
 List<EmployeeSalaryBreakdown> computeSalaryBreakdowns({
   required List<TimeCardTableRow> rows,
   required Map<String, double> dailyRatesByUserId,
+  Map<String, Map<String, double>> rateHistoriesByUserId = const {},
   Map<String, String> namesByUserId = const {},
   Map<String, List<TimeEntry>> entriesByUserId = const {},
   Map<String, EmployeeWeeklySchedule> weeklySchedulesByUserId = const {},
@@ -612,6 +657,11 @@ List<EmployeeSalaryBreakdown> computeSalaryBreakdowns({
         employeeId: employeeId,
         employeeName: name,
         dailyRate: rate,
+        rateHistory: employeeId.isEmpty
+            ? (rateHistoriesByUserId.isEmpty
+                  ? const {}
+                  : rateHistoriesByUserId.values.first)
+            : (rateHistoriesByUserId[employeeId] ?? const {}),
         rows: entry.value,
         entries: employeeEntries,
         weeklySchedule: weeklySchedule,

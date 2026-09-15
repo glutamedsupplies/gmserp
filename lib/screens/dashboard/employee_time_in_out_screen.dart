@@ -19,6 +19,7 @@ import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
 import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
+import '../../services/rtdb/rtdb_service.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/primary_button.dart';
@@ -44,7 +45,16 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen>
   ];
 
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+
+  @override
   Future<void> refreshRealtimeData() async {
+    _loadedKey = null;
+    await _loadIfReady();
+  }
+
+  Future<void> _manualRefresh() async {
+    RtdbService.clearReadCache();
     _loadedKey = null;
     await _loadIfReady();
   }
@@ -66,7 +76,13 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen>
     super.initState();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() => _now = DateTime.now());
+      final now = DateTime.now();
+      final dayChanged = formatWorkDate(now) != formatWorkDate(_now);
+      setState(() => _now = now);
+      if (dayChanged) {
+        _loadedKey = null;
+        _loadIfReady();
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadIfReady());
   }
@@ -487,6 +503,12 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen>
                 ? 'Select a company to record your attendance.'
                 : 'Record attendance for ${company.name}. '
                       'Time in requires approval. Time out saves immediately.',
+            trailing: IconButton(
+              tooltip: 'Refresh',
+              onPressed: company == null ? null : _manualRefresh,
+              icon: const Icon(Icons.refresh_rounded),
+              color: AppColors.primaryDark,
+            ),
           ),
           if (_clockRequestsLocked) ...[
             SizedBox(height: density.cardGap),
@@ -607,6 +629,12 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen>
             )
           else ...[
             PrimaryButton(
+              backgroundColor: !canSubmitTimeIn && canClockOut
+                  ? AppColors.error
+                  : null,
+              foregroundColor: !canSubmitTimeIn && canClockOut
+                  ? Colors.white
+                  : null,
               label: _clockRequestsLocked && !clockedInToday
                   ? 'Requests locked'
                   : pendingOut != null && !canSubmitTimeIn
@@ -654,6 +682,8 @@ class _EmployeeTimeInOutScreenState extends State<EmployeeTimeInOutScreen>
                     ? null
                     : _clockOut,
                 style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  side: const BorderSide(color: AppColors.error),
                   minimumSize: Size(double.infinity, density.compact ? 48 : 56),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(
@@ -1084,7 +1114,7 @@ class _HistoryTile extends StatelessWidget {
                 SizedBox(height: density.compact ? 2 : 4),
                 Text(
                   '${formatClockTime(entry.timeIn)} → '
-                  '${entry.timeOut == null ? 'Active' : formatClockTime(entry.timeOut!)}',
+                  '${entry.timeOut == null ? (entry.isMissingTimeOutAt(DateTime.now()) ? '?' : 'Active') : formatClockTime(entry.timeOut!)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: density.captionSize,
                     color: colors.textSecondary,

@@ -28,6 +28,8 @@ dependencies:
   url_launcher: ^6.3.2
   web: ^1.1.1
   google_fonts: ^8.2.1
+  http: ^1.6.0
+  firebase_messaging: ^16.7.0
 
 dev_dependencies:
   flutter_test:

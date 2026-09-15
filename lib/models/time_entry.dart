@@ -47,7 +47,11 @@ class TimeEntry {
 
   bool get isOpen => status == TimeEntryStatus.open;
 
+  bool isMissingTimeOutAt(DateTime at) =>
+      timeOut == null && workDate != formatWorkDate(at);
+
   Duration get duration {
+    if (isMissingTimeOutAt(DateTime.now())) return Duration.zero;
     if (durationSeconds != null) {
       return Duration(seconds: durationSeconds!);
     }
@@ -121,11 +125,7 @@ String formatClockTime(DateTime value, {bool withSeconds = true}) {
 }
 
 /// 12-hour hour:minute (optional seconds) with AM/PM.
-String formatHourMinute12h(
-  int hour24,
-  int minute, {
-  int? second,
-}) {
+String formatHourMinute12h(int hour24, int minute, {int? second}) {
   final period = hour24 >= 12 ? 'PM' : 'AM';
   final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
   final hour = hour12.toString().padLeft(2, '0');

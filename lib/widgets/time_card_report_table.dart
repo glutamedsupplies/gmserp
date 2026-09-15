@@ -314,7 +314,7 @@ class _BodyCell extends StatelessWidget {
       color = const Color(0xFFD97706);
     } else if (status == 'Absent') {
       color = AppColors.error;
-    } else if (status == 'On Leave') {
+    } else if (status == 'On Leave' || status == 'Emergency') {
       color = AppColors.primaryDark;
     } else if (status == 'Off') {
       color = mutedColor ?? AppColors.of(context).textSecondary;

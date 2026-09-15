@@ -4,7 +4,7 @@ import 'rtdb/rtdb_service.dart';
 
 class TimeCardProfileChangeRepository {
   TimeCardProfileChangeRepository({RtdbService? rtdb})
-      : _rtdb = rtdb ?? RtdbService();
+    : _rtdb = rtdb ?? RtdbService();
 
   final RtdbService _rtdb;
 
@@ -21,12 +21,13 @@ class TimeCardProfileChangeRepository {
     required String actorName,
     required double previousRate,
     required double newRate,
+    String? rateEffectiveFrom,
     required String previousScheduleSummary,
     required String newScheduleSummary,
     required List<String> recipientIds,
   }) async {
-    final recipients = recipientIds.toSet().where((id) => id.isNotEmpty).toList()
-      ..sort();
+    final recipients =
+        recipientIds.toSet().where((id) => id.isNotEmpty).toList()..sort();
     final id = _rtdb.newKey(RtdbPaths.timeCardProfileChanges);
     final change = TimeCardProfileChange(
       id: id,
@@ -40,6 +41,7 @@ class TimeCardProfileChangeRepository {
       actorName: actorName,
       previousRate: previousRate,
       newRate: newRate,
+      rateEffectiveFrom: rateEffectiveFrom,
       previousScheduleSummary: previousScheduleSummary,
       newScheduleSummary: newScheduleSummary,
       recipientIds: recipients,
@@ -71,8 +73,6 @@ class TimeCardProfileChangeRepository {
 
   Future<List<TimeCardProfileChange>> listForRecipient(String userId) async {
     final items = await listAll();
-    return items
-        .where((item) => item.recipientIds.contains(userId))
-        .toList();
+    return items.where((item) => item.recipientIds.contains(userId)).toList();
   }
 }

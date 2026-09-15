@@ -496,6 +496,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen>
       case AttendanceStatus.late:
         return 4;
       case AttendanceStatus.onLeave:
+      case AttendanceStatus.emergency:
         return 3;
       case AttendanceStatus.present:
         return 2;
@@ -542,6 +543,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen>
         return AppColors.error;
       case AttendanceStatus.onLeave:
         return const Color(0xFF2563EB);
+      case AttendanceStatus.emergency:
+        return const Color(0xFF9333EA);
       case AttendanceStatus.offDay:
         return AppColors.of(context).textHint;
       case AttendanceStatus.pending:

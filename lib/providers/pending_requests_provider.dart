@@ -105,7 +105,7 @@ class PendingRequestsProvider extends ChangeNotifier {
         unawaited(_notifications.clearAll());
       } else if (wasActive) {
         unawaited(
-          _notifications.syncSuperAdminPending(
+          _notifications.syncSuperAdminPending(userId: _userId,
             count: 0,
             notificationsEnabled: true,
             announceIncrease: false,
@@ -318,7 +318,7 @@ class PendingRequestsProvider extends ChangeNotifier {
       await _notifications.clearAll();
       return;
     }
-    await _notifications.syncSuperAdminPending(
+    await _notifications.syncSuperAdminPending(userId: _userId,
       count: pendingCount,
       notificationsEnabled: _notificationsEnabled(),
       announceIncrease: false,
@@ -350,7 +350,7 @@ class PendingRequestsProvider extends ChangeNotifier {
     notifyListeners();
 
     unawaited(
-      _notifications.syncSuperAdminPending(
+      _notifications.syncSuperAdminPending(userId: _userId,
         count: total,
         notificationsEnabled: _notificationsEnabled(),
         announceIncrease: wasSeeded,

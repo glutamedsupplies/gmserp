@@ -21,6 +21,7 @@ import '../../providers/time_card_settings_provider.dart';
 import '../../providers/time_entry_provider.dart';
 import '../../services/employee_day_schedule_override_repository.dart';
 import '../../services/leave_request_repository.dart';
+import '../../services/rtdb/rtdb_service.dart';
 import '../../services/time_card_change_request_repository.dart';
 import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
@@ -50,7 +51,16 @@ class _EmployeeTimeCardDetailsScreenState
   ];
 
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+
+  @override
   Future<void> refreshRealtimeData() async {
+    _loadedKey = null;
+    await _loadIfReady();
+  }
+
+  Future<void> _manualRefresh() async {
+    RtdbService.clearReadCache();
     _loadedKey = null;
     await _loadIfReady();
   }
@@ -88,14 +98,17 @@ class _EmployeeTimeCardDetailsScreenState
   }
 
   /// Prefer [myAssignment], then staff list — same profile admin/super admin use.
-  ({double dailyRate, EmployeeWeeklySchedule? weeklySchedule}) _payProfileFor(
-    UserModel user,
-    CompanyProvider companies,
-  ) {
+  ({
+    double dailyRate,
+    Map<String, double> rateHistory,
+    EmployeeWeeklySchedule? weeklySchedule,
+  })
+  _payProfileFor(UserModel user, CompanyProvider companies) {
     final mine = companies.myAssignment;
     if (mine != null && mine.userId == user.id) {
       return (
         dailyRate: mine.timeCardProfile.dailyRate,
+        rateHistory: mine.timeCardProfile.rateHistory,
         weeklySchedule: mine.timeCardProfile.weeklySchedule,
       );
     }
@@ -103,11 +116,12 @@ class _EmployeeTimeCardDetailsScreenState
       if (member.userId == user.id) {
         return (
           dailyRate: member.timeCardProfile.dailyRate,
+          rateHistory: member.timeCardProfile.rateHistory,
           weeklySchedule: member.timeCardProfile.weeklySchedule,
         );
       }
     }
-    return (dailyRate: 0.0, weeklySchedule: null);
+    return (dailyRate: 0.0, rateHistory: const {}, weeklySchedule: null);
   }
 
   Future<void> _loadIfReady() async {
@@ -192,6 +206,7 @@ class _EmployeeTimeCardDetailsScreenState
         employeeId: user.id,
         employeeName: user.username,
         dailyRate: profile.dailyRate,
+        rateHistory: profile.rateHistory,
         rows: rows,
         entries: periodEntries,
         weeklySchedule: profile.weeklySchedule,
@@ -200,6 +215,7 @@ class _EmployeeTimeCardDetailsScreenState
     ];
     final leaveDaysYtdByUserId = {
       user.id: totalApprovedLeaveDaysForUser(
+        dayOverrides: _dayOverrides,
         leaves: _leaves,
         userId: user.id,
         year: _viewDate.year,
@@ -590,6 +606,7 @@ class _EmployeeTimeCardDetailsScreenState
               totalHours: periodTotal,
               onFilterChanged: (value) => setState(() => _periodFilter = value),
               onViewDateChanged: (value) => setState(() => _viewDate = value),
+              onRefresh: _manualRefresh,
               onViewPressed: user == null
                   ? null
                   : () => _openPngPreview(
@@ -655,6 +672,7 @@ class _PeriodFilterBar extends StatelessWidget {
     required this.totalHours,
     required this.onFilterChanged,
     required this.onViewDateChanged,
+    required this.onRefresh,
     required this.onViewPressed,
   });
 
@@ -664,6 +682,7 @@ class _PeriodFilterBar extends StatelessWidget {
   final String totalHours;
   final ValueChanged<TimeCardPeriodFilter> onFilterChanged;
   final ValueChanged<DateTime> onViewDateChanged;
+  final Future<void> Function() onRefresh;
   final VoidCallback? onViewPressed;
 
   @override
@@ -747,6 +766,14 @@ class _PeriodFilterBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                color: AppColors.primaryDark,
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 4),
               FilledButton.icon(
                 onPressed: onViewPressed,
                 icon: const Icon(Icons.image_outlined, size: 18),

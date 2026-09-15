@@ -20,7 +20,7 @@ import '../../widgets/app_loading_card.dart';
 import '../../widgets/compact_page.dart';
 import '../../widgets/dashboard_scaffold.dart';
 import '../../widgets/lazy_list_pager.dart';
-import '../../widgets/notification_group_header.dart';
+
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -55,7 +55,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   List<ActivityLogEntry> _items = [];
   bool _loading = true;
   bool _refreshing = false;
-  bool _notificationsExpanded = false;
+
   String? _error;
   String _companyFilter = 'All';
   String _typeFilter = 'All';
@@ -109,9 +109,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   Future<void> _markVisibleSeen() async {
     final filtered = _filtered();
-    if (NotificationGroupHeader.shouldGroup(filtered.length) &&
-        !_notificationsExpanded)
-      return;
     final visible = _pager.takeVisible(filtered);
     if (visible.isEmpty || !mounted) return;
     // Clear header badge for Super Admin + personal inbox for other roles.
@@ -516,31 +513,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               ]),
             ),
           ),
-          if (!_loading &&
-              _error == null &&
-              NotificationGroupHeader.shouldGroup(filtered.length))
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: density.pagePadding.copyWith(top: 0, bottom: 8),
-                child: NotificationGroupHeader(
-                  count: filtered.length,
-                  expanded: _notificationsExpanded,
-                  onChanged: (expanded) {
-                    setState(() => _notificationsExpanded = expanded);
-                    if (expanded) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _markVisibleSeen();
-                      });
-                    }
-                  },
-                ),
-              ),
-            ),
-          if (!_loading &&
-              _error == null &&
-              filtered.isNotEmpty &&
-              (!NotificationGroupHeader.shouldGroup(filtered.length) ||
-                  _notificationsExpanded))
+          if (!_loading && _error == null && filtered.isNotEmpty)
             SliverPadding(
               padding: density.pagePadding.copyWith(top: 0),
               sliver: SliverList(

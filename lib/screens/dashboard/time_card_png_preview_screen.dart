@@ -14,26 +14,28 @@ import '../../models/time_card_table.dart';
 import '../../models/time_card_salary.dart';
 import '../../models/time_entry.dart';
 
-/// GMS ERP export palette — matches [AppColors.light] for readable PNG reports.
+/// Consistent high-contrast colors for the viewer and exported report.
 abstract final class PngReportColors {
   static const page = Color(0xFFFFFFFF);
   static const header = Color(0xFFE6F3B8);
   static const card = Color(0xFFF7FBEA);
   static const border = Color(0xFFD4E4A8);
-  static const borderStrong = Color(0xFFB8D080);
+  static const borderStrong = Color(0xFF9CAF79);
   static const textPrimary = AppColors.onPrimary;
-  static const textSecondary = Color(0xFF6B7280);
-  static const textHint = Color(0xFFB0B7C3);
+  static const textSecondary = Color(0xFF465039);
+  static const textHint = Color(0xFF526044);
   static const rowHighlight = Color(0xFFF7FBEA);
-  static const late = Color(0xFFD97706);
-  static const leave = AppColors.primaryDark;
+  static const late = Color(0xFF995000);
+  // Dark green keeps small text readable on the pale lime surfaces.
+  static const accent = Color(0xFF416015);
+  static const leave = accent;
 
   /// Complementary to GMS green — used for salary amounts on light backgrounds.
-  static const salary = Color(0xFF7C3AED);
-  static const salaryDark = Color(0xFF6D28D9);
+  static const salary = accent;
+  static const salaryDark = Color(0xFF263518);
 
-  /// Lighter purple for salary text on the dark total-salary card.
-  static const salaryOnDark = Color(0xFFE9D5FF);
+  /// GMS lime salary text on the dark green total-salary card.
+  static const salaryOnDark = AppColors.primary;
 }
 
 /// Portrait export canvas width in logical pixels (readable A4-like page).
@@ -235,160 +237,216 @@ class _TimeCardPngPreviewScreenState extends State<TimeCardPngPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black.withValues(alpha: 0.88),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('Time card preview'),
-        actions: [
-          TextButton.icon(
-            onPressed: _capturing ? null : _capture,
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-            label: const Text('Refresh', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+    return Theme(
+      data: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.light,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.primary,
+          primary: AppColors.primary,
+          onPrimary: AppColors.onPrimary,
+          brightness: Brightness.light,
+        ),
       ),
-      body: Stack(
-        children: [
-          // Offscreen full-size portrait card — never clipped by screen width.
-          Positioned(
-            left: -_kPortraitWidth - 100,
-            top: 0,
-            child: Material(
-              color: Colors.transparent,
-              child: RepaintBoundary(
-                key: _captureKey,
-                child: SizedBox(
-                  width: _kPortraitWidth,
-                  child: _buildPortraitReport(),
-                ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF4F5F0),
+        appBar: AppBar(
+          backgroundColor: PngReportColors.page,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: PngReportColors.textPrimary,
+          elevation: 0,
+          title: const Text(
+            'Time card preview',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: _capturing ? null : _capture,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Refresh'),
+              style: TextButton.styleFrom(
+                foregroundColor: PngReportColors.textSecondary,
               ),
             ),
-          ),
-          Column(
-            children: [
-              Expanded(
-                child: _capturing && _pngBytes == null
-                    ? const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(color: Colors.white),
-                            SizedBox(height: 12),
-                            Text(
-                              'Building portrait preview…',
-                              style: TextStyle(color: Colors.white70),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _pngBytes == null
-                    ? const Center(
-                        child: Text(
-                          'Preview unavailable',
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                      )
-                    : Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text(
-                                  'Pinch / scroll to zoom · drag to pan',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                TextButton(
-                                  onPressed: _resetZoom,
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: Colors.white70,
-                                    visualDensity: VisualDensity.compact,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                  ),
-                                  child: const Text('Reset'),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: _withWheelZoom(
-                              PhotoView(
-                                key: ValueKey(_previewGeneration),
-                                controller: _photoController,
-                                imageProvider: MemoryImage(_pngBytes!),
-                                backgroundDecoration: const BoxDecoration(
-                                  color: Colors.transparent,
-                                ),
-                                initialScale: PhotoViewComputedScale.contained,
-                                minScale:
-                                    PhotoViewComputedScale.contained * 0.6,
-                                maxScale: PhotoViewComputedScale.covered * 4.5,
-                                basePosition: Alignment.center,
-                                tightMode: false,
-                                filterQuality: FilterQuality.high,
-                                enablePanAlways: true,
-                                gestureDetectorBehavior: HitTestBehavior.opaque,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white54),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          child: const Text('Close'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _saving || _capturing ? null : _savePng,
-                          icon: _saving
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.download_rounded),
-                          label: Text(_saving ? 'Saving…' : 'Save PNG'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: AppColors.onPrimary,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                    ],
+          ],
+        ),
+        body: Stack(
+          children: [
+            // Offscreen full-size portrait card — never clipped by screen width.
+            Positioned(
+              left: -_kPortraitWidth - 100,
+              top: 0,
+              child: Material(
+                color: Colors.transparent,
+                child: RepaintBoundary(
+                  key: _captureKey,
+                  child: SizedBox(
+                    width: _kPortraitWidth,
+                    child: _buildPortraitReport(),
                   ),
                 ),
               ),
-            ],
-          ),
-        ],
+            ),
+            Column(
+              children: [
+                Expanded(
+                  child: _capturing && _pngBytes == null
+                      ? const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                color: PngReportColors.textPrimary,
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                'Building portrait preview…',
+                                style: TextStyle(
+                                  color: PngReportColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : _pngBytes == null
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.image_not_supported_outlined,
+                                size: 40,
+                                color: PngReportColors.textSecondary,
+                              ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'Preview unavailable',
+                                style: TextStyle(
+                                  color: PngReportColors.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: _capture,
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Try again'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              child: Wrap(
+                                alignment: WrapAlignment.center,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  const Text(
+                                    'Pinch / scroll to zoom · drag to pan',
+                                    style: TextStyle(
+                                      color: PngReportColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed: _resetZoom,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor:
+                                          PngReportColors.textSecondary,
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
+                                    ),
+                                    child: const Text('Fit to screen'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: _withWheelZoom(
+                                PhotoView(
+                                  key: ValueKey(_previewGeneration),
+                                  controller: _photoController,
+                                  imageProvider: MemoryImage(_pngBytes!),
+                                  backgroundDecoration: const BoxDecoration(
+                                    color: Colors.transparent,
+                                  ),
+                                  initialScale:
+                                      PhotoViewComputedScale.contained * 0.94,
+                                  minScale:
+                                      PhotoViewComputedScale.contained * 0.6,
+                                  maxScale:
+                                      PhotoViewComputedScale.covered * 4.5,
+                                  basePosition: Alignment.center,
+                                  tightMode: false,
+                                  filterQuality: FilterQuality.high,
+                                  enablePanAlways: true,
+                                  gestureDetectorBehavior:
+                                      HitTestBehavior.opaque,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: PngReportColors.textPrimary,
+                              side: const BorderSide(
+                                color: PngReportColors.borderStrong,
+                              ),
+                              minimumSize: const Size(0, 48),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Close'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed:
+                                _saving || _capturing || _pngBytes == null
+                                ? null
+                                : _savePng,
+                            icon: _saving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.download_rounded),
+                            label: Text(_saving ? 'Saving…' : 'Save PNG'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: PngReportColors.accent,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -476,6 +534,15 @@ class _PortraitReportCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 18),
+          const Text(
+            'Attendance details',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: PngReportColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
           _ExportTable(rows: rows),
           const SizedBox(height: 16),
           Text(
@@ -513,13 +580,13 @@ class _Header extends StatelessWidget {
           width: 54,
           height: 54,
           decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.22),
+            color: PngReportColors.accent.withValues(alpha: 0.22),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: PngReportColors.border),
           ),
           child: const Icon(
             Icons.schedule_rounded,
-            color: AppColors.primaryDark,
+            color: PngReportColors.accent,
             size: 30,
           ),
         ),
@@ -563,7 +630,7 @@ class _Header extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 30,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.primaryDark,
+                  color: PngReportColors.accent,
                 ),
               ),
               const Text(
@@ -666,7 +733,7 @@ class _SalaryBreakdownPanel extends StatelessWidget {
             children: [
               Icon(
                 Icons.receipt_long_outlined,
-                color: AppColors.primaryDark,
+                color: PngReportColors.accent,
                 size: 22,
               ),
               SizedBox(width: 8),
@@ -727,12 +794,12 @@ class _TotalSalaryHero extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
       decoration: BoxDecoration(
-        color: AppColors.primaryDark,
+        color: PngReportColors.salaryDark,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: PngReportColors.borderStrong, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.2),
+            color: PngReportColors.accent.withValues(alpha: 0.2),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -790,7 +857,7 @@ class _TotalSalaryHero extends StatelessWidget {
               fontSize: 42,
               height: 1.05,
               fontWeight: FontWeight.w900,
-              color: PngReportColors.salary,
+              color: PngReportColors.salaryOnDark,
               letterSpacing: -0.5,
             ),
           ),
@@ -854,8 +921,14 @@ class _SalaryBreakdownCard extends StatelessWidget {
 
     final lines = <_SalaryLine>[
       _SalaryLine(
-        'Daily Rate',
-        EmployeeSalaryBreakdown.formatMoney(breakdown.dailyRate),
+        breakdown.appliedDailyRates.length > 1
+            ? 'Daily Rates (period)'
+            : 'Daily Rate',
+        breakdown.appliedDailyRates.isEmpty
+            ? EmployeeSalaryBreakdown.formatMoney(breakdown.dailyRate)
+            : breakdown.appliedDailyRates
+                  .map(EmployeeSalaryBreakdown.formatMoney)
+                  .join(' / '),
         valueColor: _SalaryValueColor.green,
       ),
       _SalaryLine(
@@ -1013,9 +1086,9 @@ class _SalaryLineRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Color color = switch (line.valueColor) {
-      _SalaryValueColor.green => AppColors.success,
+      _SalaryValueColor.green => Color(0xFF176B47),
       _SalaryValueColor.orange => PngReportColors.late,
-      _SalaryValueColor.red => AppColors.error,
+      _SalaryValueColor.red => Color(0xFFB42332),
       _SalaryValueColor.neutral => PngReportColors.textPrimary,
     };
 
@@ -1167,13 +1240,13 @@ class _ExportTable extends StatelessWidget {
       2: FlexColumnWidth(1.6),
       3: FlexColumnWidth(1.6),
       4: FlexColumnWidth(0.9),
-      5: FlexColumnWidth(0.85),
+      5: FlexColumnWidth(1.15),
     };
 
     return Table(
       columnWidths: columnWidths,
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-      border: TableBorder.all(color: _border, width: 1.4),
+      border: TableBorder.all(color: _border, width: 0.8),
       children: [
         TableRow(
           decoration: const BoxDecoration(color: _header),
@@ -1186,15 +1259,21 @@ class _ExportTable extends StatelessWidget {
             const _Cell('Status', header: true),
           ],
         ),
-        for (final row in rows)
+        for (final (index, row) in rows.indexed)
           TableRow(
-            decoration: BoxDecoration(color: row.isToday ? _highlight : null),
+            decoration: BoxDecoration(
+              color: row.isToday
+                  ? _highlight
+                  : (index.isEven
+                        ? PngReportColors.page
+                        : PngReportColors.card),
+            ),
             children: [
               _Cell(row.workDate, bold: row.isToday || row.hasData),
               _Cell(row.weekday, muted: true),
               _Cell(row.timeIn),
               _Cell(row.timeOut, accent: row.timeOut == 'Active'),
-              _Cell(row.duration, bold: row.hasData, accent: row.hasData),
+              _Cell(row.duration, bold: row.hasData),
               _Cell(
                 row.status,
                 accent: row.status == 'Late',
@@ -1235,11 +1314,11 @@ class _Cell extends StatelessWidget {
   Widget build(BuildContext context) {
     Color color = PngReportColors.textPrimary;
     if (header) {
-      color = AppColors.primaryDark;
+      color = PngReportColors.accent;
     } else if (danger) {
-      color = AppColors.error;
+      color = Color(0xFFB42332);
     } else if (success) {
-      color = AppColors.success;
+      color = Color(0xFF176B47);
     } else if (leave) {
       color = PngReportColors.leave;
     } else if (accent) {
@@ -1249,11 +1328,11 @@ class _Cell extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
       child: Text(
         value,
         style: TextStyle(
-          fontSize: header ? 17.5 : 16.5,
+          fontSize: 16,
           height: 1.3,
           fontWeight: header || bold ? FontWeight.w800 : FontWeight.w600,
           color: color,

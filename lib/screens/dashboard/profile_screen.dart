@@ -136,7 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (cropped == null || !mounted) return;
 
       final auth = context.read<AuthProvider>();
-      final success = await auth.saveLocalAvatar(cropped);
+      final success = await auth.saveAvatar(cropped);
       if (!mounted) return;
       if (success) {
         SnackBarHelper.showSuccess(context, 'Profile photo updated.');
@@ -168,7 +168,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _removePhoto() async {
     final auth = context.read<AuthProvider>();
-    final success = await auth.removeLocalAvatar();
+    final success = await auth.removeAvatar();
     if (!mounted) return;
     if (success) {
       SnackBarHelper.showInfo(context, 'Profile photo removed.');
@@ -242,7 +242,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                if (auth.hasLocalAvatar) ...[
+                if (auth.hasAvatar) ...[
                   const SizedBox(height: 8),
                   Center(
                     child: TextButton(

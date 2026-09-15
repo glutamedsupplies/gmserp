@@ -2,6 +2,7 @@ import 'dart:async';
 
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:new_gmserp/core/utils/realtime_page.dart';
@@ -36,6 +37,8 @@ class _Page extends StatefulWidget {
 
 class _PageState extends State<_Page> with RealtimePage {
   @override
+  Duration? get desktopRefreshInterval => const Duration(seconds: 5);
+  @override
   List<String> get realtimePaths => const [];
   @override
   Stream<void> get realtimeChanges => widget.events;
@@ -46,6 +49,37 @@ class _PageState extends State<_Page> with RealtimePage {
 }
 
 void main() {
+  testWidgets('desktop polling refreshes and stops while hidden', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final auth = _Auth();
+    var calls = 0;
+    Widget app(bool visible) => ChangeNotifierProvider<AuthProvider>.value(
+      value: auth,
+      child: TickerMode(
+        enabled: visible,
+        child: _Page(events: const Stream.empty(), refresh: () async { calls++; }),
+      ),
+    );
+    await tester.pumpWidget(app(true));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(calls, 1);
+    await tester.pump(const Duration(seconds: 5));
+    expect(calls, 2);
+    await tester.pumpWidget(app(false));
+    await tester.pump(const Duration(seconds: 10));
+    expect(calls, 2);
+    await tester.pumpWidget(app(true));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(calls, 3);
+    auth.signOut();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    expect(calls, 3);
+    await tester.pumpWidget(const SizedBox());
+    auth.dispose();
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   testWidgets('coalesces bursts and queues changes arriving during a refresh', (
     tester,

@@ -14,11 +14,13 @@ export 'realtime_refresh.dart' show isRealtimeRefresh;
 mixin RealtimePage<T extends StatefulWidget> on State<T> {
   List<String> get realtimePaths;
   Future<void> refreshRealtimeData();
+  Duration? get desktopRefreshInterval => null;
   @protected
   Stream<void> get realtimeChanges => RtdbService().watchChanges(realtimePaths);
 
   StreamSubscription<void>? _changes;
   Timer? _debounce;
+  Timer? _poll;
   late final AppLifecycleListener _lifecycle;
   bool _visible = false;
   bool _running = false;
@@ -60,7 +62,21 @@ mixin RealtimePage<T extends StatefulWidget> on State<T> {
         !_visible ||
         _userId == null ||
         _changes != null ||
-        preferRtdbPolling) {
+        _poll != null) {
+      return;
+    }
+    if (preferRtdbPolling) {
+      final interval = desktopRefreshInterval;
+      if (interval == null) return;
+      _poll = Timer.periodic(interval, (_) {
+        _dirty = true;
+        unawaited(_refresh());
+      });
+      _dirty = true;
+      _debounce = Timer(Duration.zero, () {
+        _debounce = null;
+        unawaited(_refresh());
+      });
       return;
     }
     _changes = realtimeChanges.listen((_) {
@@ -84,6 +100,7 @@ mixin RealtimePage<T extends StatefulWidget> on State<T> {
     _running = true;
     _dirty = false;
     try {
+      RtdbService.clearReadCache();
       await runRealtimeRefresh(refreshRealtimeData);
     } catch (error, stack) {
       debugPrint('Realtime page refresh failed: $error\n$stack');
@@ -99,6 +116,8 @@ mixin RealtimePage<T extends StatefulWidget> on State<T> {
   }
 
   void _disconnect() {
+    _poll?.cancel();
+    _poll = null;
     unawaited(_changes?.cancel());
     _changes = null;
     _debounce?.cancel();

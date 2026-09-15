@@ -6,7 +6,7 @@ import 'rtdb/rtdb_service.dart';
 
 class EmployeeDayScheduleOverrideRepository {
   EmployeeDayScheduleOverrideRepository({RtdbService? rtdb})
-      : _rtdb = rtdb ?? RtdbService();
+    : _rtdb = rtdb ?? RtdbService();
 
   final RtdbService _rtdb;
 
@@ -41,8 +41,7 @@ class EmployeeDayScheduleOverrideRepository {
               item.companyId == companyId ||
               item.companyDocumentId == companyId ||
               (docId.isNotEmpty &&
-                  (item.companyId == docId ||
-                      item.companyDocumentId == docId)),
+                  (item.companyId == docId || item.companyDocumentId == docId)),
         )
         .toList();
   }
@@ -89,7 +88,19 @@ class EmployeeDayScheduleOverrideRepository {
     required String employeeId,
     required String workDate,
     required bool dayOff,
+    bool emergencyLeave = false,
+    bool regularWorkDay = false,
+    String note = '',
   }) async {
+    if (regularWorkDay && (dayOff || emergencyLeave)) {
+      throw StateError('Choose only one attendance status.');
+    }
+    if (emergencyLeave && note.trim().isEmpty) {
+      throw StateError('A note is required for emergency leave.');
+    }
+    if (emergencyLeave && dayOff) {
+      throw StateError('Choose either day off or emergency leave.');
+    }
     final existing = await findForUserDate(
       userId: employeeId,
       companyId: company.id,
@@ -97,7 +108,7 @@ class EmployeeDayScheduleOverrideRepository {
       workDate: workDate,
     );
 
-    if (!dayOff) {
+    if (!dayOff && !emergencyLeave && !regularWorkDay) {
       if (existing != null) {
         await _rtdb.remove(_path(existing.id));
       }
@@ -114,7 +125,10 @@ class EmployeeDayScheduleOverrideRepository {
       companyId: company.id,
       companyDocumentId: company.firestoreId,
       workDate: workDate,
-      isDayOff: true,
+      isDayOff: dayOff,
+      isRegularWorkDay: regularWorkDay,
+      isEmergencyLeave: emergencyLeave,
+      note: emergencyLeave ? note.trim() : '',
       setById: actor.id,
       setByName: actorName,
       createdAt: existing?.createdAt,
